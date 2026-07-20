@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { supabase } from '../../lib/supabase'
+import { describeFunctionError, supabase } from '../../lib/supabase'
 import type { BankAccount, DematAccount } from '../../types/database'
 
 type AccountWithBanks = DematAccount & { bank_accounts: BankAccount[] }
@@ -135,7 +135,7 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
     )
 
     if (fnError || !data?.id) {
-      setError(data?.error ?? fnError?.message ?? 'Failed to save account')
+      setError(await describeFunctionError(fnError, data))
       setSubmitting(false)
       return
     }
