@@ -28,7 +28,10 @@ export function LoginPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center" style={{ background: 'var(--page)' }}>
+    <div
+      className="relative flex min-h-screen items-center justify-center px-4"
+      style={{ background: 'var(--page)' }}
+    >
       <ThemeToggle className="absolute top-4 right-4" />
       <div
         className="w-full max-w-sm rounded-xl border p-7 shadow-sm"

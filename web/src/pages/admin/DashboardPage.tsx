@@ -62,14 +62,14 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Closing within 7 days" value={data.closingSoon.length} />
         <StatTile label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         <StatTile label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
         <StatTile label="Failed messages" value={data.failedMessages.length} tone="critical" />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
           {data.closingSoon.map((ipo) => (
             <Row key={ipo.id}>

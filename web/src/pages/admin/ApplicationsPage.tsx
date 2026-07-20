@@ -69,7 +69,7 @@ export function ApplicationsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
             Applications
@@ -259,7 +259,7 @@ function NewApplicationForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card grid grid-cols-3 gap-4 p-5">
+    <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="IPO">
         <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
           <option value="">Select IPO</option>
@@ -325,13 +325,13 @@ function NewApplicationForm({
       </Field>
 
       {error && (
-        <p className="badge badge-critical col-span-3 w-fit">{error}</p>
+        <p className="badge badge-critical col-span-1 w-fit sm:col-span-2 lg:col-span-3">{error}</p>
       )}
 
       <button
         type="submit"
         disabled={submitting || !ipoId || !dematId}
-        className="btn-primary col-span-3 py-2.5"
+        className="btn-primary col-span-1 py-2.5 sm:col-span-2 lg:col-span-3"
       >
         {submitting ? 'Saving…' : 'Save application'}
       </button>

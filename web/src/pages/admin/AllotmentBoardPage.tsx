@@ -132,8 +132,8 @@ export function AllotmentBoardPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
-        <select value={selectedIpoId} onChange={(e) => loadBoard(e.target.value)} className="input max-w-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <select value={selectedIpoId} onChange={(e) => loadBoard(e.target.value)} className="input w-full sm:max-w-xs">
           <option value="">Select an IPO</option>
           {ipos.map((i) => (
             <option key={i.id} value={i.id}>

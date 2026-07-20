@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
@@ -22,6 +23,7 @@ export function AppShell() {
   const { profile, signOut } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const links = isAdmin ? adminLinks : memberLinks
+  const [navOpen, setNavOpen] = useState(false)
 
   const initials = (profile?.full_name ?? '?')
     .split(' ')
@@ -33,8 +35,41 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--page)' }}>
       {isAdmin && <NotificationToastHost />}
+
+      {/* Mobile top bar */}
+      <div
+        className="fixed inset-x-0 top-0 z-30 flex items-center justify-between border-b px-4 py-3 md:hidden"
+        style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
+      >
+        <button
+          onClick={() => setNavOpen(true)}
+          aria-label="Open menu"
+          className="rounded-md p-1.5"
+          style={{ color: 'var(--ink-primary)' }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          IPO Ledger
+        </span>
+        <ThemeToggle className="!px-1.5" />
+      </div>
+
+      {/* Backdrop for mobile drawer */}
+      {navOpen && (
+        <div
+          onClick={() => setNavOpen(false)}
+          className="fixed inset-0 z-40 md:hidden"
+          style={{ background: 'rgba(0,0,0,0.4)' }}
+        />
+      )}
+
       <aside
-        className="flex w-60 shrink-0 flex-col border-r"
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 shrink-0 flex-col border-r transition-transform md:static md:z-auto md:w-60 md:translate-x-0 ${
+          navOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
       >
         <div className="flex items-center gap-2 px-5 py-5">
@@ -49,12 +84,13 @@ export function AppShell() {
           </span>
         </div>
 
-        <nav className="flex flex-1 flex-col gap-0.5 px-3">
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-3">
           {links.map((l) => (
             <NavLink
               key={l.to}
               to={l.to}
               end={l.to === '/'}
+              onClick={() => setNavOpen(false)}
               className={({ isActive }) =>
                 `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
                   isActive ? '' : 'hover:bg-[var(--hover-surface)]'
@@ -72,7 +108,7 @@ export function AppShell() {
         </nav>
 
         <div className="border-t px-3 py-3" style={{ borderColor: 'var(--border)' }}>
-          <ThemeToggle className="mb-1 w-full justify-center" />
+          <ThemeToggle className="mb-1 hidden w-full justify-center md:flex" />
           <div className="flex items-center gap-2 rounded-md px-2 py-2">
             <div
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
@@ -100,8 +136,8 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex-1 overflow-x-hidden">
-        <main className="mx-auto max-w-6xl px-8 py-8">
+      <div className="min-w-0 flex-1 overflow-x-hidden pt-14 md:pt-0">
+        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
           <Outlet />
         </main>
       </div>
