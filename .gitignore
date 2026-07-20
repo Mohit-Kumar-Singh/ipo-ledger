@@ -2,8 +2,9 @@
 .DS_Store
 Thumbs.db
 
-# Local Claude Code settings
+# Local Claude Code settings and session state
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # Supabase CLI local state
 supabase/.branches
