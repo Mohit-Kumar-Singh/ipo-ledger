@@ -24,12 +24,16 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   let allotment_date: string | null = null
   let listing_date: string | null = null
   let issue_size: string | null = c.issue_size
+  let retail_issue_size: string | null = null
+  let registrar = 'OTHER'
 
   try {
     const detail = await fetchDetail(c.source_url)
     allotment_date = detail.allotment_date
     listing_date = detail.listing_date
     issue_size = detail.issue_size ?? issue_size
+    retail_issue_size = detail.retail_issue_size
+    if (detail.registrar) registrar = detail.registrar
   } catch {
     // Detail fetch failing shouldn't block saving the core list-card fields.
   }
@@ -43,9 +47,10 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     close_date: c.close_date,
     allotment_date,
     listing_date,
-    registrar: 'OTHER',
+    registrar,
     gmp_notes: c.gmp,
     issue_size,
+    retail_issue_size,
   }
 
   const { data: existing } = await admin

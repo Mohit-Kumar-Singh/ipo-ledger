@@ -28,11 +28,37 @@ export interface Candidate {
   source_url: string
 }
 
+export type RegistrarCode =
+  | 'MUFG_INTIME'
+  | 'KFINTECH'
+  | 'BIGSHARE'
+  | 'CAMEO'
+  | 'SKYLINE'
+  | 'MAASHITLA'
+  | 'OTHER'
+
 export interface Detail {
   allotment_date: string | null
   listing_date: string | null
   exchange: string | null
   issue_size: string | null
+  retail_issue_size: string | null
+  registrar: RegistrarCode | null
+  registrar_name: string | null
+}
+
+// ipoji shows the registrar's full name (e.g. "Kfin Technologies Ltd.") —
+// map it to our fixed enum by keyword rather than trying to keep an exact
+// name list in sync with however they format it.
+function mapRegistrar(name: string): RegistrarCode {
+  const n = name.toLowerCase()
+  if (n.includes('kfin')) return 'KFINTECH'
+  if (n.includes('link intime') || n.includes('mufg')) return 'MUFG_INTIME'
+  if (n.includes('bigshare')) return 'BIGSHARE'
+  if (n.includes('cameo')) return 'CAMEO'
+  if (n.includes('skyline')) return 'SKYLINE'
+  if (n.includes('maashitla')) return 'MAASHITLA'
+  return 'OTHER'
 }
 
 // "₹9795.31 Cr" -> { value: 9795.31, unit: "Cr" }
@@ -145,8 +171,15 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   if (!doc) throw new Error('Could not parse detail page')
 
-  const result: Detail = { allotment_date: null, listing_date: null, exchange: null, issue_size: null }
-  let totalIssueSize: string | null = null
+  const result: Detail = {
+    allotment_date: null,
+    listing_date: null,
+    exchange: null,
+    issue_size: null,
+    retail_issue_size: null,
+    registrar: null,
+    registrar_name: null,
+  }
 
   // deno-lint-ignore no-explicit-any
   for (const item of Array.from(doc.querySelectorAll('.facts-row .fact-item')) as any[]) {
@@ -159,7 +192,19 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       const parsed = parseIpojiDate(value)
       if (parsed) result.listing_date = parsed
     } else if (label.includes('listing at')) result.exchange = value
-    else if (label.includes('issue size')) totalIssueSize = value
+    else if (label.includes('issue size')) result.issue_size = value
+  }
+
+  // Registrar: a plain <dt>Registrar</dt><dd>Kfin Technologies Ltd.</dd> row.
+  // deno-lint-ignore no-explicit-any
+  for (const row of Array.from(doc.querySelectorAll('.detail-list__row')) as any[]) {
+    const dt = row.querySelector('dt')?.textContent?.trim().toLowerCase() ?? ''
+    const dd = row.querySelector('dd')?.textContent?.trim() ?? ''
+    if (dt === 'registrar' && dd) {
+      result.registrar_name = dd
+      result.registrar = mapRegistrar(dd)
+      break
+    }
   }
 
   // Category-wise reservation % (retail/QIB/NII/anchor/...) lives in an embedded
@@ -173,18 +218,17 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       const parsed = JSON.parse(rawChartData)
       if (typeof parsed.retail === 'number') retailPct = parsed.retail
     } catch {
-      // not JSON or shape changed — fall through, issue_size stays total-only below
+      // not JSON or shape changed — retail_issue_size stays null below
     }
   }
 
-  if (retailPct != null && totalIssueSize) {
-    const amt = parseAmountText(totalIssueSize)
+  if (retailPct != null && result.issue_size) {
+    const amt = parseAmountText(result.issue_size)
     if (amt) {
       const retailValue = amt.value * (retailPct / 100)
-      result.issue_size = `₹${retailValue.toFixed(2)} ${amt.unit} retail (${retailPct}%)`.trim()
+      result.retail_issue_size = `₹${retailValue.toFixed(2)} ${amt.unit} (${retailPct}%)`.trim()
     }
   }
-  if (!result.issue_size) result.issue_size = totalIssueSize
 
   return result
 }

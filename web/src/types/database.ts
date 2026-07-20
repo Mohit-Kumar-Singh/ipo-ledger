@@ -34,8 +34,9 @@ export interface DematAccount {
 export interface BankAccount {
   id: string
   demat_id: string
-  bank_name: string
-  last4: string
+  account_holder_name: string | null
+  bank_name: string | null
+  last4: string | null
   upi_id: string | null
   is_default: boolean
 }
@@ -56,6 +57,7 @@ export interface Ipo {
   registrar_url: string | null
   gmp_notes: string | null
   issue_size: string | null
+  retail_issue_size: string | null
   created_at: string
 }
 
@@ -103,6 +105,8 @@ export interface AllotmentBoardRow {
   lots: number
   bid_amount: number | null
   status: ApplicationStatus
+  upi_id: string | null
+  bank_account_holder_name: string | null
 }
 
 export interface RegistrarLink {

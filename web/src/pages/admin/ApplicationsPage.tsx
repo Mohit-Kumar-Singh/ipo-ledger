@@ -314,7 +314,7 @@ function NewApplicationForm({
           <option value="">Select bank</option>
           {selectedAccount?.bank_accounts.map((b) => (
             <option key={b.id} value={b.id}>
-              {b.bank_name} ••{b.last4}
+              {[b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account'}
             </option>
           ))}
         </select>

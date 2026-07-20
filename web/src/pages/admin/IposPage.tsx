@@ -32,6 +32,9 @@ interface ImportDetail {
   listing_date: string | null
   exchange: string | null
   issue_size: string | null
+  retail_issue_size: string | null
+  registrar: Registrar | null
+  registrar_name: string | null
 }
 
 function isEligible(c: ImportCandidate): boolean {
@@ -174,9 +177,10 @@ export function IposPage() {
         close_date: c.close_date,
         allotment_date: detail?.allotment_date ?? null,
         listing_date: detail?.listing_date ?? null,
-        registrar: 'OTHER',
+        registrar: detail?.registrar ?? 'OTHER',
         gmp_notes: c.gmp,
         issue_size: detail?.issue_size ?? c.issue_size,
+        retail_issue_size: detail?.retail_issue_size ?? null,
       })
 
       if (error) skipped++
@@ -340,21 +344,17 @@ export function IposPage() {
                   {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
                 </p>
 
-                {(ipo.gmp_notes || ipo.issue_size) && (
-                  <p className="text-xs">
-                    {ipo.gmp_notes && (
-                      <span className="font-medium" style={{ color: 'var(--good)' }}>
-                        {ipo.gmp_notes}
-                      </span>
-                    )}
-                    {ipo.gmp_notes && ipo.issue_size && ' · '}
-                    {ipo.issue_size && (
-                      <span style={{ color: 'var(--ink-muted)' }}>
-                        {ipo.issue_size.includes('retail') ? '' : 'Issue size '}
-                        {ipo.issue_size}
-                      </span>
-                    )}
+                {ipo.gmp_notes && (
+                  <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+                    {ipo.gmp_notes}
                   </p>
+                )}
+
+                {(ipo.issue_size || ipo.retail_issue_size) && (
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
+                    <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
+                  </div>
                 )}
 
                 <IpoTimeline
@@ -436,7 +436,7 @@ function ImportCard({
             </span>
           )}
           {c.gmp && c.issue_size && ' · '}
-          {c.issue_size && <span style={{ color: 'var(--ink-muted)' }}>Issue size {c.issue_size}</span>}
+          {c.issue_size && <span style={{ color: 'var(--ink-muted)' }}>Overall issue size {c.issue_size}</span>}
         </p>
       )}
 
@@ -472,6 +472,7 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
   const [listingDate, setListingDate] = useState('')
   const [gmpNotes, setGmpNotes] = useState('')
   const [issueSize, setIssueSize] = useState('')
+  const [retailIssueSize, setRetailIssueSize] = useState('')
   const [registrar, setRegistrar] = useState<Registrar>('OTHER')
   const [registrarUrl, setRegistrarUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -496,6 +497,7 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
       registrar_url: registrarUrl || null,
       gmp_notes: gmpNotes || null,
       issue_size: issueSize || null,
+      retail_issue_size: retailIssueSize || null,
     })
 
     setSubmitting(false)
@@ -555,11 +557,19 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
           className="input"
         />
       </Field>
-      <Field label="Issue size">
+      <Field label="Overall issue size">
         <input
           value={issueSize}
           onChange={(e) => setIssueSize(e.target.value)}
           placeholder="e.g. ₹9795.31 Cr"
+          className="input"
+        />
+      </Field>
+      <Field label="Retail issue size">
+        <input
+          value={retailIssueSize}
+          onChange={(e) => setRetailIssueSize(e.target.value)}
+          placeholder="e.g. ₹3100.87 Cr (31.66%)"
           className="input"
         />
       </Field>

@@ -85,7 +85,7 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const { data: app } = await admin
     .from('applications')
     .select(
-      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), bank_accounts(bank_name, last4)',
+      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), bank_accounts(account_holder_name, bank_name, last4, upi_id)',
     )
     .eq('id', applicationId)
     .single()
@@ -94,8 +94,10 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const holderName = app.demat_accounts.holder_name as string
   const phone = app.demat_accounts.phone_e164 as string
   const companyName = app.ipos.company_name as string
-  const bank = app.bank_accounts
-    ? `${app.bank_accounts.bank_name} ••${app.bank_accounts.last4}`
+  const b = app.bank_accounts as { bank_name?: string; last4?: string; upi_id?: string } | null
+  const bank = b
+    ? [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ') ||
+      'your linked bank'
     : 'your linked bank'
 
   const variables =
