@@ -93,7 +93,8 @@ export function AccountsPage() {
                     {a.holder_name}
                   </p>
                   <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-                    {a.phone_e164} · {a.broker ?? 'no broker'} ·{' '}
+                    {a.phone_e164}
+                    {a.dp_client_id && ` · Demat a/c ${a.dp_client_id}`} ·{' '}
                     <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
                       {revealed[a.id] ?? a.pan_masked}
                     </span>
@@ -150,11 +151,7 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
   const [holderName, setHolderName] = useState('')
   const [phone, setPhone] = useState('+91')
   const [pan, setPan] = useState('')
-  const [broker, setBroker] = useState('')
-  const [dpClientId, setDpClientId] = useState('')
-  const [bankName, setBankName] = useState('')
-  const [last4, setLast4] = useState('')
-  const [upiId, setUpiId] = useState('')
+  const [dematAccountNo, setDematAccountNo] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -170,35 +167,17 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
           holder_name: holderName,
           phone_e164: phone,
           pan: pan.toUpperCase(),
-          broker: broker || null,
-          dp_client_id: dpClientId || null,
+          broker: null,
+          dp_client_id: dematAccountNo || null,
         },
       },
     )
 
+    setSubmitting(false)
     if (fnError || !data?.id) {
       setError(await describeFunctionError(fnError, data))
-      setSubmitting(false)
       return
     }
-    const dematId = data.id
-
-    if (bankName && last4) {
-      const { error: bankError } = await supabase.from('bank_accounts').insert({
-        demat_id: dematId,
-        bank_name: bankName,
-        last4,
-        upi_id: upiId || null,
-        is_default: true,
-      })
-      if (bankError) {
-        setError(bankError.message)
-        setSubmitting(false)
-        return
-      }
-    }
-
-    setSubmitting(false)
     onDone()
   }
 
@@ -213,20 +192,13 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
       <Field label="PAN">
         <input required maxLength={10} value={pan} onChange={(e) => setPan(e.target.value)} className="input" />
       </Field>
-      <Field label="Broker">
-        <input value={broker} onChange={(e) => setBroker(e.target.value)} className="input" />
-      </Field>
-      <Field label="DP / Client ID">
-        <input value={dpClientId} onChange={(e) => setDpClientId(e.target.value)} className="input" />
-      </Field>
-      <Field label="Bank name">
-        <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input" />
-      </Field>
-      <Field label="Account last 4 digits">
-        <input maxLength={4} value={last4} onChange={(e) => setLast4(e.target.value)} className="input" />
-      </Field>
-      <Field label="UPI ID (optional)">
-        <input value={upiId} onChange={(e) => setUpiId(e.target.value)} className="input" />
+      <Field label="Demat account no.">
+        <input
+          required
+          value={dematAccountNo}
+          onChange={(e) => setDematAccountNo(e.target.value)}
+          className="input"
+        />
       </Field>
 
       {error && <p className="badge badge-critical col-span-2 w-fit">{error}</p>}
