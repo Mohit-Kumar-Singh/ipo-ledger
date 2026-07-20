@@ -22,10 +22,10 @@ export function NotificationsPage() {
     load()
   }, [])
 
-  async function retry(n: Notification) {
+  async function dispatch(n: Notification) {
     setRetrying(n.id)
     await supabase.functions.invoke('send-whatsapp', {
-      body: { retry_notification_id: n.id },
+      body: { notification_id: n.id },
     })
     setRetrying(null)
     load()
@@ -72,13 +72,13 @@ export function NotificationsPage() {
                     {n.error_detail ?? ''}
                   </td>
                   <td className="px-4 py-2.5">
-                    {n.status === 'FAILED' && (
+                    {(n.status === 'QUEUED' || n.status === 'FAILED') && (
                       <button
-                        onClick={() => retry(n)}
+                        onClick={() => dispatch(n)}
                         disabled={retrying === n.id}
                         className="link-accent text-xs font-medium disabled:opacity-50"
                       >
-                        {retrying === n.id ? 'Retrying…' : 'Retry'}
+                        {retrying === n.id ? 'Sending…' : n.status === 'FAILED' ? 'Retry' : 'Send'}
                       </button>
                     )}
                   </td>

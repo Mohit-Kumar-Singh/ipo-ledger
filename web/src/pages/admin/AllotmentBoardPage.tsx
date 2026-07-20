@@ -1,12 +1,27 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { AllotmentBoardRow, ApplicationStatus, Ipo, RegistrarLink } from '../../types/database'
+import type {
+  AllotmentBoardRow,
+  ApplicationStatus,
+  Ipo,
+  Notification,
+  RegistrarLink,
+} from '../../types/database'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
   ALLOTTED: 'badge-good',
   NOT_ALLOTTED: 'badge-neutral',
   SOLD: 'badge-violet',
+}
+
+const notifBadgeClass: Record<Notification['status'], string> = {
+  QUEUED: 'badge-neutral',
+  SENT: 'badge-info',
+  DELIVERED: 'badge-good',
+  READ: 'badge-violet',
+  FAILED: 'badge-critical',
+  SIMULATED: 'badge-warning',
 }
 
 export function AllotmentBoardPage() {
@@ -17,6 +32,8 @@ export function AllotmentBoardPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
+  const [allottedNotifs, setAllottedNotifs] = useState<Record<string, Pick<Notification, 'id' | 'status'>>>({})
+  const [dispatching, setDispatching] = useState<string | null>(null)
 
   useEffect(() => {
     supabase
@@ -43,8 +60,30 @@ export function AllotmentBoardPage() {
     }
     setLoading(true)
     const { data } = await supabase.from('v_allotment_board').select('*').eq('ipo_id', ipoId)
-    setRows((data ?? []) as AllotmentBoardRow[])
+    const boardRows = (data ?? []) as AllotmentBoardRow[]
+    setRows(boardRows)
+
+    const appIds = boardRows.map((r) => r.application_id)
+    if (appIds.length > 0) {
+      const { data: notifs } = await supabase
+        .from('notifications')
+        .select('id, application_id, status')
+        .eq('type', 'ALLOTTED')
+        .in('application_id', appIds)
+      const map: Record<string, Pick<Notification, 'id' | 'status'>> = {}
+      for (const n of notifs ?? []) map[n.application_id as string] = { id: n.id, status: n.status }
+      setAllottedNotifs(map)
+    } else {
+      setAllottedNotifs({})
+    }
     setLoading(false)
+  }
+
+  async function dispatchNotification(notificationId: string) {
+    setDispatching(notificationId)
+    await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
+    setDispatching(null)
+    loadBoard(selectedIpoId)
   }
 
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
@@ -126,11 +165,14 @@ export function AllotmentBoardPage() {
                 <th className="px-4 py-2.5 font-medium">PAN</th>
                 <th className="px-4 py-2.5 font-medium">Bank</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Message</th>
                 <th className="px-4 py-2.5 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const notif = allottedNotifs[row.application_id]
+                return (
                 <tr key={row.application_id} className="hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5">
                     {row.status === 'APPLIED' && (
@@ -160,6 +202,24 @@ export function AllotmentBoardPage() {
                     <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
                   </td>
                   <td className="px-4 py-2.5">
+                    {notif ? (
+                      <div className="flex items-center gap-2">
+                        <span className={`badge ${notifBadgeClass[notif.status]}`}>{notif.status}</span>
+                        {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
+                          <button
+                            onClick={() => dispatchNotification(notif.id)}
+                            disabled={dispatching === notif.id}
+                            className="link-accent text-xs font-medium disabled:opacity-50"
+                          >
+                            {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--ink-muted)' }}>—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
                     {row.status === 'APPLIED' && (
                       <div className="flex gap-3">
                         <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
@@ -176,10 +236,11 @@ export function AllotmentBoardPage() {
                     )}
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications for this IPO.
                   </td>
                 </tr>

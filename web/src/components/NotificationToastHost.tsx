@@ -28,25 +28,33 @@ function statusMeta(status: Notification['status']) {
   return { label: 'WhatsApp sent', badge: 'badge-good' }
 }
 
-/** Admin-only. Pops up a card the instant a notification row is inserted,
- *  showing what was (or would be) sent — real send or SIMULATED test mode alike. */
+/** Admin-only. Pops up a card the moment a notification is actually dispatched
+ *  (SENT, SIMULATED or FAILED) — not when it's merely QUEUED, since queuing no
+ *  longer sends anything; the admin triggers that explicitly via the Send button. */
 export function NotificationToastHost() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 
   useEffect(() => {
+    function handleChange(notification: Notification) {
+      if (notification.status === 'QUEUED') return
+      const id = `${notification.id}-${notification.status}-${Date.now()}`
+      setToasts((t) => [...t, { id, notification }])
+      setTimeout(() => {
+        setToasts((t) => t.filter((x) => x.id !== id))
+      }, 15000)
+    }
+
     const channel = supabase
       .channel('notifications-toast')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'notifications' },
-        (payload) => {
-          const notification = payload.new as Notification
-          const id = `${notification.id}-${Date.now()}`
-          setToasts((t) => [...t, { id, notification }])
-          setTimeout(() => {
-            setToasts((t) => t.filter((x) => x.id !== id))
-          }, 15000)
-        },
+        (payload) => handleChange(payload.new as Notification),
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'notifications' },
+        (payload) => handleChange(payload.new as Notification),
       )
       .subscribe()
 

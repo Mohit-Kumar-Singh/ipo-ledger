@@ -6,6 +6,7 @@ import type {
   BankAccount,
   DematAccount,
   Ipo,
+  Notification,
 } from '../../types/database'
 
 const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDER', 'EMPLOYEE']
@@ -13,6 +14,7 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
   demat_accounts: Pick<DematAccount, 'holder_name'>
+  notifications: Pick<Notification, 'id' | 'type' | 'status'>[]
 }
 
 export function ApplicationsPage() {
@@ -21,13 +23,14 @@ export function ApplicationsPage() {
   const [accounts, setAccounts] = useState<(DematAccount & { bank_accounts: BankAccount[] })[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [dispatching, setDispatching] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
     const [appsRes, iposRes, accountsRes] = await Promise.all([
       supabase
         .from('applications')
-        .select('*, ipos(company_name), demat_accounts(holder_name)')
+        .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status)')
         .order('applied_at', { ascending: false }),
       supabase.from('ipos').select('*').order('company_name'),
       supabase.from('demat_accounts').select('*, bank_accounts(*)').order('holder_name'),
@@ -44,6 +47,13 @@ export function ApplicationsPage() {
 
   async function markStatus(id: string, status: Application['status']) {
     await supabase.from('applications').update({ status }).eq('id', id)
+    load()
+  }
+
+  async function dispatchNotification(notificationId: string) {
+    setDispatching(notificationId)
+    await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
+    setDispatching(null)
     load()
   }
 
@@ -96,11 +106,14 @@ export function ApplicationsPage() {
                 <th className="px-4 py-2.5 font-medium">Lots</th>
                 <th className="px-4 py-2.5 font-medium">Bid amount</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Message</th>
                 <th className="px-4 py-2.5 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {applications.map((a) => (
+              {applications.map((a) => {
+                const notif = a.notifications?.find((n) => n.type === 'APPLIED')
+                return (
                 <tr key={a.id} className="hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {a.ipos?.company_name}
@@ -110,6 +123,24 @@ export function ApplicationsPage() {
                   <td className="px-4 py-2.5">{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</td>
                   <td className="px-4 py-2.5">
                     <StatusBadge status={a.status} />
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {notif ? (
+                      <div className="flex items-center gap-2">
+                        <NotifBadge status={notif.status} />
+                        {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
+                          <button
+                            onClick={() => dispatchNotification(notif.id)}
+                            disabled={dispatching === notif.id}
+                            className="link-accent text-xs font-medium disabled:opacity-50"
+                          >
+                            {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--ink-muted)' }}>—</span>
+                    )}
                   </td>
                   <td className="px-4 py-2.5">
                     <div className="flex flex-wrap items-center gap-3">
@@ -142,10 +173,11 @@ export function ApplicationsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {applications.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications yet.
                   </td>
                 </tr>
@@ -166,6 +198,18 @@ function StatusBadge({ status }: { status: Application['status'] }) {
     SOLD: 'badge-violet',
   }
   return <span className={`badge ${classes[status]}`}>{status.replace('_', ' ')}</span>
+}
+
+function NotifBadge({ status }: { status: Notification['status'] }) {
+  const classes: Record<Notification['status'], string> = {
+    QUEUED: 'badge-neutral',
+    SENT: 'badge-info',
+    DELIVERED: 'badge-good',
+    READ: 'badge-violet',
+    FAILED: 'badge-critical',
+    SIMULATED: 'badge-warning',
+  }
+  return <span className={`badge ${classes[status]}`}>{status}</span>
 }
 
 function NewApplicationForm({

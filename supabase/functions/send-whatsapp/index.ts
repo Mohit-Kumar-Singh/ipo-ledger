@@ -1,11 +1,12 @@
 // Triggered by a Supabase Database Webhook on `applications` (INSERT -> ipo_applied,
-// UPDATE where status changes to ALLOTTED -> ipo_allotted). Also accepts a client-invoked
-// retry: { retry_notification_id } from an authenticated admin, used by the Notifications
-// log's "Retry" button.
+// UPDATE where status changes to ALLOTTED -> ipo_allotted). This only QUEUES a
+// notification row — it does not send anything. Sending is a separate, explicit
+// admin action: { notification_id } from an authenticated admin, used by the
+// "Send" button (on a QUEUED row) and "Retry" button (on a FAILED row) in the UI.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
 
-// Both empty until Meta/WhatsApp setup (doc 06) is done — sendForApplication()
+// Both empty until Meta/WhatsApp setup (doc 06) is done — dispatchNotification()
 // simulates instead of calling the real Graph API while either is unset, so this
 // flips over to real sending automatically the moment the secrets are set.
 const WA_ACCESS_TOKEN = Deno.env.get('WA_ACCESS_TOKEN') ?? ''
@@ -25,8 +26,8 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json()
 
-    if (body.retry_notification_id) {
-      return await handleRetry(req, body.retry_notification_id)
+    if (body.notification_id) {
+      return await handleDispatch(req, body.notification_id)
     }
 
     const secret = req.headers.get('x-webhook-secret')
@@ -44,7 +45,7 @@ Deno.serve(async (req) => {
     }
     if (!templateKind) return new Response('ignored', { status: 200, headers: corsHeaders })
 
-    await sendForApplication(record.id, templateKind)
+    await queueForApplication(record.id, templateKind)
     return new Response('ok', { status: 200, headers: corsHeaders })
   } catch (err) {
     console.error(err)
@@ -52,7 +53,7 @@ Deno.serve(async (req) => {
   }
 })
 
-async function handleRetry(req: Request, notificationId: string): Promise<Response> {
+async function handleDispatch(req: Request, notificationId: string): Promise<Response> {
   const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
   const { data: userData } = await admin.auth.getUser(jwt)
   if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
@@ -64,35 +65,22 @@ async function handleRetry(req: Request, notificationId: string): Promise<Respon
     .single()
   if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
 
-  const { data: notif } = await admin
-    .from('notifications')
-    .select('*')
-    .eq('id', notificationId)
-    .single()
-  if (!notif?.application_id) return new Response('not found', { status: 404, headers: corsHeaders })
-
-  const templateKind: TemplateKind = notif.type === 'ALLOTTED' ? 'ipo_allotted' : 'ipo_applied'
-  await sendForApplication(notif.application_id, templateKind, notificationId)
+  await dispatchNotification(notificationId)
   return new Response('ok', { status: 200, headers: corsHeaders })
 }
 
-async function sendForApplication(
-  applicationId: string,
-  templateKind: TemplateKind,
-  existingNotificationId?: string,
-) {
+// Builds the message content and inserts it as QUEUED. No network call — the
+// admin sends it explicitly afterward via dispatchNotification().
+async function queueForApplication(applicationId: string, templateKind: TemplateKind) {
   const notifType = templateKind === 'ipo_applied' ? 'APPLIED' : 'ALLOTTED'
 
-  if (!existingNotificationId) {
-    const { data: existing } = await admin
-      .from('notifications')
-      .select('id')
-      .eq('application_id', applicationId)
-      .eq('type', notifType)
-      .neq('status', 'FAILED')
-      .maybeSingle()
-    if (existing) return // idempotency: webhook redelivery guard
-  }
+  const { data: existing } = await admin
+    .from('notifications')
+    .select('id')
+    .eq('application_id', applicationId)
+    .eq('type', notifType)
+    .maybeSingle()
+  if (existing) return // idempotency: webhook redelivery guard
 
   const { data: app } = await admin
     .from('applications')
@@ -115,19 +103,32 @@ async function sendForApplication(
       ? [holderName, companyName, bank, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`]
       : [holderName, companyName, 'ALLOTTED', (app.ipos.listing_date as string | null) ?? 'TBA']
 
+  await admin.from('notifications').insert({
+    application_id: applicationId,
+    demat_id: app.demat_id,
+    type: notifType,
+    to_phone: phone,
+    template_name: templateKind,
+    variables: { params: variables },
+    status: 'QUEUED',
+  })
+}
+
+// Actually sends (or simulates) a QUEUED/FAILED notification and updates its status.
+// A no-op if the row has already gone out, so double-clicks / redelivery are safe.
+async function dispatchNotification(notificationId: string) {
+  const { data: notif } = await admin.from('notifications').select('*').eq('id', notificationId).single()
+  if (!notif) return
+  if (notif.status !== 'QUEUED' && notif.status !== 'FAILED') return
+
+  const params = (notif.variables as { params?: string[] } | null)?.params ?? []
   const testMode = !WA_ACCESS_TOKEN || !WA_PHONE_NUMBER_ID
 
-  let notifRow: Record<string, unknown>
+  let update: Record<string, unknown>
   if (testMode) {
-    notifRow = {
-      application_id: applicationId,
-      demat_id: app.demat_id,
-      type: notifType,
-      to_phone: phone,
-      template_name: templateKind,
-      variables: { params: variables },
-      wa_message_id: null,
+    update = {
       status: 'SIMULATED',
+      wa_message_id: null,
       error_detail: null,
       updated_at: new Date().toISOString(),
     }
@@ -140,23 +141,17 @@ async function sendForApplication(
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
-        to: phone,
+        to: notif.to_phone,
         type: 'template',
         template: {
-          name: templateKind,
+          name: notif.template_name,
           language: { code: 'en' },
-          components: [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v })) }],
+          components: [{ type: 'body', parameters: params.map((v) => ({ type: 'text', text: v })) }],
         },
       }),
     })
     const result = await waResponse.json()
-    notifRow = {
-      application_id: applicationId,
-      demat_id: app.demat_id,
-      type: notifType,
-      to_phone: phone,
-      template_name: templateKind,
-      variables: { params: variables },
+    update = {
       wa_message_id: result?.messages?.[0]?.id ?? null,
       status: waResponse.ok ? 'SENT' : 'FAILED',
       error_detail: waResponse.ok ? null : JSON.stringify(result?.error ?? result),
@@ -164,9 +159,5 @@ async function sendForApplication(
     }
   }
 
-  if (existingNotificationId) {
-    await admin.from('notifications').update(notifRow).eq('id', existingNotificationId)
-  } else {
-    await admin.from('notifications').insert(notifRow)
-  }
+  await admin.from('notifications').update(update).eq('id', notificationId)
 }
