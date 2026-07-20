@@ -32,13 +32,17 @@ export function AccountsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Demat accounts</h1>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="rounded bg-purple-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-800"
-        >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            Demat accounts
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {accounts.length} registered
+          </p>
+        </div>
+        <button onClick={() => setShowForm((s) => !s)} className="btn-primary">
           {showForm ? 'Cancel' : '+ Add account'}
         </button>
       </div>
@@ -53,37 +57,34 @@ export function AccountsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
+        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
       ) : (
-        <div className="divide-y rounded border bg-white">
+        <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {accounts.map((a) => (
-            <div key={a.id} className="p-3">
+            <div key={a.id} className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">{a.holder_name}</p>
-                  <p className="text-sm text-gray-500">
+                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {a.holder_name}
+                  </p>
+                  <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
                     {a.phone_e164} · {a.broker ?? 'no broker'} ·{' '}
-                    <span className="font-mono">{revealed[a.id] ?? a.pan_masked}</span>
+                    <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
+                      {revealed[a.id] ?? a.pan_masked}
+                    </span>
                     {!revealed[a.id] && (
-                      <button
-                        onClick={() => revealPan(a.id)}
-                        className="ml-2 text-purple-700 hover:underline"
-                      >
+                      <button onClick={() => revealPan(a.id)} className="link-accent ml-2 text-sm font-medium">
                         Reveal PAN
                       </button>
                     )}
                   </p>
                 </div>
-                {!a.linked_user_id && (
-                  <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-500">
-                    not invited
-                  </span>
-                )}
+                {!a.linked_user_id && <span className="badge badge-neutral">not invited</span>}
               </div>
               {a.bank_accounts?.length > 0 && (
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {a.bank_accounts.map((b) => (
-                    <li key={b.id} className="rounded bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                    <li key={b.id} className="badge badge-neutral">
                       {b.bank_name} ••{b.last4}
                       {b.is_default && ' (default)'}
                     </li>
@@ -93,7 +94,9 @@ export function AccountsPage() {
             </div>
           ))}
           {accounts.length === 0 && (
-            <p className="p-3 text-sm text-gray-400">No accounts yet.</p>
+            <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+              No accounts yet.
+            </p>
           )}
         </div>
       )}
@@ -158,7 +161,7 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-3 rounded border bg-white p-4">
+    <form onSubmit={handleSubmit} className="card grid grid-cols-2 gap-4 p-5">
       <Field label="Holder name">
         <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
@@ -184,13 +187,9 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
         <input value={upiId} onChange={(e) => setUpiId(e.target.value)} className="input" />
       </Field>
 
-      {error && <p className="col-span-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="badge badge-critical col-span-2 w-fit">{error}</p>}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="col-span-2 rounded bg-purple-700 py-2 text-sm font-medium text-white hover:bg-purple-800 disabled:opacity-50"
-      >
+      <button type="submit" disabled={submitting} className="btn-primary col-span-2 py-2.5">
         {submitting ? 'Saving…' : 'Save account'}
       </button>
     </form>
@@ -199,7 +198,7 @@ function AddAccountForm({ onDone }: { onDone: () => void }) {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block text-sm text-gray-700">
+    <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
       {label}
       <div className="mt-1">{children}</div>
     </label>

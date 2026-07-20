@@ -48,13 +48,17 @@ export function ApplicationsPage() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Applications</h1>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="rounded bg-purple-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-800"
-        >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            Applications
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {applications.length} total
+          </p>
+        </div>
+        <button onClick={() => setShowForm((s) => !s)} className="btn-primary">
           {showForm ? 'Cancel' : '+ New application'}
         </button>
       </div>
@@ -71,52 +75,49 @@ export function ApplicationsPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
+        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
       ) : (
-        <div className="overflow-x-auto rounded border bg-white">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-500">
+            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-3 py-2">IPO</th>
-                <th className="px-3 py-2">Holder</th>
-                <th className="px-3 py-2">Lots</th>
-                <th className="px-3 py-2">Bid amount</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Actions</th>
+                <th className="px-4 py-2.5 font-medium">IPO</th>
+                <th className="px-4 py-2.5 font-medium">Holder</th>
+                <th className="px-4 py-2.5 font-medium">Lots</th>
+                <th className="px-4 py-2.5 font-medium">Bid amount</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {applications.map((a) => (
-                <tr key={a.id}>
-                  <td className="px-3 py-2">{a.ipos?.company_name}</td>
-                  <td className="px-3 py-2">{a.demat_accounts?.holder_name}</td>
-                  <td className="px-3 py-2">{a.lots}</td>
-                  <td className="px-3 py-2">{a.bid_amount ? `₹${a.bid_amount}` : '—'}</td>
-                  <td className="px-3 py-2">
+                <tr key={a.id} className="hover:bg-[var(--hover-surface)]">
+                  <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {a.ipos?.company_name}
+                  </td>
+                  <td className="px-4 py-2.5">{a.demat_accounts?.holder_name}</td>
+                  <td className="px-4 py-2.5">{a.lots}</td>
+                  <td className="px-4 py-2.5">{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</td>
+                  <td className="px-4 py-2.5">
                     <StatusBadge status={a.status} />
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-2.5">
                     {a.status === 'APPLIED' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => markStatus(a.id, 'ALLOTTED')}
-                          className="text-xs text-green-700 hover:underline"
-                        >
+                      <div className="flex gap-3">
+                        <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                           Allotted
                         </button>
                         <button
                           onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
-                          className="text-xs text-gray-500 hover:underline"
+                          className="text-xs font-medium hover:underline"
+                          style={{ color: 'var(--ink-muted)' }}
                         >
                           Not allotted
                         </button>
                       </div>
                     )}
                     {a.status === 'ALLOTTED' && (
-                      <button
-                        onClick={() => markStatus(a.id, 'SOLD')}
-                        className="text-xs text-purple-700 hover:underline"
-                      >
+                      <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
                         Mark sold
                       </button>
                     )}
@@ -125,7 +126,7 @@ export function ApplicationsPage() {
               ))}
               {applications.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications yet.
                   </td>
                 </tr>
@@ -139,13 +140,13 @@ export function ApplicationsPage() {
 }
 
 function StatusBadge({ status }: { status: Application['status'] }) {
-  const colors: Record<Application['status'], string> = {
-    APPLIED: 'bg-blue-100 text-blue-700',
-    ALLOTTED: 'bg-green-100 text-green-700',
-    NOT_ALLOTTED: 'bg-gray-100 text-gray-600',
-    SOLD: 'bg-purple-100 text-purple-700',
+  const classes: Record<Application['status'], string> = {
+    APPLIED: 'badge-info',
+    ALLOTTED: 'badge-good',
+    NOT_ALLOTTED: 'badge-neutral',
+    SOLD: 'badge-violet',
   }
-  return <span className={`rounded px-2 py-0.5 text-xs ${colors[status]}`}>{status}</span>
+  return <span className={`badge ${classes[status]}`}>{status.replace('_', ' ')}</span>
 }
 
 function NewApplicationForm({
@@ -195,7 +196,7 @@ function NewApplicationForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-3 gap-3 rounded border bg-white p-4">
+    <form onSubmit={handleSubmit} className="card grid grid-cols-3 gap-4 p-5">
       <Field label="IPO">
         <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
           <option value="">Select IPO</option>
@@ -252,15 +253,22 @@ function NewApplicationForm({
         <input required type="number" min={1} value={lots} onChange={(e) => setLots(e.target.value)} className="input" />
       </Field>
       <Field label="Bid amount (auto)">
-        <input readOnly value={bidAmount ? `₹${bidAmount.toLocaleString('en-IN')}` : ''} className="input bg-gray-50" />
+        <input
+          readOnly
+          value={bidAmount ? `₹${bidAmount.toLocaleString('en-IN')}` : ''}
+          className="input"
+          style={{ background: 'var(--page)' }}
+        />
       </Field>
 
-      {error && <p className="col-span-3 text-sm text-red-600">{error}</p>}
+      {error && (
+        <p className="badge badge-critical col-span-3 w-fit">{error}</p>
+      )}
 
       <button
         type="submit"
         disabled={submitting || !ipoId || !dematId}
-        className="col-span-3 rounded bg-purple-700 py-2 text-sm font-medium text-white hover:bg-purple-800 disabled:opacity-50"
+        className="btn-primary col-span-3 py-2.5"
       >
         {submitting ? 'Saving…' : 'Save application'}
       </button>
@@ -270,7 +278,7 @@ function NewApplicationForm({
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block text-sm text-gray-700">
+    <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
       {label}
       <div className="mt-1">{children}</div>
     </label>

@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>web</title>
+    <title>IPO Ledger</title>
+    <script>
+      // Set the theme before paint so there's no light-mode flash on load.
+      try {
+        var theme = localStorage.getItem('theme') || 'light'
+        document.documentElement.setAttribute('data-theme', theme)
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

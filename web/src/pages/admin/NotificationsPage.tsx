@@ -32,40 +32,51 @@ export function NotificationsPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Notifications</h1>
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          Notifications
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          {notifications.length} messages
+        </p>
+      </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
+        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
       ) : (
-        <div className="overflow-x-auto rounded border bg-white">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-500">
+            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-3 py-2">Sent</th>
-                <th className="px-3 py-2">To</th>
-                <th className="px-3 py-2">Template</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Error</th>
-                <th className="px-3 py-2"></th>
+                <th className="px-4 py-2.5 font-medium">Sent</th>
+                <th className="px-4 py-2.5 font-medium">To</th>
+                <th className="px-4 py-2.5 font-medium">Template</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Error</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {notifications.map((n) => (
-                <tr key={n.id}>
-                  <td className="px-3 py-2 text-gray-500">{new Date(n.created_at).toLocaleString()}</td>
-                  <td className="px-3 py-2">{n.to_phone}</td>
-                  <td className="px-3 py-2">{n.template_name}</td>
-                  <td className="px-3 py-2">
+                <tr key={n.id} className="hover:bg-[var(--hover-surface)]">
+                  <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
+                    {new Date(n.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2.5">{n.to_phone}</td>
+                  <td className="px-4 py-2.5">{n.template_name}</td>
+                  <td className="px-4 py-2.5">
                     <StatusBadge status={n.status} />
                   </td>
-                  <td className="px-3 py-2 text-red-600">{n.error_detail ?? ''}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-2.5" style={{ color: 'var(--critical)' }}>
+                    {n.error_detail ?? ''}
+                  </td>
+                  <td className="px-4 py-2.5">
                     {n.status === 'FAILED' && (
                       <button
                         onClick={() => retry(n)}
                         disabled={retrying === n.id}
-                        className="text-xs text-purple-700 hover:underline disabled:opacity-50"
+                        className="link-accent text-xs font-medium disabled:opacity-50"
                       >
                         {retrying === n.id ? 'Retrying…' : 'Retry'}
                       </button>
@@ -75,7 +86,7 @@ export function NotificationsPage() {
               ))}
               {notifications.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No messages sent yet.
                   </td>
                 </tr>
@@ -89,12 +100,12 @@ export function NotificationsPage() {
 }
 
 function StatusBadge({ status }: { status: Notification['status'] }) {
-  const colors: Record<Notification['status'], string> = {
-    QUEUED: 'bg-gray-100 text-gray-600',
-    SENT: 'bg-blue-100 text-blue-700',
-    DELIVERED: 'bg-green-100 text-green-700',
-    READ: 'bg-purple-100 text-purple-700',
-    FAILED: 'bg-red-100 text-red-700',
+  const classes: Record<Notification['status'], string> = {
+    QUEUED: 'badge-neutral',
+    SENT: 'badge-info',
+    DELIVERED: 'badge-good',
+    READ: 'badge-violet',
+    FAILED: 'badge-critical',
   }
-  return <span className={`rounded px-2 py-0.5 text-xs ${colors[status]}`}>{status}</span>
+  return <span className={`badge ${classes[status]}`}>{status}</span>
 }

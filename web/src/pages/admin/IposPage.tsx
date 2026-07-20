@@ -12,13 +12,13 @@ const registrars: Registrar[] = [
   'OTHER',
 ]
 
-function deriveStatus(ipo: Ipo): string {
+function deriveStatus(ipo: Ipo): { label: string; badge: string } {
   const today = new Date().toISOString().slice(0, 10)
-  if (ipo.listing_date && today >= ipo.listing_date) return 'Listed'
-  if (ipo.allotment_date && today >= ipo.allotment_date) return 'Allotment out'
-  if (today > ipo.close_date) return 'Closed'
-  if (today >= ipo.open_date) return 'Open'
-  return 'Upcoming'
+  if (ipo.listing_date && today >= ipo.listing_date) return { label: 'Listed', badge: 'badge-violet' }
+  if (ipo.allotment_date && today >= ipo.allotment_date) return { label: 'Allotment out', badge: 'badge-warning' }
+  if (today > ipo.close_date) return { label: 'Closed', badge: 'badge-neutral' }
+  if (today >= ipo.open_date) return { label: 'Open', badge: 'badge-good' }
+  return { label: 'Upcoming', badge: 'badge-info' }
 }
 
 export function IposPage() {
@@ -38,13 +38,17 @@ export function IposPage() {
   }, [])
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">IPOs</h1>
-        <button
-          onClick={() => setShowForm((s) => !s)}
-          className="rounded bg-purple-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-purple-800"
-        >
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            IPOs
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {ipos.length} tracked
+          </p>
+        </div>
+        <button onClick={() => setShowForm((s) => !s)} className="btn-primary">
           {showForm ? 'Cancel' : '+ Add IPO'}
         </button>
       </div>
@@ -59,34 +63,41 @@ export function IposPage() {
       )}
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
+        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
       ) : (
-        <div className="overflow-x-auto rounded border bg-white">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-500">
+            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-3 py-2">Company</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Open</th>
-                <th className="px-3 py-2">Close</th>
-                <th className="px-3 py-2">Listing</th>
-                <th className="px-3 py-2">Registrar</th>
+                <th className="px-4 py-2.5 font-medium">Company</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Open</th>
+                <th className="px-4 py-2.5 font-medium">Close</th>
+                <th className="px-4 py-2.5 font-medium">Listing</th>
+                <th className="px-4 py-2.5 font-medium">Registrar</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
-              {ipos.map((ipo) => (
-                <tr key={ipo.id}>
-                  <td className="px-3 py-2 font-medium">{ipo.company_name}</td>
-                  <td className="px-3 py-2">{deriveStatus(ipo)}</td>
-                  <td className="px-3 py-2">{ipo.open_date}</td>
-                  <td className="px-3 py-2">{ipo.close_date}</td>
-                  <td className="px-3 py-2">{ipo.listing_date ?? '—'}</td>
-                  <td className="px-3 py-2">{ipo.registrar}</td>
-                </tr>
-              ))}
+            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {ipos.map((ipo) => {
+                const status = deriveStatus(ipo)
+                return (
+                  <tr key={ipo.id} className="hover:bg-[var(--hover-surface)]">
+                    <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {ipo.company_name}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className={`badge ${status.badge}`}>{status.label}</span>
+                    </td>
+                    <td className="px-4 py-2.5">{ipo.open_date}</td>
+                    <td className="px-4 py-2.5">{ipo.close_date}</td>
+                    <td className="px-4 py-2.5">{ipo.listing_date ?? '—'}</td>
+                    <td className="px-4 py-2.5">{ipo.registrar}</td>
+                  </tr>
+                )
+              })}
               {ipos.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No IPOs yet.
                   </td>
                 </tr>
@@ -140,7 +151,7 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="grid grid-cols-3 gap-3 rounded border bg-white p-4">
+    <form onSubmit={handleSubmit} className="card grid grid-cols-3 gap-4 p-5">
       <Field label="Company name">
         <input required value={companyName} onChange={(e) => setCompanyName(e.target.value)} className="input" />
       </Field>
@@ -181,13 +192,9 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
         <input value={registrarUrl} onChange={(e) => setRegistrarUrl(e.target.value)} className="input" />
       </Field>
 
-      {error && <p className="col-span-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="badge badge-critical col-span-3 w-fit">{error}</p>}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="col-span-3 rounded bg-purple-700 py-2 text-sm font-medium text-white hover:bg-purple-800 disabled:opacity-50"
-      >
+      <button type="submit" disabled={submitting} className="btn-primary col-span-3 py-2.5">
         {submitting ? 'Saving…' : 'Save IPO'}
       </button>
     </form>
@@ -196,7 +203,7 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="block text-sm text-gray-700">
+    <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
       {label}
       <div className="mt-1">{children}</div>
     </label>

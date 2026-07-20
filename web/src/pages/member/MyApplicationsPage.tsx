@@ -19,31 +19,37 @@ export function MyApplicationsPage() {
       })
   }, [])
 
-  if (loading) return <p className="text-gray-500">Loading…</p>
+  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Your applications</h1>
-      <div className="divide-y rounded border bg-white">
+    <div className="space-y-5">
+      <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        Your applications
+      </h1>
+      <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
         {applications.map((a) => (
-          <div key={a.id} className="p-3">
+          <div key={a.id} className="p-4">
             <div className="flex items-center justify-between">
-              <p className="font-medium">{a.ipos?.company_name}</p>
+              <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {a.ipos?.company_name}
+              </p>
               <StatusBadge status={a.status} />
             </div>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
               {a.lots} lot(s) · ₹{a.bid_amount ?? '—'}
               {a.ipos?.listing_date && ` · listing ${a.ipos.listing_date}`}
             </p>
             {a.status === 'ALLOTTED' && (
-              <p className="mt-1 text-sm text-green-700">
+              <p className="mt-1 text-sm font-medium" style={{ color: 'var(--good)' }}>
                 Allotted — please sell on listing day{a.ipos?.listing_date ? ` (${a.ipos.listing_date})` : ''}.
               </p>
             )}
           </div>
         ))}
         {applications.length === 0 && (
-          <p className="p-3 text-sm text-gray-400">No applications yet.</p>
+          <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No applications yet.
+          </p>
         )}
       </div>
     </div>
@@ -51,11 +57,11 @@ export function MyApplicationsPage() {
 }
 
 function StatusBadge({ status }: { status: Application['status'] }) {
-  const colors: Record<Application['status'], string> = {
-    APPLIED: 'bg-blue-100 text-blue-700',
-    ALLOTTED: 'bg-green-100 text-green-700',
-    NOT_ALLOTTED: 'bg-gray-100 text-gray-600',
-    SOLD: 'bg-purple-100 text-purple-700',
+  const classes: Record<Application['status'], string> = {
+    APPLIED: 'badge-info',
+    ALLOTTED: 'badge-good',
+    NOT_ALLOTTED: 'badge-neutral',
+    SOLD: 'badge-violet',
   }
-  return <span className={`rounded px-2 py-0.5 text-xs ${colors[status]}`}>{status}</span>
+  return <span className={`badge ${classes[status]}`}>{status.replace('_', ' ')}</span>
 }

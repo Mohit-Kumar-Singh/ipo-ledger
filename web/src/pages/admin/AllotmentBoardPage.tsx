@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { AllotmentBoardRow, Ipo, RegistrarLink } from '../../types/database'
+import type { AllotmentBoardRow, ApplicationStatus, Ipo, RegistrarLink } from '../../types/database'
+
+const statusBadgeClass: Record<ApplicationStatus, string> = {
+  APPLIED: 'badge-info',
+  ALLOTTED: 'badge-good',
+  NOT_ALLOTTED: 'badge-neutral',
+  SOLD: 'badge-violet',
+}
 
 export function AllotmentBoardPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
@@ -76,8 +83,15 @@ export function AllotmentBoardPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Allotment board</h1>
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          Allotment board
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Copy PAN, open the registrar, mark results — one row at a time.
+        </p>
+      </div>
 
       <div className="flex items-center gap-3">
         <select value={selectedIpoId} onChange={(e) => loadBoard(e.target.value)} className="input max-w-xs">
@@ -89,44 +103,36 @@ export function AllotmentBoardPage() {
           ))}
         </select>
         {registrarUrl && (
-          <a
-            href={registrarUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded border px-3 py-2 text-sm hover:bg-gray-50"
-          >
+          <a href={registrarUrl} target="_blank" rel="noreferrer" className="btn-secondary">
             Open registrar page ↗
           </a>
         )}
         {selected.size > 0 && (
-          <button
-            onClick={bulkMarkNotAllotted}
-            className="rounded border px-3 py-2 text-sm text-gray-600 hover:bg-gray-50"
-          >
+          <button onClick={bulkMarkNotAllotted} className="btn-secondary">
             Mark {selected.size} selected as Not allotted
           </button>
         )}
       </div>
 
-      {loading && <p className="text-gray-500">Loading…</p>}
+      {loading && <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>}
 
       {!loading && selectedIpoId && (
-        <div className="overflow-x-auto rounded border bg-white">
+        <div className="card overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-left text-gray-500">
+            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-3 py-2"></th>
-                <th className="px-3 py-2">Holder</th>
-                <th className="px-3 py-2">PAN</th>
-                <th className="px-3 py-2">Bank</th>
-                <th className="px-3 py-2">Status</th>
-                <th className="px-3 py-2">Actions</th>
+                <th className="px-4 py-2.5"></th>
+                <th className="px-4 py-2.5 font-medium">Holder</th>
+                <th className="px-4 py-2.5 font-medium">PAN</th>
+                <th className="px-4 py-2.5 font-medium">Bank</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {rows.map((row) => (
-                <tr key={row.application_id}>
-                  <td className="px-3 py-2">
+                <tr key={row.application_id} className="hover:bg-[var(--hover-surface)]">
+                  <td className="px-4 py-2.5">
                     {row.status === 'APPLIED' && (
                       <input
                         type="checkbox"
@@ -135,32 +141,34 @@ export function AllotmentBoardPage() {
                       />
                     )}
                   </td>
-                  <td className="px-3 py-2 font-medium">{row.holder_name}</td>
-                  <td className="px-3 py-2">
-                    <span className="font-mono">{revealed[row.application_id] ?? row.pan_masked}</span>
-                    <button onClick={() => revealPan(row)} className="ml-2 text-xs text-purple-700 hover:underline">
+                  <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {row.holder_name}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
+                      {revealed[row.application_id] ?? row.pan_masked}
+                    </span>
+                    <button onClick={() => revealPan(row)} className="link-accent ml-2 text-xs font-medium">
                       Reveal
                     </button>
-                    <button onClick={() => copyPan(row)} className="ml-2 text-xs text-purple-700 hover:underline">
+                    <button onClick={() => copyPan(row)} className="link-accent ml-2 text-xs font-medium">
                       Copy
                     </button>
                   </td>
-                  <td className="px-3 py-2">
-                    {row.bank_name ? `${row.bank_name} ••${row.last4}` : '—'}
+                  <td className="px-4 py-2.5">{row.bank_name ? `${row.bank_name} ••${row.last4}` : '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
                   </td>
-                  <td className="px-3 py-2">{row.status}</td>
-                  <td className="px-3 py-2">
+                  <td className="px-4 py-2.5">
                     {row.status === 'APPLIED' && (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => markStatus(row.application_id, 'ALLOTTED')}
-                          className="text-xs text-green-700 hover:underline"
-                        >
+                      <div className="flex gap-3">
+                        <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                           Allotted
                         </button>
                         <button
                           onClick={() => markStatus(row.application_id, 'NOT_ALLOTTED')}
-                          className="text-xs text-gray-500 hover:underline"
+                          className="text-xs font-medium hover:underline"
+                          style={{ color: 'var(--ink-muted)' }}
                         >
                           Not allotted
                         </button>
@@ -171,7 +179,7 @@ export function AllotmentBoardPage() {
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-3 py-4 text-center text-gray-400">
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications for this IPO.
                   </td>
                 </tr>

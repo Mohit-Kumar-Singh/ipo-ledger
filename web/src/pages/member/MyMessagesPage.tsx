@@ -17,23 +17,33 @@ export function MyMessagesPage() {
       })
   }, [])
 
-  if (loading) return <p className="text-gray-500">Loading…</p>
+  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Messages sent to you</h1>
-      <div className="divide-y rounded border bg-white">
+    <div className="space-y-5">
+      <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        Messages sent to you
+      </h1>
+      <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
         {notifications.map((n) => (
-          <div key={n.id} className="p-3">
+          <div key={n.id} className="p-4">
             <div className="flex items-center justify-between">
-              <p className="font-medium">{n.template_name}</p>
-              <span className="text-xs text-gray-500">{new Date(n.created_at).toLocaleString()}</span>
+              <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {n.template_name}
+              </p>
+              <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                {new Date(n.created_at).toLocaleString()}
+              </span>
             </div>
-            <p className="text-sm text-gray-500">{n.status}</p>
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              {n.status}
+            </p>
           </div>
         ))}
         {notifications.length === 0 && (
-          <p className="p-3 text-sm text-gray-400">No messages yet.</p>
+          <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No messages yet.
+          </p>
         )}
       </div>
     </div>

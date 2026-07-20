@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { ConfigBanner } from './components/ConfigBanner'
@@ -22,30 +23,32 @@ function HomePage() {
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <ConfigBanner />
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <ConfigBanner />
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
 
-          <Route element={<ProtectedRoute />}>
-            <Route element={<AppShell />}>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/my-applications" element={<MyApplicationsPage />} />
-              <Route path="/my-messages" element={<MyMessagesPage />} />
+            <Route element={<ProtectedRoute />}>
+              <Route element={<AppShell />}>
+                <Route path="/" element={<HomePage />} />
+                <Route path="/my-applications" element={<MyApplicationsPage />} />
+                <Route path="/my-messages" element={<MyMessagesPage />} />
 
-              <Route element={<ProtectedRoute requireAdmin />}>
-                <Route path="/accounts" element={<AccountsPage />} />
-                <Route path="/ipos" element={<IposPage />} />
-                <Route path="/applications" element={<ApplicationsPage />} />
-                <Route path="/allotment" element={<AllotmentBoardPage />} />
-                <Route path="/notifications" element={<NotificationsPage />} />
+                <Route element={<ProtectedRoute requireAdmin />}>
+                  <Route path="/accounts" element={<AccountsPage />} />
+                  <Route path="/ipos" element={<IposPage />} />
+                  <Route path="/applications" element={<ApplicationsPage />} />
+                  <Route path="/allotment" element={<AllotmentBoardPage />} />
+                  <Route path="/notifications" element={<NotificationsPage />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
-        </Routes>
-      </AuthProvider>
-    </BrowserRouter>
+          </Routes>
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   )
 }
 

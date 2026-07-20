@@ -14,7 +14,7 @@ create or replace function insert_demat_encrypted(
   p_broker text default null,
   p_dp_client_id text default null
 ) returns uuid
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
   v_id uuid;
 begin
@@ -36,7 +36,7 @@ revoke execute on function insert_demat_encrypted(text, text, text, text, text, 
 grant execute on function insert_demat_encrypted(text, text, text, text, text, text) to service_role;
 
 create or replace function decrypt_pan(p_demat_id uuid, p_key text) returns text
-language sql security definer set search_path = public as $$
+language sql security definer set search_path = public, extensions as $$
   select pgp_sym_decrypt(pan_encrypted, p_key) from demat_accounts where id = p_demat_id;
 $$;
 

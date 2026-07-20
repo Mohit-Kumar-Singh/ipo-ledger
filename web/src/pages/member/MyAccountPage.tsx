@@ -18,21 +18,25 @@ export function MyAccountPage() {
       })
   }, [])
 
-  if (loading) return <p className="text-gray-500">Loading…</p>
+  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
 
   return (
-    <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Your account</h1>
+    <div className="space-y-5">
+      <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        Your account
+      </h1>
       {accounts.map((a) => (
-        <div key={a.id} className="rounded border bg-white p-4">
-          <p className="font-medium">{a.holder_name}</p>
-          <p className="text-sm text-gray-500">
+        <div key={a.id} className="card p-5">
+          <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {a.holder_name}
+          </p>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             {a.phone_e164} · {a.broker ?? 'no broker'} · PAN {a.pan_masked}
           </p>
           {a.bank_accounts?.length > 0 && (
             <ul className="mt-2 flex flex-wrap gap-2">
               {a.bank_accounts.map((b) => (
-                <li key={b.id} className="rounded bg-gray-50 px-2 py-1 text-xs text-gray-600">
+                <li key={b.id} className="badge badge-neutral">
                   {b.bank_name} ••{b.last4}
                   {b.is_default && ' (default)'}
                 </li>
@@ -42,7 +46,9 @@ export function MyAccountPage() {
         </div>
       ))}
       {accounts.length === 0 && (
-        <p className="text-sm text-gray-400">No demat account linked to your login yet.</p>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No demat account linked to your login yet.
+        </p>
       )}
     </div>
   )

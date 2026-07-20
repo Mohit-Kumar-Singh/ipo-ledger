@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
+import { ThemeToggle } from '../components/ThemeToggle'
 
 export function LoginPage() {
   const { session } = useAuth()
@@ -27,56 +28,68 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm rounded-lg border bg-white p-6 shadow-sm">
-        <h1 className="mb-1 text-xl font-semibold">IPO Ledger</h1>
-        <p className="mb-6 text-sm text-gray-500">Sign in to continue</p>
+    <div className="relative flex min-h-screen items-center justify-center" style={{ background: 'var(--page)' }}>
+      <ThemeToggle className="absolute top-4 right-4" />
+      <div
+        className="w-full max-w-sm rounded-xl border p-7 shadow-sm"
+        style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
+      >
+        <div className="mb-6 flex items-center gap-2">
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold text-white"
+            style={{ background: 'var(--accent)' }}
+          >
+            I
+          </div>
+          <span className="text-base font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            IPO Ledger
+          </span>
+        </div>
+        <h1 className="mb-1 text-lg font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Sign in to continue
+        </h1>
+        <p className="mb-6 text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Track applications, allotments and mandates in one place.
+        </p>
 
         <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-sm text-gray-700">Email</label>
+          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+            Email
             <input
               type="email"
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              className="input mt-1"
             />
-          </div>
-          <div>
-            <label className="block text-sm text-gray-700">Password</label>
+          </label>
+          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+            Password
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded border px-3 py-2 text-sm"
+              className="input mt-1"
             />
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-          <button
-            type="submit"
-            disabled={submitting}
-            className="w-full rounded bg-purple-700 py-2 text-sm font-medium text-white hover:bg-purple-800 disabled:opacity-50"
-          >
+          </label>
+          {error && <p className="badge badge-critical w-fit">{error}</p>}
+          <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
             {submitting ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
 
-        <div className="my-4 flex items-center gap-2 text-xs text-gray-400">
-          <div className="h-px flex-1 bg-gray-200" />
+        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
           or
-          <div className="h-px flex-1 bg-gray-200" />
+          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
         </div>
 
-        <button
-          onClick={handleGoogle}
-          className="w-full rounded border py-2 text-sm font-medium hover:bg-gray-50"
-        >
+        <button onClick={handleGoogle} className="btn-secondary w-full py-2.5">
           Continue with Google
         </button>
 
-        <p className="mt-6 text-xs text-gray-400">
+        <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
           New members are invited by the admin — there's no self-signup.
         </p>
       </div>

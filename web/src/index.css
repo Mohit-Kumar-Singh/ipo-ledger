@@ -1,16 +1,164 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
 
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
+
+  /* Chrome & ink — from the validated dashboard palette */
+  --surface: #ffffff;
+  --page: #f9f9f7;
+  --hover-surface: #f4f3f0;
+  --ink-primary: #0b0b0b;
+  --ink-secondary: #52514e;
+  --ink-muted: #898781;
+  --border: #e1e0d9;
+  --border-strong: #c3c2b7;
+  --card-shadow: rgba(11, 11, 11, 0.04);
+
+  /* Accent — categorical slot 1 (blue) */
+  --accent: #2a78d6;
+  --accent-hover: #1c5cab;
+  --accent-tint: #eaf2fc;
+
+  /* Status (fixed hues; only the tint/text pairing adapts per mode) */
+  --good: #0ca30c;
+  --good-tint: #e7f7e7;
+  --good-text: #086b08;
+  --warning: #fab219;
+  --warning-tint: #fef3de;
+  --warning-text: #8a5a00;
+  --serious: #ec835a;
+  --serious-tint: #fdece4;
+  --serious-text: #a14d2e;
+  --critical: #d03b3b;
+  --critical-tint: #fbe7e7;
+  --critical-text: #a12727;
+
+  /* Categorical extra used for "final/other" states (e.g. Sold, Listed) */
+  --violet: #4a3aa7;
+  --violet-tint: #eeecf9;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --surface: #1a1a19;
+  --page: #0d0d0d;
+  --hover-surface: #232322;
+  --ink-primary: #ffffff;
+  --ink-secondary: #c3c2b7;
+  --ink-muted: #898781;
+  --border: #2c2c2a;
+  --border-strong: #383835;
+  --card-shadow: rgba(0, 0, 0, 0.4);
+
+  --accent: #3987e5;
+  --accent-hover: #5598e7;
+  --accent-tint: rgba(57, 135, 229, 0.18);
+
+  --good: #0ca30c;
+  --good-tint: rgba(12, 163, 12, 0.18);
+  --good-text: #0ca30c;
+  --warning: #fab219;
+  --warning-tint: rgba(250, 178, 25, 0.18);
+  --warning-text: #fab219;
+  --serious: #ec835a;
+  --serious-tint: rgba(236, 131, 90, 0.18);
+  --serious-text: #ec835a;
+  --critical: #d03b3b;
+  --critical-tint: rgba(208, 59, 59, 0.2);
+  --critical-text: #e66767;
+
+  --violet: #9085e9;
+  --violet-tint: rgba(144, 133, 233, 0.2);
 }
 
 body {
   margin: 0;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  background: var(--page);
+  color: var(--ink-primary);
+  font-family: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+table {
+  font-variant-numeric: tabular-nums;
 }
 
 @layer components {
   .input {
-    @apply w-full rounded border px-3 py-2 text-sm;
+    @apply w-full rounded-md border px-3 py-2 text-sm transition-colors outline-none;
+    border-color: var(--border-strong);
+    background: var(--surface);
+    color: var(--ink-primary);
+  }
+  .input::placeholder {
+    color: var(--ink-muted);
+  }
+  .input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-tint);
+  }
+
+  .btn-primary {
+    @apply rounded-md px-3 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50;
+    background: var(--accent);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+
+  .btn-secondary {
+    @apply rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50;
+    border-color: var(--border-strong);
+    color: var(--ink-primary);
+    background: var(--surface);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--hover-surface);
+  }
+
+  .link-accent {
+    color: var(--accent);
+  }
+  .link-accent:hover {
+    text-decoration: underline;
+  }
+
+  .card {
+    @apply rounded-xl border;
+    border-color: var(--border);
+    background: var(--surface);
+    box-shadow: 0 1px 2px var(--card-shadow);
+  }
+
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
+  }
+  .badge-info {
+    background: var(--accent-tint);
+    color: var(--accent-hover);
+  }
+  .badge-good {
+    background: var(--good-tint);
+    color: var(--good-text);
+  }
+  .badge-warning {
+    background: var(--warning-tint);
+    color: var(--warning-text);
+  }
+  .badge-critical {
+    background: var(--critical-tint);
+    color: var(--critical-text);
+  }
+  .badge-violet {
+    background: var(--violet-tint);
+    color: var(--violet);
+  }
+  .badge-neutral {
+    background: var(--hover-surface);
+    color: var(--ink-secondary);
   }
 }

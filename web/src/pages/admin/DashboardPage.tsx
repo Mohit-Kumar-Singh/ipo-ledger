@@ -6,7 +6,6 @@ import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
 interface DashboardData {
   closingSoon: Ipo[]
   pendingMandate: AllotmentBoardRow[]
-  unchecked: AllotmentBoardRow[]
   allottedNotSold: AllotmentBoardRow[]
   failedMessages: Notification[]
 }
@@ -19,17 +18,11 @@ export function DashboardPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const nowIso = new Date().toISOString()
+      const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
-      const h24Ago = new Date(Date.now() - 24 * 3600000).toISOString()
 
       const [closingSoon, board, failedMessages] = await Promise.all([
-        supabase
-          .from('ipos')
-          .select('*')
-          .gte('close_date', nowIso.slice(0, 10))
-          .lte('close_date', in7d)
-          .order('close_date'),
+        supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
         supabase.from('v_allotment_board').select('*'),
         supabase
           .from('notifications')
@@ -45,13 +38,10 @@ export function DashboardPage() {
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
-        unchecked: boardRows.filter((r) => r.status === 'APPLIED' && r.listing_date !== null),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
       })
       setLoading(false)
-      void h24Ago
-      void nowIso
     }
     load()
     return () => {
@@ -59,78 +49,133 @@ export function DashboardPage() {
     }
   }, [])
 
-  if (loading || !data) return <p className="text-gray-500">Loading dashboard…</p>
+  if (loading || !data) return <p style={{ color: 'var(--ink-muted)' }}>Loading dashboard…</p>
 
   return (
     <div className="space-y-8">
-      <h1 className="text-lg font-semibold">Dashboard</h1>
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          Dashboard
+        </h1>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Overview across all accounts and IPOs
+        </p>
+      </div>
 
-      <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
-        {data.closingSoon.map((ipo) => (
-          <Row key={ipo.id}>
-            <span className="font-medium">{ipo.company_name}</span>
-            <span className="text-gray-500">closes {ipo.close_date}</span>
-          </Row>
-        ))}
-      </Section>
+      <div className="grid grid-cols-4 gap-4">
+        <StatTile label="Closing within 7 days" value={data.closingSoon.length} />
+        <StatTile label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
+        <StatTile label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
+        <StatTile label="Failed messages" value={data.failedMessages.length} tone="critical" />
+      </div>
 
-      <Section title="Applications awaiting mandate approval" empty="None pending">
-        {data.pendingMandate.map((r) => (
-          <Row key={r.application_id}>
-            <span className="font-medium">{r.holder_name}</span>
-            <span className="text-gray-500">{r.company_name}</span>
-          </Row>
-        ))}
-      </Section>
+      <div className="grid grid-cols-2 gap-6">
+        <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
+          {data.closingSoon.map((ipo) => (
+            <Row key={ipo.id}>
+              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {ipo.company_name}
+              </span>
+              <span style={{ color: 'var(--ink-muted)' }}>closes {ipo.close_date}</span>
+            </Row>
+          ))}
+        </Section>
 
-      <Section title="Allotted, not yet sold" empty="Nothing outstanding">
-        {data.allottedNotSold.map((r) => (
-          <Row key={r.application_id}>
-            <span className="font-medium">{r.holder_name}</span>
-            <span className="text-gray-500">
-              {r.company_name} · listing {r.listing_date ?? '—'}
-            </span>
-          </Row>
-        ))}
-      </Section>
+        <Section title="Applications awaiting mandate approval" empty="None pending">
+          {data.pendingMandate.map((r) => (
+            <Row key={r.application_id}>
+              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {r.holder_name}
+              </span>
+              <span style={{ color: 'var(--ink-muted)' }}>{r.company_name}</span>
+            </Row>
+          ))}
+        </Section>
 
-      <Section title="Failed messages" empty="No failures">
-        {data.failedMessages.map((n) => (
-          <Row key={n.id}>
-            <span className="font-medium">{n.template_name}</span>
-            <span className="text-red-600">{n.error_detail ?? 'failed'}</span>
-          </Row>
-        ))}
-        {data.failedMessages.length > 0 && (
-          <Link to="/notifications" className="text-sm text-purple-700 hover:underline">
-            Go to notifications →
-          </Link>
-        )}
-      </Section>
+        <Section title="Allotted, not yet sold" empty="Nothing outstanding">
+          {data.allottedNotSold.map((r) => (
+            <Row key={r.application_id}>
+              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {r.holder_name}
+              </span>
+              <span style={{ color: 'var(--ink-muted)' }}>
+                {r.company_name} · listing {r.listing_date ?? '—'}
+              </span>
+            </Row>
+          ))}
+        </Section>
+
+        <Section title="Failed messages" empty="No failures">
+          {data.failedMessages.map((n) => (
+            <Row key={n.id}>
+              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {n.template_name}
+              </span>
+              <span style={{ color: 'var(--critical)' }}>{n.error_detail ?? 'failed'}</span>
+            </Row>
+          ))}
+          {data.failedMessages.length > 0 && (
+            <div className="px-4 py-2.5">
+              <Link to="/notifications" className="link-accent text-sm font-medium">
+                Go to notifications →
+              </Link>
+            </div>
+          )}
+        </Section>
+      </div>
     </div>
   )
 }
 
-function Section({
-  title,
-  empty,
-  children,
+function StatTile({
+  label,
+  value,
+  tone = 'info',
 }: {
-  title: string
-  empty: string
-  children: ReactNode
+  label: string
+  value: number
+  tone?: 'info' | 'warning' | 'good' | 'critical'
 }) {
+  const toneColor = {
+    info: 'var(--accent)',
+    warning: 'var(--warning)',
+    good: 'var(--good)',
+    critical: 'var(--critical)',
+  }[tone]
+
+  return (
+    <div className="card p-4">
+      <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
+        {label}
+      </p>
+      <p
+        className="mt-2 text-3xl font-semibold"
+        style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
+      >
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function Section({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.some(Boolean) : Boolean(children)
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold text-gray-700">{title}</h2>
-      <div className="divide-y rounded border bg-white">
-        {hasChildren ? children : <p className="p-3 text-sm text-gray-400">{empty}</p>}
+      <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        {title}
+      </h2>
+      <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+        {hasChildren ? children : <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>{empty}</p>}
       </div>
     </section>
   )
 }
 
 function Row({ children }: { children: ReactNode }) {
-  return <div className="flex items-center justify-between px-3 py-2 text-sm">{children}</div>
+  return (
+    <div className="flex items-center justify-between px-4 py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+      {children}
+    </div>
+  )
 }
