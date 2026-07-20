@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { ConfigBanner } from './components/ConfigBanner'
 import { PageSpinner } from './components/PageSpinner'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { useAuth } from './contexts/AuthContext'
 
 // Route-level code splitting: each page's JS only downloads when that route
@@ -43,35 +44,37 @@ function HomePage() {
 
 function App() {
   return (
-    <ThemeProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <ConfigBanner />
-          <Suspense fallback={<PageSpinner />}>
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
+    <ErrorBoundary>
+      <ThemeProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <ConfigBanner />
+            <Suspense fallback={<PageSpinner />}>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
 
-              <Route element={<ProtectedRoute />}>
-                <Route element={<AppShell />}>
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/my-applications" element={<MyApplicationsPage />} />
-                  <Route path="/my-messages" element={<MyMessagesPage />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<AppShell />}>
+                    <Route path="/" element={<HomePage />} />
+                    <Route path="/my-applications" element={<MyApplicationsPage />} />
+                    <Route path="/my-messages" element={<MyMessagesPage />} />
 
-                  <Route element={<ProtectedRoute requireAdmin />}>
-                    <Route path="/accounts" element={<AccountsPage />} />
-                    <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                    <Route path="/ipos" element={<IposPage />} />
-                    <Route path="/applications" element={<ApplicationsPage />} />
-                    <Route path="/allotment" element={<AllotmentBoardPage />} />
-                    <Route path="/notifications" element={<NotificationsPage />} />
+                    <Route element={<ProtectedRoute requireAdmin />}>
+                      <Route path="/accounts" element={<AccountsPage />} />
+                      <Route path="/bank-accounts" element={<BankAccountsPage />} />
+                      <Route path="/ipos" element={<IposPage />} />
+                      <Route path="/applications" element={<ApplicationsPage />} />
+                      <Route path="/allotment" element={<AllotmentBoardPage />} />
+                      <Route path="/notifications" element={<NotificationsPage />} />
+                    </Route>
                   </Route>
                 </Route>
-              </Route>
-            </Routes>
-          </Suspense>
-        </AuthProvider>
-      </BrowserRouter>
-    </ThemeProvider>
+              </Routes>
+            </Suspense>
+          </AuthProvider>
+        </BrowserRouter>
+      </ThemeProvider>
+    </ErrorBoundary>
   )
 }
 

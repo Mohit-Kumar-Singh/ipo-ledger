@@ -1,33 +1,38 @@
 // Called by Meta. GET = verification handshake. POST = delivery-status updates.
 import { createClient } from 'npm:@supabase/supabase-js@2'
+import { logError, logRequest } from '../_shared/http.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const WA_VERIFY_TOKEN = Deno.env.get('WA_VERIFY_TOKEN')!
-const META_APP_SECRET = Deno.env.get('META_APP_SECRET')!
+// Empty until Meta/WhatsApp setup (doc 06) is done — a blank secret makes
+// verifySignature() reject every request rather than throwing, which is the
+// correct behavior (webhook stays closed) while WhatsApp isn't configured yet.
+const WA_VERIFY_TOKEN = Deno.env.get('WA_VERIFY_TOKEN') ?? ''
+const META_APP_SECRET = Deno.env.get('META_APP_SECRET') ?? ''
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
 Deno.serve(async (req) => {
+  logRequest('wa-webhook', req)
   const url = new URL(req.url)
 
   if (req.method === 'GET') {
     const mode = url.searchParams.get('hub.mode')
     const token = url.searchParams.get('hub.verify_token')
     const challenge = url.searchParams.get('hub.challenge')
-    if (mode === 'subscribe' && token === WA_VERIFY_TOKEN) {
+    if (mode === 'subscribe' && WA_VERIFY_TOKEN && token === WA_VERIFY_TOKEN) {
       return new Response(challenge ?? '', { status: 200 })
     }
     return new Response('forbidden', { status: 403 })
   }
 
   if (req.method === 'POST') {
-    const rawBody = await req.text()
-    const signatureHeader = req.headers.get('x-hub-signature-256') ?? ''
-    const valid = await verifySignature(rawBody, signatureHeader, META_APP_SECRET)
-    if (!valid) return new Response('invalid signature', { status: 401 })
-
     try {
+      const rawBody = await req.text()
+      const signatureHeader = req.headers.get('x-hub-signature-256') ?? ''
+      const valid = META_APP_SECRET && (await verifySignature(rawBody, signatureHeader, META_APP_SECRET))
+      if (!valid) return new Response('invalid signature', { status: 401 })
+
       const payload = JSON.parse(rawBody)
       // deno-lint-ignore no-explicit-any
       const statuses: any[] =
@@ -47,7 +52,7 @@ Deno.serve(async (req) => {
           .eq('wa_message_id', s.id)
       }
     } catch (err) {
-      console.error('wa-webhook parse error', err)
+      logError('wa-webhook', err)
     }
 
     // Always 200 quickly so Meta doesn't retry/backoff.
