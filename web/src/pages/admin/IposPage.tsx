@@ -20,6 +20,7 @@ interface ImportCandidate {
   price_high: number | null
   lot_size: number | null
   exchange: string | null
+  gmp: string | null
   source_url: string
 }
 
@@ -38,6 +39,7 @@ interface IpoPrefill {
   closeDate?: string
   allotmentDate?: string
   listingDate?: string
+  gmpNotes?: string
 }
 
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
@@ -107,8 +109,24 @@ export function IposPage() {
       closeDate: c.close_date ?? '',
       allotmentDate: detail?.allotment_date ?? '',
       listingDate: detail?.listing_date ?? '',
+      gmpNotes: c.gmp ?? '',
     })
     setShowImport(false)
+  }
+
+  async function deleteIpo(ipo: Ipo) {
+    if (
+      !window.confirm(
+        `Delete ${ipo.company_name}? This also deletes any applications (and their notification history reference) for this IPO. This cannot be undone.`,
+      )
+    )
+      return
+    const { error } = await supabase.from('ipos').delete().eq('id', ipo.id)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
   }
 
   const existingNames = new Set(ipos.map((i) => i.company_name.toLowerCase()))
@@ -211,6 +229,8 @@ export function IposPage() {
                 <th className="px-4 py-2.5 font-medium">Close</th>
                 <th className="px-4 py-2.5 font-medium">Listing</th>
                 <th className="px-4 py-2.5 font-medium">Registrar</th>
+                <th className="px-4 py-2.5 font-medium">GMP</th>
+                <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
@@ -228,12 +248,24 @@ export function IposPage() {
                     <td className="px-4 py-2.5">{ipo.close_date}</td>
                     <td className="px-4 py-2.5">{ipo.listing_date ?? '—'}</td>
                     <td className="px-4 py-2.5">{ipo.registrar}</td>
+                    <td className="px-4 py-2.5" style={{ color: 'var(--good)' }}>
+                      {ipo.gmp_notes ?? '—'}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <button
+                        onClick={() => deleteIpo(ipo)}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--critical)' }}
+                      >
+                        Delete
+                      </button>
+                    </td>
                   </tr>
                 )
               })}
               {ipos.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={8} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No IPOs yet.
                   </td>
                 </tr>
@@ -278,8 +310,18 @@ function ImportCard({
         <Stat label="Lot size" value={c.lot_size ? String(c.lot_size) : 'N/A'} />
       </div>
 
+      {c.gmp && (
+        <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+          {c.gmp}
+        </p>
+      )}
+
       <button onClick={onUse} disabled={loading} className="btn-secondary mt-1 disabled:opacity-50">
-        {loading ? 'Fetching allotment/listing dates…' : 'Use this IPO →'}
+        {loading
+          ? 'Fetching allotment/listing dates…'
+          : alreadyAdded
+            ? 'Use this IPO → (updates existing)'
+            : 'Use this IPO →'}
       </button>
     </div>
   )
@@ -306,6 +348,7 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
   const [closeDate, setCloseDate] = useState(initial.closeDate ?? '')
   const [allotmentDate, setAllotmentDate] = useState(initial.allotmentDate ?? '')
   const [listingDate, setListingDate] = useState(initial.listingDate ?? '')
+  const [gmpNotes, setGmpNotes] = useState(initial.gmpNotes ?? '')
   const [registrar, setRegistrar] = useState<Registrar>('OTHER')
   const [registrarUrl, setRegistrarUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -315,7 +358,8 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
     e.preventDefault()
     setError(null)
     setSubmitting(true)
-    const { error } = await supabase.from('ipos').insert({
+
+    const payload = {
       company_name: companyName,
       symbol: symbol || null,
       price_low: priceLow ? Number(priceLow) : null,
@@ -327,7 +371,22 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
       listing_date: listingDate || null,
       registrar,
       registrar_url: registrarUrl || null,
-    })
+      gmp_notes: gmpNotes || null,
+    }
+
+    // Same company (case-insensitive exact match) updates the existing row
+    // instead of creating a duplicate — matters for re-importing an IPO
+    // whose GMP/allotment/listing info has since changed.
+    const { data: existing } = await supabase
+      .from('ipos')
+      .select('id')
+      .ilike('company_name', companyName)
+      .maybeSingle()
+
+    const { error } = existing
+      ? await supabase.from('ipos').update(payload).eq('id', existing.id)
+      : await supabase.from('ipos').insert(payload)
+
     setSubmitting(false)
     if (error) {
       setError(error.message)
@@ -376,6 +435,14 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
       </Field>
       <Field label="Registrar allotment-check URL">
         <input value={registrarUrl} onChange={(e) => setRegistrarUrl(e.target.value)} className="input" />
+      </Field>
+      <Field label="GMP notes">
+        <input
+          value={gmpNotes}
+          onChange={(e) => setGmpNotes(e.target.value)}
+          placeholder="e.g. GMP: ₹95-96 (17%)"
+          className="input"
+        />
       </Field>
 
       {error && <p className="badge badge-critical col-span-3 w-fit">{error}</p>}

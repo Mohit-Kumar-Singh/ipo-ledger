@@ -31,6 +31,31 @@ export function AccountsPage() {
     if (!error && data) setRevealed((r) => ({ ...r, [id]: data.pan }))
   }
 
+  async function deleteAccount(id: string, name: string) {
+    if (!window.confirm(`Delete ${name}? This is only possible if they have no applications or messages on record.`))
+      return
+    const { error } = await supabase.from('demat_accounts').delete().eq('id', id)
+    if (error) {
+      alert(
+        error.code === '23503'
+          ? `Can't delete ${name} — they have applications or messages on record. Delete those first.`
+          : error.message,
+      )
+      return
+    }
+    load()
+  }
+
+  async function deleteBank(id: string) {
+    if (!window.confirm('Remove this bank account?')) return
+    const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -79,7 +104,16 @@ export function AccountsPage() {
                     )}
                   </p>
                 </div>
-                {!a.linked_user_id && <span className="badge badge-neutral">not invited</span>}
+                <div className="flex shrink-0 items-center gap-2">
+                  {!a.linked_user_id && <span className="badge badge-neutral">not invited</span>}
+                  <button
+                    onClick={() => deleteAccount(a.id, a.holder_name)}
+                    className="text-xs font-medium hover:underline"
+                    style={{ color: 'var(--critical)' }}
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
               {a.bank_accounts?.length > 0 && (
                 <ul className="mt-2 flex flex-wrap gap-2">
@@ -87,6 +121,14 @@ export function AccountsPage() {
                     <li key={b.id} className="badge badge-neutral">
                       {b.bank_name} ••{b.last4}
                       {b.is_default && ' (default)'}
+                      <button
+                        onClick={() => deleteBank(b.id)}
+                        aria-label={`Remove ${b.bank_name} bank account`}
+                        className="ml-1"
+                        style={{ color: 'var(--critical)' }}
+                      >
+                        ×
+                      </button>
                     </li>
                   ))}
                 </ul>

@@ -34,6 +34,7 @@ interface Candidate {
   price_high: number | null
   lot_size: number | null
   exchange: string | null
+  gmp: string | null
   source_url: string
 }
 
@@ -91,11 +92,12 @@ async function handleList(source: string) {
     let price_low: number | null = null
     let price_high: number | null = null
     let lot_size: number | null = null
+    let gmp: string | null = null
 
     // deno-lint-ignore no-explicit-any
     for (const stat of Array.from(el.querySelectorAll('.ipo-card-body-stat')) as any[]) {
       const label = stat.querySelector('.ipo-card-secondary-label')?.textContent?.trim()
-      const value = stat.querySelector('.ipo-card-body-value')?.textContent?.trim()
+      const value = stat.querySelector('.ipo-card-body-value')?.textContent?.replace(/\s+/g, ' ').trim()
       if (!label || !value || value.includes('N/A')) continue
 
       if (label === 'Offer Price') {
@@ -116,13 +118,16 @@ async function handleList(source: string) {
         const n = Number(value.replace(/[^\d]/g, ''))
         if (!Number.isNaN(n) && n > 0) lot_size = n
       }
+      if (label === 'Exp. Premium') {
+        gmp = `GMP: ${value}`
+      }
     }
 
     const onclick = el.getAttribute('onclick') ?? ''
     const link = onclick.match(/'(\/ipo\/[a-z0-9-]+)'/)?.[1]
     const source_url = link ? `https://www.ipoji.com${link}` : url
 
-    candidates.push({ company_name: name, open_date, close_date, price_low, price_high, lot_size, exchange, source_url })
+    candidates.push({ company_name: name, open_date, close_date, price_low, price_high, lot_size, exchange, gmp, source_url })
   }
 
   return { candidates, source, fetched_at: new Date().toISOString() }

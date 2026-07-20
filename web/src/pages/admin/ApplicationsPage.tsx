@@ -47,6 +47,16 @@ export function ApplicationsPage() {
     load()
   }
 
+  async function deleteApplication(id: string) {
+    if (!window.confirm('Delete this application? This cannot be undone.')) return
+    const { error } = await supabase.from('applications').delete().eq('id', id)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
@@ -102,25 +112,34 @@ export function ApplicationsPage() {
                     <StatusBadge status={a.status} />
                   </td>
                   <td className="px-4 py-2.5">
-                    {a.status === 'APPLIED' && (
-                      <div className="flex gap-3">
-                        <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
-                          Allotted
+                    <div className="flex flex-wrap items-center gap-3">
+                      {a.status === 'APPLIED' && (
+                        <>
+                          <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
+                            Allotted
+                          </button>
+                          <button
+                            onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
+                            className="text-xs font-medium hover:underline"
+                            style={{ color: 'var(--ink-muted)' }}
+                          >
+                            Not allotted
+                          </button>
+                        </>
+                      )}
+                      {a.status === 'ALLOTTED' && (
+                        <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
+                          Mark sold
                         </button>
-                        <button
-                          onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
-                          className="text-xs font-medium hover:underline"
-                          style={{ color: 'var(--ink-muted)' }}
-                        >
-                          Not allotted
-                        </button>
-                      </div>
-                    )}
-                    {a.status === 'ALLOTTED' && (
-                      <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
-                        Mark sold
+                      )}
+                      <button
+                        onClick={() => deleteApplication(a.id)}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--critical)' }}
+                      >
+                        Delete
                       </button>
-                    )}
+                    </div>
                   </td>
                 </tr>
               ))}
