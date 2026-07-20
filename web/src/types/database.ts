@@ -55,6 +55,7 @@ export interface Ipo {
   registrar: Registrar
   registrar_url: string | null
   gmp_notes: string | null
+  issue_size: string | null
   created_at: string
 }
 

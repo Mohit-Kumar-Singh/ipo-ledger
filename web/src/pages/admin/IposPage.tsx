@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import type { Ipo, Registrar } from '../../types/database'
+import { IpoTimeline } from '../../components/IpoTimeline'
 
 const registrars: Registrar[] = [
   'MUFG_INTIME',
@@ -21,6 +22,7 @@ interface ImportCandidate {
   lot_size: number | null
   exchange: string | null
   gmp: string | null
+  issue_size: string | null
   source_url: string
 }
 
@@ -28,18 +30,11 @@ interface ImportDetail {
   allotment_date: string | null
   listing_date: string | null
   exchange: string | null
+  issue_size: string | null
 }
 
-interface IpoPrefill {
-  companyName?: string
-  priceLow?: string
-  priceHigh?: string
-  lotSize?: string
-  openDate?: string
-  closeDate?: string
-  allotmentDate?: string
-  listingDate?: string
-  gmpNotes?: string
+function isEligible(c: ImportCandidate): boolean {
+  return c.open_date != null && c.close_date != null && c.lot_size != null
 }
 
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
@@ -51,17 +46,36 @@ function deriveStatus(ipo: Ipo): { label: string; badge: string } {
   return { label: 'Upcoming', badge: 'badge-info' }
 }
 
+// Upserts by company name (case-insensitive exact match) so re-importing the
+// same IPO refreshes it instead of creating a duplicate.
+async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
+  const { data: existing } = await supabase
+    .from('ipos')
+    .select('id')
+    .ilike('company_name', payload.company_name as string)
+    .maybeSingle()
+
+  const { error } = existing
+    ? await supabase.from('ipos').update(payload).eq('id', existing.id)
+    : await supabase.from('ipos').insert(payload)
+
+  return { error: error?.message ?? null }
+}
+
 export function IposPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [loading, setLoading] = useState(true)
-  const [formPrefill, setFormPrefill] = useState<IpoPrefill | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
 
   const [showImport, setShowImport] = useState(false)
   const [importSource, setImportSource] = useState<'current' | 'upcoming'>('current')
   const [importLoading, setImportLoading] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<ImportCandidate[]>([])
-  const [detailLoadingFor, setDetailLoadingFor] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkSaving, setBulkSaving] = useState(false)
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 })
+  const [bulkResult, setBulkResult] = useState<{ saved: number; skipped: number } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -79,6 +93,8 @@ export function IposPage() {
     setImportLoading(true)
     setImportError(null)
     setCandidates([])
+    setSelected(new Set())
+    setBulkResult(null)
     const { data, error } = await supabase.functions.invoke<{ candidates?: ImportCandidate[]; error?: string }>(
       'import-ipos',
       { body: { mode: 'list', source } },
@@ -91,27 +107,62 @@ export function IposPage() {
     setCandidates(data.candidates)
   }
 
-  async function useCandidate(c: ImportCandidate) {
-    setDetailLoadingFor(c.source_url)
-    const { data, error } = await supabase.functions.invoke<ImportDetail & { error?: string }>('import-ipos', {
-      body: { mode: 'detail', detail_url: c.source_url },
+  function toggleSelected(url: string) {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(url)) next.delete(url)
+      else next.add(url)
+      return next
     })
-    setDetailLoadingFor(null)
+  }
 
-    const detail = !error && data && !data.error ? data : null
+  function selectAllEligible() {
+    setSelected(new Set(candidates.filter(isEligible).map((c) => c.source_url)))
+  }
 
-    setFormPrefill({
-      companyName: c.company_name,
-      priceLow: c.price_low != null ? String(c.price_low) : '',
-      priceHigh: c.price_high != null ? String(c.price_high) : '',
-      lotSize: c.lot_size != null ? String(c.lot_size) : '',
-      openDate: c.open_date ?? '',
-      closeDate: c.close_date ?? '',
-      allotmentDate: detail?.allotment_date ?? '',
-      listingDate: detail?.listing_date ?? '',
-      gmpNotes: c.gmp ?? '',
-    })
-    setShowImport(false)
+  async function saveSelected() {
+    const chosen = candidates.filter((c) => selected.has(c.source_url))
+    if (chosen.length === 0) return
+
+    setBulkSaving(true)
+    setBulkProgress({ done: 0, total: chosen.length })
+    let saved = 0
+    let skipped = 0
+
+    for (const c of chosen) {
+      if (!isEligible(c)) {
+        skipped++
+        setBulkProgress((p) => ({ ...p, done: p.done + 1 }))
+        continue
+      }
+
+      const { data: detail } = await supabase.functions.invoke<ImportDetail & { error?: string }>('import-ipos', {
+        body: { mode: 'detail', detail_url: c.source_url },
+      })
+
+      const { error } = await upsertIpo({
+        company_name: c.company_name,
+        price_low: c.price_low,
+        price_high: c.price_high,
+        lot_size: c.lot_size,
+        open_date: c.open_date,
+        close_date: c.close_date,
+        allotment_date: detail?.allotment_date ?? null,
+        listing_date: detail?.listing_date ?? null,
+        registrar: 'OTHER',
+        gmp_notes: c.gmp,
+        issue_size: detail?.issue_size ?? c.issue_size,
+      })
+
+      if (error) skipped++
+      else saved++
+      setBulkProgress((p) => ({ ...p, done: p.done + 1 }))
+    }
+
+    setBulkSaving(false)
+    setBulkResult({ saved, skipped })
+    setSelected(new Set())
+    load()
   }
 
   async function deleteIpo(ipo: Ipo) {
@@ -146,7 +197,7 @@ export function IposPage() {
           <button
             onClick={() => {
               setShowImport((s) => !s)
-              setFormPrefill(null)
+              setShowAddForm(false)
             }}
             className="btn-secondary"
           >
@@ -154,12 +205,12 @@ export function IposPage() {
           </button>
           <button
             onClick={() => {
-              setFormPrefill((p) => (p ? null : {}))
+              setShowAddForm((s) => !s)
               setShowImport(false)
             }}
             className="btn-primary"
           >
-            {formPrefill ? 'Cancel' : '+ Add IPO'}
+            {showAddForm ? 'Cancel' : '+ Add IPO'}
           </button>
         </div>
       </div>
@@ -167,8 +218,9 @@ export function IposPage() {
       {showImport && (
         <div className="card space-y-4 p-5">
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Pulls live data from ipoji.com. Pick a card to open the Add IPO form pre-filled — nothing saves until
-            you review and hit Save IPO there.
+            Pulls live data from ipoji.com. Select the ones you want, then save them all at once. Cards missing a
+            date or lot size (ipoji shows them as TBA/N/A) can't be bulk-saved yet — add those manually once ipoji
+            has full details.
           </p>
           <div className="flex flex-wrap gap-2">
             <button
@@ -185,32 +237,54 @@ export function IposPage() {
             >
               Upcoming IPOs
             </button>
+            {candidates.length > 0 && (
+              <button onClick={selectAllEligible} className="btn-secondary">
+                Select all eligible
+              </button>
+            )}
           </div>
 
           {importLoading && <p style={{ color: 'var(--ink-muted)' }}>Fetching…</p>}
           {importError && <p className="badge badge-critical w-fit">{importError}</p>}
+          {bulkResult && (
+            <p className="badge badge-good w-fit">
+              Saved {bulkResult.saved}
+              {bulkResult.skipped > 0 ? `, skipped ${bulkResult.skipped}` : ''}
+            </p>
+          )}
 
           {!importLoading && candidates.length > 0 && (
-            <div className="grid grid-cols-1 gap-3 overflow-y-auto sm:grid-cols-2" style={{ maxHeight: '560px' }}>
-              {candidates.map((c) => (
-                <ImportCard
-                  key={c.source_url}
-                  candidate={c}
-                  alreadyAdded={existingNames.has(c.company_name.toLowerCase())}
-                  loading={detailLoadingFor === c.source_url}
-                  onUse={() => useCandidate(c)}
-                />
-              ))}
-            </div>
+            <>
+              <div className="grid grid-cols-1 gap-3 overflow-y-auto sm:grid-cols-2" style={{ maxHeight: '480px' }}>
+                {candidates.map((c) => (
+                  <ImportCard
+                    key={c.source_url}
+                    candidate={c}
+                    alreadyAdded={existingNames.has(c.company_name.toLowerCase())}
+                    eligible={isEligible(c)}
+                    checked={selected.has(c.source_url)}
+                    onToggle={() => toggleSelected(c.source_url)}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={saveSelected}
+                disabled={selected.size === 0 || bulkSaving}
+                className="btn-primary disabled:opacity-50"
+              >
+                {bulkSaving
+                  ? `Saving ${bulkProgress.done}/${bulkProgress.total}…`
+                  : `Save ${selected.size} selected`}
+              </button>
+            </>
           )}
         </div>
       )}
 
-      {formPrefill !== null && (
+      {showAddForm && (
         <AddIpoForm
-          initial={formPrefill}
           onDone={() => {
-            setFormPrefill(null)
+            setShowAddForm(false)
             load()
           }}
         />
@@ -218,60 +292,60 @@ export function IposPage() {
 
       {loading ? (
         <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+      ) : ipos.length === 0 ? (
+        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No IPOs yet.
+        </p>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
-              <tr>
-                <th className="px-4 py-2.5 font-medium">Company</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Open</th>
-                <th className="px-4 py-2.5 font-medium">Close</th>
-                <th className="px-4 py-2.5 font-medium">Listing</th>
-                <th className="px-4 py-2.5 font-medium">Registrar</th>
-                <th className="px-4 py-2.5 font-medium">GMP</th>
-                <th className="px-4 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {ipos.map((ipo) => {
-                const status = deriveStatus(ipo)
-                return (
-                  <tr key={ipo.id} className="hover:bg-[var(--hover-surface)]">
-                    <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {ipo.company_name}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={`badge ${status.badge}`}>{status.label}</span>
-                    </td>
-                    <td className="px-4 py-2.5">{ipo.open_date}</td>
-                    <td className="px-4 py-2.5">{ipo.close_date}</td>
-                    <td className="px-4 py-2.5">{ipo.listing_date ?? '—'}</td>
-                    <td className="px-4 py-2.5">{ipo.registrar}</td>
-                    <td className="px-4 py-2.5" style={{ color: 'var(--good)' }}>
-                      {ipo.gmp_notes ?? '—'}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <button
-                        onClick={() => deleteIpo(ipo)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--critical)' }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {ipos.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
-                    No IPOs yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {ipos.map((ipo) => {
+            const status = deriveStatus(ipo)
+            return (
+              <div key={ipo.id} className="card flex flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                    {ipo.company_name}
+                  </h3>
+                  <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
+                </div>
+
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  {ipo.registrar}
+                  {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
+                  {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
+                </p>
+
+                {(ipo.gmp_notes || ipo.issue_size) && (
+                  <p className="text-xs">
+                    {ipo.gmp_notes && (
+                      <span className="font-medium" style={{ color: 'var(--good)' }}>
+                        {ipo.gmp_notes}
+                      </span>
+                    )}
+                    {ipo.gmp_notes && ipo.issue_size && ' · '}
+                    {ipo.issue_size && <span style={{ color: 'var(--ink-muted)' }}>Issue size {ipo.issue_size}</span>}
+                  </p>
+                )}
+
+                <IpoTimeline
+                  openDate={ipo.open_date}
+                  closeDate={ipo.close_date}
+                  allotmentDate={ipo.allotment_date}
+                  listingDate={ipo.listing_date}
+                />
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => deleteIpo(ipo)}
+                    className="text-xs font-medium hover:underline"
+                    style={{ color: 'var(--critical)' }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>
@@ -281,20 +355,34 @@ export function IposPage() {
 function ImportCard({
   candidate: c,
   alreadyAdded,
-  loading,
-  onUse,
+  eligible,
+  checked,
+  onToggle,
 }: {
   candidate: ImportCandidate
   alreadyAdded: boolean
-  loading: boolean
-  onUse: () => void
+  eligible: boolean
+  checked: boolean
+  onToggle: () => void
 }) {
   return (
-    <div className="card flex flex-col gap-3 p-4">
+    <label
+      className="card flex cursor-pointer flex-col gap-3 p-4"
+      style={{ opacity: eligible ? 1 : 0.6 }}
+    >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          {c.company_name}
-        </h3>
+        <div className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={!eligible}
+            onChange={onToggle}
+            className="mt-1"
+          />
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            {c.company_name}
+          </h3>
+        </div>
         <div className="flex shrink-0 flex-wrap justify-end gap-1">
           {c.exchange && <span className="badge badge-info">{c.exchange}</span>}
           {alreadyAdded && <span className="badge badge-neutral">already added</span>}
@@ -310,20 +398,24 @@ function ImportCard({
         <Stat label="Lot size" value={c.lot_size ? String(c.lot_size) : 'N/A'} />
       </div>
 
-      {c.gmp && (
-        <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
-          {c.gmp}
+      {(c.gmp || c.issue_size) && (
+        <p className="text-xs">
+          {c.gmp && (
+            <span className="font-medium" style={{ color: 'var(--good)' }}>
+              {c.gmp}
+            </span>
+          )}
+          {c.gmp && c.issue_size && ' · '}
+          {c.issue_size && <span style={{ color: 'var(--ink-muted)' }}>Issue size {c.issue_size}</span>}
         </p>
       )}
 
-      <button onClick={onUse} disabled={loading} className="btn-secondary mt-1 disabled:opacity-50">
-        {loading
-          ? 'Fetching allotment/listing dates…'
-          : alreadyAdded
-            ? 'Use this IPO → (updates existing)'
-            : 'Use this IPO →'}
-      </button>
-    </div>
+      {!eligible && (
+        <p className="text-xs" style={{ color: 'var(--warning-text)' }}>
+          Missing date or lot size — can't bulk-save.
+        </p>
+      )}
+    </label>
   )
 }
 
@@ -338,17 +430,18 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => void }) {
-  const [companyName, setCompanyName] = useState(initial.companyName ?? '')
+function AddIpoForm({ onDone }: { onDone: () => void }) {
+  const [companyName, setCompanyName] = useState('')
   const [symbol, setSymbol] = useState('')
-  const [priceLow, setPriceLow] = useState(initial.priceLow ?? '')
-  const [priceHigh, setPriceHigh] = useState(initial.priceHigh ?? '')
-  const [lotSize, setLotSize] = useState(initial.lotSize ?? '')
-  const [openDate, setOpenDate] = useState(initial.openDate ?? '')
-  const [closeDate, setCloseDate] = useState(initial.closeDate ?? '')
-  const [allotmentDate, setAllotmentDate] = useState(initial.allotmentDate ?? '')
-  const [listingDate, setListingDate] = useState(initial.listingDate ?? '')
-  const [gmpNotes, setGmpNotes] = useState(initial.gmpNotes ?? '')
+  const [priceLow, setPriceLow] = useState('')
+  const [priceHigh, setPriceHigh] = useState('')
+  const [lotSize, setLotSize] = useState('')
+  const [openDate, setOpenDate] = useState('')
+  const [closeDate, setCloseDate] = useState('')
+  const [allotmentDate, setAllotmentDate] = useState('')
+  const [listingDate, setListingDate] = useState('')
+  const [gmpNotes, setGmpNotes] = useState('')
+  const [issueSize, setIssueSize] = useState('')
   const [registrar, setRegistrar] = useState<Registrar>('OTHER')
   const [registrarUrl, setRegistrarUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -359,7 +452,7 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
     setError(null)
     setSubmitting(true)
 
-    const payload = {
+    const { error } = await upsertIpo({
       company_name: companyName,
       symbol: symbol || null,
       price_low: priceLow ? Number(priceLow) : null,
@@ -372,24 +465,12 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
       registrar,
       registrar_url: registrarUrl || null,
       gmp_notes: gmpNotes || null,
-    }
-
-    // Same company (case-insensitive exact match) updates the existing row
-    // instead of creating a duplicate — matters for re-importing an IPO
-    // whose GMP/allotment/listing info has since changed.
-    const { data: existing } = await supabase
-      .from('ipos')
-      .select('id')
-      .ilike('company_name', companyName)
-      .maybeSingle()
-
-    const { error } = existing
-      ? await supabase.from('ipos').update(payload).eq('id', existing.id)
-      : await supabase.from('ipos').insert(payload)
+      issue_size: issueSize || null,
+    })
 
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(error)
       return
     }
     onDone()
@@ -441,6 +522,14 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
           value={gmpNotes}
           onChange={(e) => setGmpNotes(e.target.value)}
           placeholder="e.g. GMP: ₹95-96 (17%)"
+          className="input"
+        />
+      </Field>
+      <Field label="Issue size">
+        <input
+          value={issueSize}
+          onChange={(e) => setIssueSize(e.target.value)}
+          placeholder="e.g. ₹9795.31 Cr"
           className="input"
         />
       </Field>
