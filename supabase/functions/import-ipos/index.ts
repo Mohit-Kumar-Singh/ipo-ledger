@@ -1,8 +1,12 @@
-// Admin-only. Fetches ipoji.com's current/upcoming IPO listing and parses out
-// candidate rows for review in the UI. Nothing is written to the database here —
-// this only returns candidates; the admin picks which ones to add via the
-// existing Add IPO form, since ipoji's own data is sometimes TBA/N/A while our
-// schema requires open_date, close_date and lot_size.
+// Admin-only. Two modes, both read-only — nothing is written to the database here:
+//  - { mode: "list", source: "current" | "upcoming" }: parses ipoji.com's listing
+//    page into candidate rows (company, dates, price band, lot size).
+//  - { mode: "detail", detail_url: "<an ipoji.com /ipo/... url from a list result>" }:
+//    parses that IPO's detail page for allotment date, listing date and exchange,
+//    which only appear there, not on the list cards.
+// The admin picks which ones to add via the existing Add IPO form, since ipoji's
+// own data is sometimes TBA/N/A while our schema requires open_date, close_date
+// and lot_size.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 // deno-dom: HTML parsing for the scrape (no official ipoji API exists).
 import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts'
@@ -16,6 +20,11 @@ const SOURCES: Record<string, string> = {
   current: 'https://www.ipoji.com/ipo/current-ipo',
   upcoming: 'https://www.ipoji.com/ipo/upcoming-ipo',
 }
+const USER_AGENT = 'Mozilla/5.0 (compatible; IPOLedgerBot/1.0; +personal-use import tool)'
+const MONTHS: Record<string, string> = {
+  jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+  jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+}
 
 interface Candidate {
   company_name: string
@@ -28,46 +37,39 @@ interface Candidate {
   source_url: string
 }
 
-Deno.serve(async (req) => {
-  const preflight = handlePreflight(req)
-  if (preflight) return preflight
+interface Detail {
+  allotment_date: string | null
+  listing_date: string | null
+  exchange: string | null
+}
 
-  const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
-  const { data: userData } = await admin.auth.getUser(jwt)
-  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+// "Jul 17, 2026" -> "2026-07-17". Manual parsing avoids Date() timezone shift bugs.
+function parseIpojiDate(text: string): string | null {
+  const m = text.trim().match(/^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})$/)
+  if (!m) return null
+  const month = MONTHS[m[1].toLowerCase()]
+  if (!month) return null
+  return `${m[3]}-${month}-${m[2].padStart(2, '0')}`
+}
 
-  const { data: profile } = await admin
-    .from('profiles')
-    .select('role')
-    .eq('id', userData.user.id)
-    .single()
-  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+async function fetchHtml(url: string): Promise<string> {
+  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
+  if (!res.ok) throw new Error(`upstream returned ${res.status}`)
+  return res.text()
+}
 
-  const body = await req.json().catch(() => ({}))
-  const source = typeof body.source === 'string' && body.source in SOURCES ? body.source : 'current'
-  const url = SOURCES[source]
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
 
-  let html: string
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; IPOLedgerBot/1.0; +personal-use import tool)' },
-    })
-    if (!res.ok) throw new Error(`upstream returned ${res.status}`)
-    html = await res.text()
-  } catch (err) {
-    return new Response(JSON.stringify({ error: `Could not fetch source: ${String(err)}` }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
-
+async function handleList(source: string) {
+  const url = SOURCES[source in SOURCES ? source : 'current']
+  const html = await fetchHtml(url)
   const doc = new DOMParser().parseFromString(html, 'text/html')
-  if (!doc) {
-    return new Response(JSON.stringify({ error: 'Could not parse source page' }), {
-      status: 502,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
-  }
+  if (!doc) throw new Error('Could not parse source page')
 
   const cards = Array.from(doc.querySelectorAll('.ipo-card'))
   const candidates: Candidate[] = []
@@ -123,7 +125,60 @@ Deno.serve(async (req) => {
     candidates.push({ company_name: name, open_date, close_date, price_low, price_high, lot_size, exchange, source_url })
   }
 
-  return new Response(JSON.stringify({ candidates, source, fetched_at: new Date().toISOString() }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
+  return { candidates, source, fetched_at: new Date().toISOString() }
+}
+
+async function handleDetail(detailUrl: string) {
+  if (!detailUrl.startsWith('https://www.ipoji.com/ipo/')) {
+    throw new Error('detail_url must be an ipoji.com /ipo/ page')
+  }
+  const html = await fetchHtml(detailUrl)
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  if (!doc) throw new Error('Could not parse detail page')
+
+  const result: Detail = { allotment_date: null, listing_date: null, exchange: null }
+
+  // deno-lint-ignore no-explicit-any
+  for (const item of Array.from(doc.querySelectorAll('.facts-row .fact-item')) as any[]) {
+    const label = item.querySelector('.fact-label')?.textContent?.trim().toLowerCase() ?? ''
+    const value = item.querySelector('.fact-value')?.textContent?.trim() ?? ''
+    if (!value) continue
+
+    if (label.includes('allotment date')) result.allotment_date = parseIpojiDate(value)
+    else if (label === 'listing' || label.includes('listing') && !label.includes('at')) {
+      const parsed = parseIpojiDate(value)
+      if (parsed) result.listing_date = parsed
+    } else if (label.includes('listing at')) result.exchange = value
+  }
+
+  return result
+}
+
+Deno.serve(async (req) => {
+  const preflight = handlePreflight(req)
+  if (preflight) return preflight
+
+  const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
+  const { data: userData } = await admin.auth.getUser(jwt)
+  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('role')
+    .eq('id', userData.user.id)
+    .single()
+  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+
+  const body = await req.json().catch(() => ({}))
+
+  try {
+    if (body.mode === 'detail') {
+      if (typeof body.detail_url !== 'string') return jsonResponse({ error: 'detail_url is required' }, 400)
+      return jsonResponse(await handleDetail(body.detail_url))
+    }
+    const source = typeof body.source === 'string' ? body.source : 'current'
+    return jsonResponse(await handleList(source))
+  } catch (err) {
+    return jsonResponse({ error: String(err instanceof Error ? err.message : err) }, 502)
+  }
 })

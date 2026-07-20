@@ -23,6 +23,12 @@ interface ImportCandidate {
   source_url: string
 }
 
+interface ImportDetail {
+  allotment_date: string | null
+  listing_date: string | null
+  exchange: string | null
+}
+
 interface IpoPrefill {
   companyName?: string
   priceLow?: string
@@ -30,6 +36,8 @@ interface IpoPrefill {
   lotSize?: string
   openDate?: string
   closeDate?: string
+  allotmentDate?: string
+  listingDate?: string
 }
 
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
@@ -51,6 +59,7 @@ export function IposPage() {
   const [importLoading, setImportLoading] = useState(false)
   const [importError, setImportError] = useState<string | null>(null)
   const [candidates, setCandidates] = useState<ImportCandidate[]>([])
+  const [detailLoadingFor, setDetailLoadingFor] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -67,9 +76,10 @@ export function IposPage() {
     setImportSource(source)
     setImportLoading(true)
     setImportError(null)
+    setCandidates([])
     const { data, error } = await supabase.functions.invoke<{ candidates?: ImportCandidate[]; error?: string }>(
       'import-ipos',
-      { body: { source } },
+      { body: { mode: 'list', source } },
     )
     setImportLoading(false)
     if (error || !data?.candidates) {
@@ -79,7 +89,15 @@ export function IposPage() {
     setCandidates(data.candidates)
   }
 
-  function useCandidate(c: ImportCandidate) {
+  async function useCandidate(c: ImportCandidate) {
+    setDetailLoadingFor(c.source_url)
+    const { data, error } = await supabase.functions.invoke<ImportDetail & { error?: string }>('import-ipos', {
+      body: { mode: 'detail', detail_url: c.source_url },
+    })
+    setDetailLoadingFor(null)
+
+    const detail = !error && data && !data.error ? data : null
+
     setFormPrefill({
       companyName: c.company_name,
       priceLow: c.price_low != null ? String(c.price_low) : '',
@@ -87,6 +105,8 @@ export function IposPage() {
       lotSize: c.lot_size != null ? String(c.lot_size) : '',
       openDate: c.open_date ?? '',
       closeDate: c.close_date ?? '',
+      allotmentDate: detail?.allotment_date ?? '',
+      listingDate: detail?.listing_date ?? '',
     })
     setShowImport(false)
   }
@@ -127,13 +147,11 @@ export function IposPage() {
       </div>
 
       {showImport && (
-        <div className="card space-y-3 p-5">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              Pulls live data from ipoji.com — review and pick which ones to add. Nothing is saved until you
-              confirm via the Add IPO form.
-            </p>
-          </div>
+        <div className="card space-y-4 p-5">
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Pulls live data from ipoji.com. Pick a card to open the Add IPO form pre-filled — nothing saves until
+            you review and hit Save IPO there.
+          </p>
           <div className="flex gap-2">
             <button
               onClick={() => fetchCandidates('current')}
@@ -155,29 +173,16 @@ export function IposPage() {
           {importError && <p className="badge badge-critical w-fit">{importError}</p>}
 
           {!importLoading && candidates.length > 0 && (
-            <div className="divide-y overflow-y-auto" style={{ borderColor: 'var(--border)', maxHeight: '420px' }}>
-              {candidates.map((c) => {
-                const already = existingNames.has(c.company_name.toLowerCase())
-                return (
-                  <div key={c.company_name} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                    <div className="min-w-0">
-                      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.company_name}
-                        {already && <span className="badge badge-neutral ml-2">already added</span>}
-                      </p>
-                      <p style={{ color: 'var(--ink-muted)' }}>
-                        {c.open_date && c.close_date ? `${c.open_date} → ${c.close_date}` : 'Dates TBA'} ·{' '}
-                        {c.price_low && c.price_high ? `₹${c.price_low}-${c.price_high}` : 'Price N/A'} ·{' '}
-                        {c.lot_size ? `lot ${c.lot_size}` : 'lot N/A'}
-                        {c.exchange ? ` · ${c.exchange}` : ''}
-                      </p>
-                    </div>
-                    <button onClick={() => useCandidate(c)} className="link-accent shrink-0 text-xs font-medium">
-                      Use →
-                    </button>
-                  </div>
-                )
-              })}
+            <div className="grid grid-cols-2 gap-3 overflow-y-auto" style={{ maxHeight: '560px' }}>
+              {candidates.map((c) => (
+                <ImportCard
+                  key={c.source_url}
+                  candidate={c}
+                  alreadyAdded={existingNames.has(c.company_name.toLowerCase())}
+                  loading={detailLoadingFor === c.source_url}
+                  onUse={() => useCandidate(c)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -241,6 +246,56 @@ export function IposPage() {
   )
 }
 
+function ImportCard({
+  candidate: c,
+  alreadyAdded,
+  loading,
+  onUse,
+}: {
+  candidate: ImportCandidate
+  alreadyAdded: boolean
+  loading: boolean
+  onUse: () => void
+}) {
+  return (
+    <div className="card flex flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          {c.company_name}
+        </h3>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1">
+          {c.exchange && <span className="badge badge-info">{c.exchange}</span>}
+          {alreadyAdded && <span className="badge badge-neutral">already added</span>}
+        </div>
+      </div>
+
+      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+        {c.open_date && c.close_date ? `${c.open_date} → ${c.close_date}` : 'Dates TBA'}
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <Stat label="Offer price" value={c.price_low && c.price_high ? `₹${c.price_low}-${c.price_high}` : 'N/A'} />
+        <Stat label="Lot size" value={c.lot_size ? String(c.lot_size) : 'N/A'} />
+      </div>
+
+      <button onClick={onUse} disabled={loading} className="btn-secondary mt-1 disabled:opacity-50">
+        {loading ? 'Fetching allotment/listing dates…' : 'Use this IPO →'}
+      </button>
+    </div>
+  )
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p style={{ color: 'var(--ink-muted)' }}>{label}</p>
+      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+        {value}
+      </p>
+    </div>
+  )
+}
+
 function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => void }) {
   const [companyName, setCompanyName] = useState(initial.companyName ?? '')
   const [symbol, setSymbol] = useState('')
@@ -249,8 +304,8 @@ function AddIpoForm({ initial, onDone }: { initial: IpoPrefill; onDone: () => vo
   const [lotSize, setLotSize] = useState(initial.lotSize ?? '')
   const [openDate, setOpenDate] = useState(initial.openDate ?? '')
   const [closeDate, setCloseDate] = useState(initial.closeDate ?? '')
-  const [allotmentDate, setAllotmentDate] = useState('')
-  const [listingDate, setListingDate] = useState('')
+  const [allotmentDate, setAllotmentDate] = useState(initial.allotmentDate ?? '')
+  const [listingDate, setListingDate] = useState(initial.listingDate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>('OTHER')
   const [registrarUrl, setRegistrarUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
