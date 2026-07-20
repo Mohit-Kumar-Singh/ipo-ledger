@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { Application, Ipo } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 type ApplicationRow = Application & { ipos: Pick<Ipo, 'company_name' | 'listing_date'> }
 
@@ -19,7 +20,7 @@ export function MyApplicationsPage() {
       })
   }, [])
 
-  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+  if (loading) return <InlineSpinner />
 
   return (
     <div className="space-y-5">

@@ -1,20 +1,37 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { ConfigBanner } from './components/ConfigBanner'
-import { LoginPage } from './pages/LoginPage'
-import { DashboardPage } from './pages/admin/DashboardPage'
-import { AccountsPage } from './pages/admin/AccountsPage'
-import { IposPage } from './pages/admin/IposPage'
-import { ApplicationsPage } from './pages/admin/ApplicationsPage'
-import { AllotmentBoardPage } from './pages/admin/AllotmentBoardPage'
-import { NotificationsPage } from './pages/admin/NotificationsPage'
-import { MyAccountPage } from './pages/member/MyAccountPage'
-import { MyApplicationsPage } from './pages/member/MyApplicationsPage'
-import { MyMessagesPage } from './pages/member/MyMessagesPage'
+import { PageSpinner } from './components/PageSpinner'
 import { useAuth } from './contexts/AuthContext'
+
+// Route-level code splitting: each page's JS only downloads when that route
+// is actually visited, instead of one bundle containing every admin screen,
+// the IPO-import scraper types, etc. up front for every visitor (including
+// members, who never touch most of this).
+const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
+const DashboardPage = lazy(() => import('./pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })))
+const AccountsPage = lazy(() => import('./pages/admin/AccountsPage').then((m) => ({ default: m.AccountsPage })))
+const IposPage = lazy(() => import('./pages/admin/IposPage').then((m) => ({ default: m.IposPage })))
+const ApplicationsPage = lazy(() =>
+  import('./pages/admin/ApplicationsPage').then((m) => ({ default: m.ApplicationsPage })),
+)
+const AllotmentBoardPage = lazy(() =>
+  import('./pages/admin/AllotmentBoardPage').then((m) => ({ default: m.AllotmentBoardPage })),
+)
+const NotificationsPage = lazy(() =>
+  import('./pages/admin/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
+)
+const MyAccountPage = lazy(() => import('./pages/member/MyAccountPage').then((m) => ({ default: m.MyAccountPage })))
+const MyApplicationsPage = lazy(() =>
+  import('./pages/member/MyApplicationsPage').then((m) => ({ default: m.MyApplicationsPage })),
+)
+const MyMessagesPage = lazy(() =>
+  import('./pages/member/MyMessagesPage').then((m) => ({ default: m.MyMessagesPage })),
+)
 
 function HomePage() {
   const { profile } = useAuth()
@@ -27,25 +44,27 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <ConfigBanner />
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
+          <Suspense fallback={<PageSpinner />}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
 
-            <Route element={<ProtectedRoute />}>
-              <Route element={<AppShell />}>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/my-applications" element={<MyApplicationsPage />} />
-                <Route path="/my-messages" element={<MyMessagesPage />} />
+              <Route element={<ProtectedRoute />}>
+                <Route element={<AppShell />}>
+                  <Route path="/" element={<HomePage />} />
+                  <Route path="/my-applications" element={<MyApplicationsPage />} />
+                  <Route path="/my-messages" element={<MyMessagesPage />} />
 
-                <Route element={<ProtectedRoute requireAdmin />}>
-                  <Route path="/accounts" element={<AccountsPage />} />
-                  <Route path="/ipos" element={<IposPage />} />
-                  <Route path="/applications" element={<ApplicationsPage />} />
-                  <Route path="/allotment" element={<AllotmentBoardPage />} />
-                  <Route path="/notifications" element={<NotificationsPage />} />
+                  <Route element={<ProtectedRoute requireAdmin />}>
+                    <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/ipos" element={<IposPage />} />
+                    <Route path="/applications" element={<ApplicationsPage />} />
+                    <Route path="/allotment" element={<AllotmentBoardPage />} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
+                  </Route>
                 </Route>
               </Route>
-            </Route>
-          </Routes>
+            </Routes>
+          </Suspense>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

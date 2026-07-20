@@ -8,6 +8,7 @@ import type {
   Ipo,
   Notification,
 } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDER', 'EMPLOYEE']
 
@@ -22,39 +23,52 @@ export function ApplicationsPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [accounts, setAccounts] = useState<(DematAccount & { bank_accounts: BankAccount[] })[]>([])
   const [loading, setLoading] = useState(true)
+  const [formDataLoaded, setFormDataLoaded] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [dispatching, setDispatching] = useState<string | null>(null)
 
-  async function load() {
+  async function loadApplications() {
     setLoading(true)
-    const [appsRes, iposRes, accountsRes] = await Promise.all([
-      supabase
-        .from('applications')
-        .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status)')
-        .order('applied_at', { ascending: false }),
-      supabase.from('ipos').select('*').order('company_name'),
-      supabase.from('demat_accounts').select('*, bank_accounts(*)').order('holder_name'),
-    ])
-    setApplications((appsRes.data ?? []) as ApplicationRow[])
-    setIpos((iposRes.data ?? []) as Ipo[])
-    setAccounts((accountsRes.data ?? []) as (DematAccount & { bank_accounts: BankAccount[] })[])
+    const { data } = await supabase
+      .from('applications')
+      .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status)')
+      .order('applied_at', { ascending: false })
+    setApplications((data ?? []) as ApplicationRow[])
     setLoading(false)
   }
 
+  // IPOs + accounts (with their banks) are only needed to populate the "New
+  // application" form's dropdowns — no point fetching them on every page load
+  // when most visits are just reviewing the table.
+  async function loadFormData() {
+    const [iposRes, accountsRes] = await Promise.all([
+      supabase.from('ipos').select('*').order('company_name'),
+      supabase.from('demat_accounts').select('*, bank_accounts(*)').order('holder_name'),
+    ])
+    setIpos((iposRes.data ?? []) as Ipo[])
+    setAccounts((accountsRes.data ?? []) as (DematAccount & { bank_accounts: BankAccount[] })[])
+    setFormDataLoaded(true)
+  }
+
   useEffect(() => {
-    load()
+    loadApplications()
   }, [])
+
+  function openForm() {
+    setShowForm(true)
+    if (!formDataLoaded) loadFormData()
+  }
 
   async function markStatus(id: string, status: Application['status']) {
     await supabase.from('applications').update({ status }).eq('id', id)
-    load()
+    loadApplications()
   }
 
   async function dispatchNotification(notificationId: string) {
     setDispatching(notificationId)
     await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
     setDispatching(null)
-    load()
+    loadApplications()
   }
 
   async function deleteApplication(id: string) {
@@ -64,7 +78,7 @@ export function ApplicationsPage() {
       alert(error.message)
       return
     }
-    load()
+    loadApplications()
   }
 
   return (
@@ -78,24 +92,26 @@ export function ApplicationsPage() {
             {applications.length} total
           </p>
         </div>
-        <button onClick={() => setShowForm((s) => !s)} className="btn-primary">
+        <button onClick={() => (showForm ? setShowForm(false) : openForm())} className="btn-primary">
           {showForm ? 'Cancel' : '+ New application'}
         </button>
       </div>
 
-      {showForm && (
+      {showForm && !formDataLoaded && <InlineSpinner label="Loading form…" />}
+
+      {showForm && formDataLoaded && (
         <NewApplicationForm
           ipos={ipos}
           accounts={accounts}
           onDone={() => {
             setShowForm(false)
-            load()
+            loadApplications()
           }}
         />
       )}
 
       {loading ? (
-        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+        <InlineSpinner />
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">

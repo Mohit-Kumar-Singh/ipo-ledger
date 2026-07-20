@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { InlineSpinner } from '../../components/PageSpinner'
 import type { BankAccount, DematAccount } from '../../types/database'
 
 type AccountWithBanks = DematAccount & { bank_accounts: BankAccount[] }
@@ -18,7 +19,7 @@ export function MyAccountPage() {
       })
   }, [])
 
-  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+  if (loading) return <InlineSpinner />
 
   return (
     <div className="space-y-5">

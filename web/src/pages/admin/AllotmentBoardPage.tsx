@@ -7,6 +7,7 @@ import type {
   Notification,
   RegistrarLink,
 } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
@@ -153,7 +154,7 @@ export function AllotmentBoardPage() {
         )}
       </div>
 
-      {loading && <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>}
+      {loading && <InlineSpinner />}
 
       {!loading && selectedIpoId && (
         <div className="card overflow-x-auto">

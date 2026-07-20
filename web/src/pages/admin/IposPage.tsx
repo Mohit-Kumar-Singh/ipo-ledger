@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 const registrars: Registrar[] = [
   'MUFG_INTIME',
@@ -46,6 +47,30 @@ function deriveStatus(ipo: Ipo): { label: string; badge: string } {
   return { label: 'Upcoming', badge: 'badge-info' }
 }
 
+// Currently-live IPOs first, then things needing admin attention soon, then
+// upcoming (soonest first), with historical ones last (most recent first) —
+// rather than a flat date sort, which would bury a currently-open IPO under
+// an upcoming one that merely has a later open_date.
+const STATUS_PRIORITY: Record<string, number> = {
+  Open: 0,
+  'Allotment out': 1,
+  Upcoming: 2,
+  Listed: 3,
+  Closed: 4,
+}
+
+function sortIpos(ipos: Ipo[]): Ipo[] {
+  return [...ipos].sort((a, b) => {
+    const sa = deriveStatus(a).label
+    const sb = deriveStatus(b).label
+    const pa = STATUS_PRIORITY[sa] ?? 5
+    const pb = STATUS_PRIORITY[sb] ?? 5
+    if (pa !== pb) return pa - pb
+    if (sa === 'Upcoming') return a.open_date.localeCompare(b.open_date) // soonest first
+    return b.open_date.localeCompare(a.open_date) // most recent first
+  })
+}
+
 // Upserts by company name (case-insensitive exact match) so re-importing the
 // same IPO refreshes it instead of creating a duplicate.
 async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
@@ -80,7 +105,7 @@ export function IposPage() {
   async function load() {
     setLoading(true)
     const { data } = await supabase.from('ipos').select('*').order('open_date', { ascending: false })
-    setIpos((data ?? []) as Ipo[])
+    setIpos(sortIpos((data ?? []) as Ipo[]))
     setLoading(false)
   }
 
@@ -291,7 +316,7 @@ export function IposPage() {
       )}
 
       {loading ? (
-        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+        <InlineSpinner />
       ) : ipos.length === 0 ? (
         <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           No IPOs yet.
@@ -323,7 +348,12 @@ export function IposPage() {
                       </span>
                     )}
                     {ipo.gmp_notes && ipo.issue_size && ' · '}
-                    {ipo.issue_size && <span style={{ color: 'var(--ink-muted)' }}>Issue size {ipo.issue_size}</span>}
+                    {ipo.issue_size && (
+                      <span style={{ color: 'var(--ink-muted)' }}>
+                        {ipo.issue_size.includes('retail') ? '' : 'Issue size '}
+                        {ipo.issue_size}
+                      </span>
+                    )}
                   </p>
                 )}
 

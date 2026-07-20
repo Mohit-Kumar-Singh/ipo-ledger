@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { Notification } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 export function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -43,7 +44,7 @@ export function NotificationsPage() {
       </div>
 
       {loading ? (
-        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+        <InlineSpinner />
       ) : (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">

@@ -4,6 +4,10 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Warms up the connection (DNS + TLS) to Supabase before the first API
+         call actually fires, since every page hits it immediately on mount. -->
+    <link rel="preconnect" href="https://nzflndquzlzafrbyivyz.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://nzflndquzlzafrbyivyz.supabase.co" />
     <title>IPO Ledger</title>
     <script>
       // Set the theme before paint so there's no light-mode flash on load.

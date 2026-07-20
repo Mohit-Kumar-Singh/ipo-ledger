@@ -35,6 +35,15 @@ export interface Detail {
   issue_size: string | null
 }
 
+// "₹9795.31 Cr" -> { value: 9795.31, unit: "Cr" }
+function parseAmountText(text: string): { value: number; unit: string } | null {
+  const m = text.match(/₹?\s*([\d,]+\.?\d*)\s*(.*)$/)
+  if (!m) return null
+  const value = Number(m[1].replace(/,/g, ''))
+  if (Number.isNaN(value)) return null
+  return { value, unit: m[2].trim() }
+}
+
 // "Jul 17, 2026" -> "2026-07-17". Manual parsing avoids Date() timezone shift bugs.
 export function parseIpojiDate(text: string): string | null {
   const m = text.trim().match(/^([A-Za-z]{3})\s+(\d{1,2}),\s*(\d{4})$/)
@@ -137,6 +146,7 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
   if (!doc) throw new Error('Could not parse detail page')
 
   const result: Detail = { allotment_date: null, listing_date: null, exchange: null, issue_size: null }
+  let totalIssueSize: string | null = null
 
   // deno-lint-ignore no-explicit-any
   for (const item of Array.from(doc.querySelectorAll('.facts-row .fact-item')) as any[]) {
@@ -149,8 +159,32 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       const parsed = parseIpojiDate(value)
       if (parsed) result.listing_date = parsed
     } else if (label.includes('listing at')) result.exchange = value
-    else if (label.includes('issue size')) result.issue_size = value
+    else if (label.includes('issue size')) totalIssueSize = value
   }
+
+  // Category-wise reservation % (retail/QIB/NII/anchor/...) lives in an embedded
+  // JSON payload for the reservation chart — this is the real per-IPO split,
+  // not a fixed 35%, since it varies by issue (SBI Mutual Fund was 31.66%).
+  const chartDataEl = doc.querySelector('#ipo-reservation-chart-data')
+  const rawChartData = chartDataEl?.textContent?.trim()
+  let retailPct: number | null = null
+  if (rawChartData) {
+    try {
+      const parsed = JSON.parse(rawChartData)
+      if (typeof parsed.retail === 'number') retailPct = parsed.retail
+    } catch {
+      // not JSON or shape changed — fall through, issue_size stays total-only below
+    }
+  }
+
+  if (retailPct != null && totalIssueSize) {
+    const amt = parseAmountText(totalIssueSize)
+    if (amt) {
+      const retailValue = amt.value * (retailPct / 100)
+      result.issue_size = `₹${retailValue.toFixed(2)} ${amt.unit} retail (${retailPct}%)`.trim()
+    }
+  }
+  if (!result.issue_size) result.issue_size = totalIssueSize
 
   return result
 }

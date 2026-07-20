@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import type { Notification } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 export function MyMessagesPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -17,7 +18,7 @@ export function MyMessagesPage() {
       })
   }, [])
 
-  if (loading) return <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+  if (loading) return <InlineSpinner />
 
   return (
     <div className="space-y-5">

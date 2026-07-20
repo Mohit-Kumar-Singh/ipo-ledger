@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import type { BankAccount, DematAccount } from '../../types/database'
+import { InlineSpinner } from '../../components/PageSpinner'
 
 type AccountWithBanks = DematAccount & { bank_accounts: BankAccount[] }
 type EditingAccount = { id: string; holderName: string; phoneDigits: string; pan: string; dematAccountNo: string }
@@ -130,7 +131,7 @@ export function AccountsPage() {
       )}
 
       {loading ? (
-        <p style={{ color: 'var(--ink-muted)' }}>Loading…</p>
+        <InlineSpinner />
       ) : (
         <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {accounts.map((a) => (
