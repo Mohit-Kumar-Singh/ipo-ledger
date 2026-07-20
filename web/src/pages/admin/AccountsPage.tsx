@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import type { BankAccount, DematAccount } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -77,16 +78,6 @@ export function AccountsPage() {
     load()
   }
 
-  async function deleteBank(id: string) {
-    if (!window.confirm('Remove this bank account?')) return
-    const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
-    if (error) {
-      alert(error.message)
-      return
-    }
-    load()
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -95,7 +86,10 @@ export function AccountsPage() {
             Demat accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {accounts.length} registered
+            {accounts.length} registered ·{' '}
+            <Link to="/bank-accounts" className="link-accent">
+              Manage bank/UPI accounts →
+            </Link>
           </p>
         </div>
         <button
@@ -182,14 +176,6 @@ export function AccountsPage() {
                     <li key={b.id} className="badge badge-neutral">
                       {[b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account'}
                       {b.is_default && ' (default)'}
-                      <button
-                        onClick={() => deleteBank(b.id)}
-                        aria-label="Remove bank/UPI account"
-                        className="ml-1"
-                        style={{ color: 'var(--critical)' }}
-                      >
-                        ×
-                      </button>
                     </li>
                   ))}
                 </ul>
@@ -210,16 +196,6 @@ export function AccountsPage() {
 const PHONE_RE = /^[0-9]{10}$/
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
-interface BankRow {
-  holderName: string
-  upi: string
-  bankName: string
-}
-
-function emptyBankRow(): BankRow {
-  return { holderName: '', upi: '', bankName: '' }
-}
-
 function AccountForm({
   existing,
   onCancel,
@@ -233,24 +209,11 @@ function AccountForm({
   const [phoneDigits, setPhoneDigits] = useState(existing?.phoneDigits ?? '')
   const [pan, setPan] = useState(existing?.pan ?? '')
   const [dematAccountNo, setDematAccountNo] = useState(existing?.dematAccountNo ?? '')
-  const [bankRows, setBankRows] = useState<BankRow[]>([emptyBankRow()])
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const phoneValid = PHONE_RE.test(phoneDigits)
   const panValid = PAN_RE.test(pan)
-
-  function updateBankRow(i: number, patch: Partial<BankRow>) {
-    setBankRows((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
-  }
-
-  function addBankRow() {
-    setBankRows((rows) => [...rows, emptyBankRow()])
-  }
-
-  function removeBankRow(i: number) {
-    setBankRows((rows) => rows.filter((_, idx) => idx !== i))
-  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -279,143 +242,70 @@ function AccountForm({
       },
     )
 
+    setSubmitting(false)
     if (fnError || !data?.id) {
-      setSubmitting(false)
       setError(await describeFunctionError(fnError, data))
       return
     }
-    const dematId = data.id
-
-    const rowsToSave = bankRows.filter((r) => r.holderName.trim() && r.upi.trim())
-    if (rowsToSave.length > 0) {
-      const { error: bankError } = await supabase.from('bank_accounts').insert(
-        rowsToSave.map((r, i) => ({
-          demat_id: dematId,
-          account_holder_name: r.holderName.trim(),
-          upi_id: r.upi.trim(),
-          bank_name: r.bankName.trim() || null,
-          is_default: i === 0,
-        })),
-      )
-      if (bankError) {
-        setSubmitting(false)
-        setError(bankError.message)
-        return
-      }
-    }
-
-    setSubmitting(false)
     onDone()
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card flex flex-col gap-5 p-5">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Holder name">
-          <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
-        </Field>
-        <Field label="Phone number" hint="10 digits, no country code">
-          <div className="flex items-center gap-2">
-            <span
-              className="rounded-md border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
-            >
-              +91
-            </span>
-            <input
-              required
-              inputMode="numeric"
-              maxLength={10}
-              value={phoneDigits}
-              onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-              className="input"
-              placeholder="9876543210"
-            />
-          </div>
-          {phoneDigits.length > 0 && !phoneValid && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
-              Must be exactly 10 digits.
-            </p>
-          )}
-        </Field>
-        <Field label="PAN" hint="5 letters, 4 digits, 1 letter">
-          <input
-            required
-            maxLength={10}
-            value={pan}
-            onChange={(e) => setPan(e.target.value.toUpperCase())}
-            className="input font-mono"
-            placeholder="ABCPD1234E"
-          />
-          {pan.length > 0 && !panValid && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
-              e.g. ABCPD1234E — 5 letters, 4 digits, 1 letter.
-            </p>
-          )}
-        </Field>
-        <Field label="Demat account no.">
-          <input
-            required
-            value={dematAccountNo}
-            onChange={(e) => setDematAccountNo(e.target.value)}
-            className="input"
-          />
-        </Field>
-      </div>
-
-      <div>
-        <p className="mb-2 text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-          Bank / UPI accounts
-          <span className="ml-2 text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
-            optional — add one or more
+    <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+      <Field label="Holder name">
+        <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
+      </Field>
+      <Field label="Phone number" hint="10 digits, no country code">
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-md border px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
+          >
+            +91
           </span>
-        </p>
-        <div className="space-y-3">
-          {bankRows.map((row, i) => (
-            <div key={i} className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
-              <Field label="Account holder name">
-                <input
-                  value={row.holderName}
-                  onChange={(e) => updateBankRow(i, { holderName: e.target.value })}
-                  className="input"
-                />
-              </Field>
-              <Field label="UPI ID">
-                <input
-                  value={row.upi}
-                  onChange={(e) => updateBankRow(i, { upi: e.target.value })}
-                  placeholder="name@bank"
-                  className="input"
-                />
-              </Field>
-              <Field label="Bank" hint="optional">
-                <input
-                  value={row.bankName}
-                  onChange={(e) => updateBankRow(i, { bankName: e.target.value })}
-                  className="input"
-                />
-              </Field>
-              {bankRows.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => removeBankRow(i)}
-                  className="btn-secondary h-fit"
-                  aria-label="Remove this bank/UPI row"
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          ))}
+          <input
+            required
+            inputMode="numeric"
+            maxLength={10}
+            value={phoneDigits}
+            onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+            className="input"
+            placeholder="9876543210"
+          />
         </div>
-        <button type="button" onClick={addBankRow} className="link-accent mt-3 text-sm font-medium">
-          + Add another bank/UPI account
-        </button>
-      </div>
+        {phoneDigits.length > 0 && !phoneValid && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
+            Must be exactly 10 digits.
+          </p>
+        )}
+      </Field>
+      <Field label="PAN" hint="5 letters, 4 digits, 1 letter">
+        <input
+          required
+          maxLength={10}
+          value={pan}
+          onChange={(e) => setPan(e.target.value.toUpperCase())}
+          className="input font-mono"
+          placeholder="ABCPD1234E"
+        />
+        {pan.length > 0 && !panValid && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
+            e.g. ABCPD1234E — 5 letters, 4 digits, 1 letter.
+          </p>
+        )}
+      </Field>
+      <Field label="Demat account no.">
+        <input
+          required
+          value={dematAccountNo}
+          onChange={(e) => setDematAccountNo(e.target.value)}
+          className="input"
+        />
+      </Field>
 
-      {error && <p className="badge badge-critical w-fit">{error}</p>}
+      {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2">{error}</p>}
 
-      <div className="flex gap-2">
+      <div className="col-span-1 flex gap-2 sm:col-span-2">
         <button type="submit" disabled={submitting} className="btn-primary flex-1 py-2.5">
           {submitting ? 'Saving…' : existing ? 'Save changes' : 'Save account'}
         </button>

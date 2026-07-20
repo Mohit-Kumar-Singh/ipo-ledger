@@ -15,6 +15,9 @@ import { useAuth } from './contexts/AuthContext'
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const AccountsPage = lazy(() => import('./pages/admin/AccountsPage').then((m) => ({ default: m.AccountsPage })))
+const BankAccountsPage = lazy(() =>
+  import('./pages/admin/BankAccountsPage').then((m) => ({ default: m.BankAccountsPage })),
+)
 const IposPage = lazy(() => import('./pages/admin/IposPage').then((m) => ({ default: m.IposPage })))
 const ApplicationsPage = lazy(() =>
   import('./pages/admin/ApplicationsPage').then((m) => ({ default: m.ApplicationsPage })),
@@ -56,6 +59,7 @@ function App() {
 
                   <Route element={<ProtectedRoute requireAdmin />}>
                     <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/bank-accounts" element={<BankAccountsPage />} />
                     <Route path="/ipos" element={<IposPage />} />
                     <Route path="/applications" element={<ApplicationsPage />} />
                     <Route path="/allotment" element={<AllotmentBoardPage />} />

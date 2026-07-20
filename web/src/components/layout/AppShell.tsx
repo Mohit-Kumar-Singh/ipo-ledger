@@ -7,6 +7,7 @@ import { NotificationToastHost } from '../NotificationToastHost'
 const adminLinks = [
   { to: '/', label: 'Dashboard' },
   { to: '/accounts', label: 'Accounts' },
+  { to: '/bank-accounts', label: 'Bank / UPI accounts' },
   { to: '/ipos', label: 'IPOs' },
   { to: '/applications', label: 'Applications' },
   { to: '/allotment', label: 'Allotment board' },
