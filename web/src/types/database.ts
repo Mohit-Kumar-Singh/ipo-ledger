@@ -10,7 +10,7 @@ export type Registrar =
   | 'MAASHITLA'
   | 'OTHER'
 export type NotificationType = 'APPLIED' | 'ALLOTTED' | 'SELL_REMINDER' | 'CUSTOM'
-export type NotificationStatus = 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED'
+export type NotificationStatus = 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SIMULATED'
 
 export interface Profile {
   id: string

@@ -5,8 +5,11 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
 
-const WA_ACCESS_TOKEN = Deno.env.get('WA_ACCESS_TOKEN')!
-const WA_PHONE_NUMBER_ID = Deno.env.get('WA_PHONE_NUMBER_ID')!
+// Both empty until Meta/WhatsApp setup (doc 06) is done — sendForApplication()
+// simulates instead of calling the real Graph API while either is unset, so this
+// flips over to real sending automatically the moment the secrets are set.
+const WA_ACCESS_TOKEN = Deno.env.get('WA_ACCESS_TOKEN') ?? ''
+const WA_PHONE_NUMBER_ID = Deno.env.get('WA_PHONE_NUMBER_ID') ?? ''
 const DB_WEBHOOK_SECRET = Deno.env.get('DB_WEBHOOK_SECRET')!
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -112,36 +115,53 @@ async function sendForApplication(
       ? [holderName, companyName, bank, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`]
       : [holderName, companyName, 'ALLOTTED', (app.ipos.listing_date as string | null) ?? 'TBA']
 
-  const waResponse = await fetch(`https://graph.facebook.com/v21.0/${WA_PHONE_NUMBER_ID}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${WA_ACCESS_TOKEN}`,
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to: phone,
-      type: 'template',
-      template: {
-        name: templateKind,
-        language: { code: 'en' },
-        components: [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v })) }],
-      },
-    }),
-  })
-  const result = await waResponse.json()
+  const testMode = !WA_ACCESS_TOKEN || !WA_PHONE_NUMBER_ID
 
-  const notifRow = {
-    application_id: applicationId,
-    demat_id: app.demat_id,
-    type: notifType,
-    to_phone: phone,
-    template_name: templateKind,
-    variables: { params: variables },
-    wa_message_id: result?.messages?.[0]?.id ?? null,
-    status: waResponse.ok ? 'SENT' : 'FAILED',
-    error_detail: waResponse.ok ? null : JSON.stringify(result?.error ?? result),
-    updated_at: new Date().toISOString(),
+  let notifRow: Record<string, unknown>
+  if (testMode) {
+    notifRow = {
+      application_id: applicationId,
+      demat_id: app.demat_id,
+      type: notifType,
+      to_phone: phone,
+      template_name: templateKind,
+      variables: { params: variables },
+      wa_message_id: null,
+      status: 'SIMULATED',
+      error_detail: null,
+      updated_at: new Date().toISOString(),
+    }
+  } else {
+    const waResponse = await fetch(`https://graph.facebook.com/v21.0/${WA_PHONE_NUMBER_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${WA_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: phone,
+        type: 'template',
+        template: {
+          name: templateKind,
+          language: { code: 'en' },
+          components: [{ type: 'body', parameters: variables.map((v) => ({ type: 'text', text: v })) }],
+        },
+      }),
+    })
+    const result = await waResponse.json()
+    notifRow = {
+      application_id: applicationId,
+      demat_id: app.demat_id,
+      type: notifType,
+      to_phone: phone,
+      template_name: templateKind,
+      variables: { params: variables },
+      wa_message_id: result?.messages?.[0]?.id ?? null,
+      status: waResponse.ok ? 'SENT' : 'FAILED',
+      error_detail: waResponse.ok ? null : JSON.stringify(result?.error ?? result),
+      updated_at: new Date().toISOString(),
+    }
   }
 
   if (existingNotificationId) {

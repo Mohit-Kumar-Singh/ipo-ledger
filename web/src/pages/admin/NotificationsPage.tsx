@@ -106,6 +106,7 @@ function StatusBadge({ status }: { status: Notification['status'] }) {
     DELIVERED: 'badge-good',
     READ: 'badge-violet',
     FAILED: 'badge-critical',
+    SIMULATED: 'badge-warning',
   }
   return <span className={`badge ${classes[status]}`}>{status}</span>
 }

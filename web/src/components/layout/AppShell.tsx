@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
+import { NotificationToastHost } from '../NotificationToastHost'
 
 const adminLinks = [
   { to: '/', label: 'Dashboard' },
@@ -31,6 +32,7 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--page)' }}>
+      {isAdmin && <NotificationToastHost />}
       <aside
         className="flex w-60 shrink-0 flex-col border-r"
         style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
