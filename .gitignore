@@ -1,0 +1,13 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Supabase CLI local state
+supabase/.branches
+supabase/.temp
+.env
+.env.local
+*.local
