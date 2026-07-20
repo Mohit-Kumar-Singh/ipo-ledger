@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { describeFunctionError, supabase } from '../../lib/supabase'
-import type { BankAccount, DematAccount } from '../../types/database'
+import type { BankAccount, DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
 type AccountWithBanks = DematAccount & { bank_accounts: BankAccount[] }
@@ -9,25 +9,41 @@ type EditingAccount = { id: string; holderName: string; phoneDigits: string; pan
 
 export function AccountsPage() {
   const [accounts, setAccounts] = useState<AccountWithBanks[]>([])
+  const [unlinkedMembers, setUnlinkedMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
+  const [linking, setLinking] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('demat_accounts')
-      .select('*, bank_accounts(*)')
-      .order('created_at', { ascending: false })
-    setAccounts((data ?? []) as AccountWithBanks[])
+    const [accountsRes, membersRes] = await Promise.all([
+      supabase.from('demat_accounts').select('*, bank_accounts(*)').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('*').eq('role', 'member'),
+    ])
+    const loadedAccounts = (accountsRes.data ?? []) as AccountWithBanks[]
+    const linkedIds = new Set(loadedAccounts.map((a) => a.linked_user_id).filter(Boolean))
+    setAccounts(loadedAccounts)
+    setUnlinkedMembers(((membersRes.data ?? []) as Profile[]).filter((p) => !linkedIds.has(p.id)))
     setLoading(false)
   }
 
   useEffect(() => {
     load()
   }, [])
+
+  async function linkMember(dematId: string, userId: string) {
+    setLinking(dematId)
+    const { error } = await supabase.from('demat_accounts').update({ linked_user_id: userId }).eq('id', dematId)
+    setLinking(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
 
   async function fetchPan(id: string): Promise<string | null> {
     if (revealed[id]) return revealed[id]
@@ -153,7 +169,29 @@ export function AccountsPage() {
                   </p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-3">
-                  {!a.linked_user_id && <span className="badge badge-neutral">not invited</span>}
+                  {!a.linked_user_id && (
+                    <>
+                      <span className="badge badge-neutral">not linked</span>
+                      {unlinkedMembers.length > 0 && (
+                        <select
+                          value=""
+                          disabled={linking === a.id}
+                          onChange={(e) => e.target.value && linkMember(a.id, e.target.value)}
+                          className="input w-auto py-1 text-xs"
+                          aria-label={`Link ${a.holder_name} to a registered member`}
+                        >
+                          <option value="">
+                            {linking === a.id ? 'Linking…' : 'Link to registered member…'}
+                          </option>
+                          {unlinkedMembers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </>
+                  )}
                   <button
                     onClick={() => startEdit(a)}
                     disabled={revealing === a.id}
