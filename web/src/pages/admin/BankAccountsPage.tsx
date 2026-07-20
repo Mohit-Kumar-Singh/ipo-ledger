@@ -201,7 +201,7 @@ function BankForm({
 
     const payload = {
       demat_id: dematId,
-      account_holder_name: holderName.trim(),
+      account_holder_name: holderName.trim() || null,
       upi_id: upi.trim() || null,
       bank_name: bankName.trim() || null,
       is_default: isDefault,
@@ -231,8 +231,8 @@ function BankForm({
           ))}
         </select>
       </Field>
-      <Field label="Account holder name">
-        <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
+      <Field label="Account holder name" hint="optional">
+        <input value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
       <Field label="UPI ID">
         <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="name@bank" className="input" />

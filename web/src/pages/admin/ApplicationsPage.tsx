@@ -23,7 +23,7 @@ export function ApplicationsPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [accounts, setAccounts] = useState<(DematAccount & { bank_accounts: BankAccount[] })[]>([])
   const [loading, setLoading] = useState(true)
-  const [formDataLoaded, setFormDataLoaded] = useState(false)
+  const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [dispatching, setDispatching] = useState<string | null>(null)
 
@@ -39,15 +39,18 @@ export function ApplicationsPage() {
 
   // IPOs + accounts (with their banks) are only needed to populate the "New
   // application" form's dropdowns — no point fetching them on every page load
-  // when most visits are just reviewing the table.
+  // when most visits are just reviewing the table. Re-fetched every time the
+  // form opens (not cached after the first load) so newly added IPOs/accounts/
+  // bank-UPI entries show up immediately instead of needing a page refresh.
   async function loadFormData() {
+    setFormDataLoading(true)
     const [iposRes, accountsRes] = await Promise.all([
       supabase.from('ipos').select('*').order('company_name'),
       supabase.from('demat_accounts').select('*, bank_accounts(*)').order('holder_name'),
     ])
     setIpos((iposRes.data ?? []) as Ipo[])
     setAccounts((accountsRes.data ?? []) as (DematAccount & { bank_accounts: BankAccount[] })[])
-    setFormDataLoaded(true)
+    setFormDataLoading(false)
   }
 
   useEffect(() => {
@@ -56,7 +59,7 @@ export function ApplicationsPage() {
 
   function openForm() {
     setShowForm(true)
-    if (!formDataLoaded) loadFormData()
+    loadFormData()
   }
 
   async function markStatus(id: string, status: Application['status']) {
@@ -97,9 +100,9 @@ export function ApplicationsPage() {
         </button>
       </div>
 
-      {showForm && !formDataLoaded && <InlineSpinner label="Loading form…" />}
+      {showForm && formDataLoading && <InlineSpinner label="Loading form…" />}
 
-      {showForm && formDataLoaded && (
+      {showForm && !formDataLoading && (
         <NewApplicationForm
           ipos={ipos}
           accounts={accounts}
