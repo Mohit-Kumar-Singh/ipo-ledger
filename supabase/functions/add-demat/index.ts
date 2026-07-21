@@ -3,7 +3,7 @@
 // demat account — pass demat_id to update an existing row instead of creating
 // a new one.
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
+import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 import { jsonError, jsonResponse, logError, logRequest } from '../_shared/http.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -22,36 +22,37 @@ Deno.serve(async (req) => {
   if (preflight) return preflight
 
   logRequest('add-demat', req)
+  const cors = corsHeadersFor(req)
 
   try {
     const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
     const { data: userData } = await admin.auth.getUser(jwt)
-    if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+    if (!userData?.user) return new Response('unauthorized', { status: 401, headers: cors })
 
     const { data: profile } = await admin
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
       .single()
-    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
 
     const body = await req.json().catch(() => ({}))
     const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id } = body
     if (!holder_name || !pan) {
-      return jsonError('holder_name and pan are required', 400)
+      return jsonError('holder_name and pan are required', 400, cors)
     }
 
     // Accept either a bare 10-digit number (phone_digits) or a full +91-prefixed
     // value (phone_e164) for compatibility; validate the underlying 10 digits.
     const digits = phone_digits ?? String(phone_e164 ?? '').replace(/^\+91/, '')
     if (!PHONE_DIGITS_RE.test(digits)) {
-      return jsonError('Phone number must be exactly 10 digits.', 400)
+      return jsonError('Phone number must be exactly 10 digits.', 400, cors)
     }
     const normalizedPhone = `+91${digits}`
 
     const normalizedPan = String(pan).toUpperCase().trim()
     if (!PAN_RE.test(normalizedPan)) {
-      return jsonError('PAN must be in the format ABCPD1234E (5 letters, 4 digits, 1 letter).', 400)
+      return jsonError('PAN must be in the format ABCPD1234E (5 letters, 4 digits, 1 letter).', 400, cors)
     }
 
     const rpcName = demat_id ? 'update_demat_encrypted' : 'insert_demat_encrypted'
@@ -68,12 +69,12 @@ Deno.serve(async (req) => {
 
     if (error) {
       const status = error.code === '23505' ? 409 : 500
-      return jsonError(error.message, status)
+      return jsonError(error.message, status, cors)
     }
 
-    return jsonResponse({ id: demat_id ?? data })
+    return jsonResponse({ id: demat_id ?? data }, 200, cors)
   } catch (err) {
     logError('add-demat', err)
-    return jsonError('Internal error', 500)
+    return jsonError('Internal error', 500, corsHeadersFor(req))
   }
 })

@@ -1,6 +1,6 @@
 // Admin-only. Invites a friend by email and links the new user id to their demat account.
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
+import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 import { jsonError, jsonResponse, logError, logRequest } from '../_shared/http.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -13,28 +13,29 @@ Deno.serve(async (req) => {
   if (preflight) return preflight
 
   logRequest('invite-member', req)
+  const cors = corsHeadersFor(req)
 
   try {
     const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
     const { data: userData } = await admin.auth.getUser(jwt)
-    if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+    if (!userData?.user) return new Response('unauthorized', { status: 401, headers: cors })
 
     const { data: profile } = await admin
       .from('profiles')
       .select('role')
       .eq('id', userData.user.id)
       .single()
-    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
 
     const body = await req.json().catch(() => ({}))
     const { email, demat_id } = body
     if (!email || !demat_id) {
-      return jsonError('email and demat_id are required', 400)
+      return jsonError('email and demat_id are required', 400, cors)
     }
 
     const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email)
     if (inviteError || !invited?.user) {
-      return jsonError(inviteError?.message ?? 'invite failed', 500)
+      return jsonError(inviteError?.message ?? 'invite failed', 500, cors)
     }
 
     const newUserId = invited.user.id
@@ -48,11 +49,11 @@ Deno.serve(async (req) => {
       .update({ linked_user_id: newUserId })
       .eq('id', demat_id)
 
-    if (linkError) return jsonError(linkError.message, 500)
+    if (linkError) return jsonError(linkError.message, 500, cors)
 
-    return jsonResponse({ status: 'invited', user_id: newUserId })
+    return jsonResponse({ status: 'invited', user_id: newUserId }, 200, cors)
   } catch (err) {
     logError('invite-member', err)
-    return jsonError('Internal error', 500)
+    return jsonError('Internal error', 500, corsHeadersFor(req))
   }
 })

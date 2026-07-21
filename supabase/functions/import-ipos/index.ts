@@ -9,33 +9,34 @@
 // requires open_date, close_date and lot_size.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { fetchDetail, fetchListCandidates } from '../_shared/ipoji.ts'
-import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
+import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-function jsonResponse(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
-}
-
 Deno.serve(async (req) => {
   const preflight = handlePreflight(req)
   if (preflight) return preflight
+  const cors = corsHeadersFor(req)
+
+  function jsonResponse(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    })
+  }
 
   const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
   const { data: userData } = await admin.auth.getUser(jwt)
-  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: cors })
 
   const { data: profile } = await admin
     .from('profiles')
     .select('role')
     .eq('id', userData.user.id)
     .single()
-  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
 
   const body = await req.json().catch(() => ({}))
 

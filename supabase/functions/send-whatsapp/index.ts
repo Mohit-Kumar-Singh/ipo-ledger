@@ -4,7 +4,7 @@
 // admin action: { notification_id } from an authenticated admin, used by the
 // "Send" button (on a QUEUED row) and "Retry" button (on a FAILED row) in the UI.
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
+import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 
 // Both empty until Meta/WhatsApp setup (doc 06) is done — dispatchNotification()
 // simulates instead of calling the real Graph API while either is unset, so this
@@ -22,6 +22,7 @@ type TemplateKind = 'ipo_applied' | 'ipo_allotted'
 Deno.serve(async (req) => {
   const preflight = handlePreflight(req)
   if (preflight) return preflight
+  const cors = corsHeadersFor(req)
 
   try {
     const body = await req.json()
@@ -32,41 +33,42 @@ Deno.serve(async (req) => {
 
     const secret = req.headers.get('x-webhook-secret')
     if (secret !== DB_WEBHOOK_SECRET) {
-      return new Response('unauthorized', { status: 401, headers: corsHeaders })
+      return new Response('unauthorized', { status: 401, headers: cors })
     }
 
     const { type, table, record, old_record } = body
-    if (table !== 'applications') return new Response('ignored', { status: 200, headers: corsHeaders })
+    if (table !== 'applications') return new Response('ignored', { status: 200, headers: cors })
 
     let templateKind: TemplateKind | null = null
     if (type === 'INSERT') templateKind = 'ipo_applied'
     if (type === 'UPDATE' && old_record?.status !== record.status && record.status === 'ALLOTTED') {
       templateKind = 'ipo_allotted'
     }
-    if (!templateKind) return new Response('ignored', { status: 200, headers: corsHeaders })
+    if (!templateKind) return new Response('ignored', { status: 200, headers: cors })
 
     await queueForApplication(record.id, templateKind)
-    return new Response('ok', { status: 200, headers: corsHeaders })
+    return new Response('ok', { status: 200, headers: cors })
   } catch (err) {
     console.error(err)
-    return new Response('error', { status: 500, headers: corsHeaders })
+    return new Response('error', { status: 500, headers: cors })
   }
 })
 
 async function handleDispatch(req: Request, notificationId: string): Promise<Response> {
+  const cors = corsHeadersFor(req)
   const jwt = (req.headers.get('Authorization') ?? '').replace('Bearer ', '')
   const { data: userData } = await admin.auth.getUser(jwt)
-  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: corsHeaders })
+  if (!userData?.user) return new Response('unauthorized', { status: 401, headers: cors })
 
   const { data: profile } = await admin
     .from('profiles')
     .select('role')
     .eq('id', userData.user.id)
     .single()
-  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: corsHeaders })
+  if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
 
   await dispatchNotification(notificationId)
-  return new Response('ok', { status: 200, headers: corsHeaders })
+  return new Response('ok', { status: 200, headers: cors })
 }
 
 // Builds the message content and inserts it as QUEUED. No network call — the

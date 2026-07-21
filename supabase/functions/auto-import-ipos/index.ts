@@ -8,7 +8,7 @@
 // fills them in on a later run, or an admin can add them manually meanwhile.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { fetchDetail, fetchListCandidates, type Candidate } from '../_shared/ipoji.ts'
-import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
+import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -69,10 +69,11 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
 Deno.serve(async (req) => {
   const preflight = handlePreflight(req)
   if (preflight) return preflight
+  const cors = corsHeadersFor(req)
 
   const secret = req.headers.get('x-cron-secret')
   if (secret !== CRON_SECRET) {
-    return new Response('unauthorized', { status: 401, headers: corsHeaders })
+    return new Response('unauthorized', { status: 401, headers: cors })
   }
 
   let saved = 0
@@ -97,6 +98,6 @@ Deno.serve(async (req) => {
   }
 
   return new Response(JSON.stringify({ saved, skipped, failed, ran_at: new Date().toISOString() }), {
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...cors, 'Content-Type': 'application/json' },
   })
 })

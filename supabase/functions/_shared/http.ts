@@ -1,17 +1,16 @@
 // Shared response + structured-logging helpers for Edge Functions. Supabase
 // surfaces console output in each function's Logs tab in the dashboard — JSON
 // lines keep that greppable/filterable instead of free-text.
-import { corsHeaders } from './cors.ts'
 
-export function jsonResponse(body: unknown, status = 200): Response {
+export function jsonResponse(body: unknown, status = 200, extraHeaders: HeadersInit = {}): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    headers: { ...extraHeaders, 'Content-Type': 'application/json' },
   })
 }
 
-export function jsonError(message: string, status: number): Response {
-  return jsonResponse({ error: message }, status)
+export function jsonError(message: string, status: number, extraHeaders: HeadersInit = {}): Response {
+  return jsonResponse({ error: message }, status, extraHeaders)
 }
 
 export function logRequest(fn: string, req: Request) {
