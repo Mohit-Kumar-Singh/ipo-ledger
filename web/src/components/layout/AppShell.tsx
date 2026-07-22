@@ -109,7 +109,7 @@ export function AppShell() {
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-50 mt-14 flex w-64 shrink-0 flex-col border-r transition-transform md:sticky md:top-14 md:z-auto md:h-[calc(100vh-3.5rem)] md:w-60 md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-50 mt-14 flex w-64 shrink-0 flex-col border-r transition-transform md:sticky md:top-14 md:z-auto md:mt-0 md:h-[calc(100vh-3.5rem)] md:w-60 md:translate-x-0 ${
             navOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
           style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}

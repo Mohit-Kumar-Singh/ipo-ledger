@@ -119,11 +119,18 @@ changed. See `.claude/skills/ipo-ledger-dev/SKILL.md` for the full pattern
 
 ### Tagging a release
 
-Every production release gets a git tag, [semver](https://semver.org)-style:
+Every production release gets a git tag, [semver](https://semver.org)-style,
+**and `web/package.json`'s `version` field is kept in sync with it** (without
+the `v` prefix — tag `v1.1.0` ↔ `"version": "1.1.0"`). This is standing
+practice, not a one-off: any push that ships user-visible changes (a new
+feature, a fix, a redesign) bumps both together, not just one.
 
 ```powershell
-git tag -a v1.0.0 -m "v1.0.0: short description of what shipped"
-git push origin v1.0.0
+# 1. bump web/package.json's "version" to match
+# 2. commit that as part of (or right after) the change itself
+git tag -a v1.1.0 -m "v1.1.0: short description of what shipped"
+git push origin master
+git push origin v1.1.0
 ```
 
 - **Patch** (`v1.0.1`): bug fixes, no behavior/schema change.
@@ -131,7 +138,7 @@ git push origin v1.0.0
 - **Major** (`v2.0.0`): breaking change (e.g. a migration that isn't backward
   compatible, or a rework of core flows).
 
-`git tag` (no args) lists all releases; `git show v1.0.0` shows what a tag points to.
+`git tag` (no args) lists all releases; `git show v1.1.0` shows what a tag points to.
 
 ### Rolling back a bad deploy
 
