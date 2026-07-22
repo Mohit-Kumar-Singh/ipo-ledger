@@ -29,14 +29,11 @@ export function LoginPage() {
       style={{ background: 'var(--page)' }}
     >
       <ThemeToggle className="absolute top-4 right-4" />
-      <div
-        className="w-full max-w-sm rounded-xl border p-7 shadow-sm"
-        style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
-      >
+      <div className="card w-full max-w-sm p-7">
         <div className="mb-6 flex items-center gap-2">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold text-white"
-            style={{ background: 'var(--accent)' }}
+            style={{ background: 'var(--header-bg)' }}
           >
             I
           </div>

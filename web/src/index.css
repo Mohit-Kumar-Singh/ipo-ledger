@@ -4,73 +4,92 @@
 :root {
   color-scheme: light;
 
-  /* Chrome & ink — from the validated dashboard palette */
+  /* GitHub Primer palette (light) */
   --surface: #ffffff;
-  --page: #f9f9f7;
-  --hover-surface: #f4f3f0;
-  --ink-primary: #0b0b0b;
-  --ink-secondary: #52514e;
-  --ink-muted: #898781;
-  --border: #e1e0d9;
-  --border-strong: #c3c2b7;
-  --card-shadow: rgba(11, 11, 11, 0.04);
+  --page: #f6f8fa;
+  --hover-surface: #f3f4f6;
+  --ink-primary: #1f2328;
+  --ink-secondary: #424a53;
+  --ink-muted: #656d76;
+  --border: #d8dee4;
+  --border-strong: #d0d7de;
+  --card-shadow: rgba(31, 35, 40, 0.04);
 
-  /* Accent — categorical slot 1 (blue) */
-  --accent: #2a78d6;
-  --accent-hover: #1c5cab;
-  --accent-tint: #eaf2fc;
+  /* GitHub's header bar is always dark, in both light and dark site themes */
+  --header-bg: #24292f;
+  --header-fg: #f0f6fc;
+  --header-fg-muted: #d0d7de;
+  --header-hover: rgba(255, 255, 255, 0.1);
+
+  /* Accent (links, focus rings, active nav) — GitHub's link blue */
+  --accent: #0969da;
+  --accent-hover: #0860ca;
+  --accent-tint: #ddf4ff;
+
+  /* Primary button — GitHub's "New"/"Create" green, distinct from link blue */
+  --btn-primary-bg: #1f883d;
+  --btn-primary-hover: #1a7f37;
 
   /* Status (fixed hues; only the tint/text pairing adapts per mode) */
-  --good: #0ca30c;
-  --good-tint: #e7f7e7;
-  --good-text: #086b08;
-  --warning: #fab219;
-  --warning-tint: #fef3de;
-  --warning-text: #8a5a00;
-  --serious: #ec835a;
-  --serious-tint: #fdece4;
-  --serious-text: #a14d2e;
-  --critical: #d03b3b;
-  --critical-tint: #fbe7e7;
-  --critical-text: #a12727;
+  --good: #1a7f37;
+  --good-tint: #dafbe1;
+  --good-text: #1a7f37;
+  --warning: #9a6700;
+  --warning-tint: #fff8c5;
+  --warning-text: #9a6700;
+  --serious: #bc4c00;
+  --serious-tint: #fff1e5;
+  --serious-text: #bc4c00;
+  --critical: #d1242f;
+  --critical-tint: #ffebe9;
+  --critical-text: #d1242f;
 
-  /* Categorical extra used for "final/other" states (e.g. Sold, Listed) */
-  --violet: #4a3aa7;
-  --violet-tint: #eeecf9;
+  /* "Done"/merged purple — used for final states like Sold/Listed */
+  --violet: #8250df;
+  --violet-tint: #fbefff;
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  --surface: #1a1a19;
-  --page: #0d0d0d;
-  --hover-surface: #232322;
-  --ink-primary: #ffffff;
-  --ink-secondary: #c3c2b7;
-  --ink-muted: #898781;
-  --border: #2c2c2a;
-  --border-strong: #383835;
-  --card-shadow: rgba(0, 0, 0, 0.4);
+  /* GitHub Primer palette (dark) */
+  --surface: #0d1117;
+  --page: #010409;
+  --hover-surface: #161b22;
+  --ink-primary: #e6edf3;
+  --ink-secondary: #9198a1;
+  --ink-muted: #7d8590;
+  --border: #30363d;
+  --border-strong: #3d444d;
+  --card-shadow: rgba(0, 0, 0, 0.5);
 
-  --accent: #3987e5;
-  --accent-hover: #5598e7;
-  --accent-tint: rgba(57, 135, 229, 0.18);
+  --header-bg: #010409;
+  --header-fg: #f0f6fc;
+  --header-fg-muted: #9198a1;
+  --header-hover: rgba(255, 255, 255, 0.1);
 
-  --good: #0ca30c;
-  --good-tint: rgba(12, 163, 12, 0.18);
-  --good-text: #0ca30c;
-  --warning: #fab219;
-  --warning-tint: rgba(250, 178, 25, 0.18);
-  --warning-text: #fab219;
-  --serious: #ec835a;
-  --serious-tint: rgba(236, 131, 90, 0.18);
-  --serious-text: #ec835a;
-  --critical: #d03b3b;
-  --critical-tint: rgba(208, 59, 59, 0.2);
-  --critical-text: #e66767;
+  --accent: #2f81f7;
+  --accent-hover: #4493f8;
+  --accent-tint: rgba(47, 129, 247, 0.15);
 
-  --violet: #9085e9;
-  --violet-tint: rgba(144, 133, 233, 0.2);
+  --btn-primary-bg: #238636;
+  --btn-primary-hover: #2ea043;
+
+  --good: #3fb950;
+  --good-tint: rgba(46, 160, 67, 0.15);
+  --good-text: #3fb950;
+  --warning: #d29922;
+  --warning-tint: rgba(187, 128, 9, 0.15);
+  --warning-text: #d29922;
+  --serious: #db6d28;
+  --serious-tint: rgba(219, 109, 40, 0.15);
+  --serious-text: #db6d28;
+  --critical: #f85149;
+  --critical-tint: rgba(248, 81, 73, 0.15);
+  --critical-text: #f85149;
+
+  --violet: #a371f7;
+  --violet-tint: rgba(163, 113, 247, 0.15);
 }
 
 body {
@@ -103,11 +122,12 @@ table {
   }
 
   .btn-primary {
-    @apply rounded-md px-3 py-2 text-sm font-medium text-white transition-colors disabled:opacity-50;
-    background: var(--accent);
+    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50;
+    background: var(--btn-primary-bg);
+    border-color: rgba(31, 35, 40, 0.15);
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--accent-hover);
+    background: var(--btn-primary-hover);
   }
 
   .btn-secondary {
@@ -128,10 +148,10 @@ table {
   }
 
   .card {
-    @apply rounded-xl border;
-    border-color: var(--border);
+    @apply rounded-md border;
+    border-color: var(--border-strong);
     background: var(--surface);
-    box-shadow: 0 1px 2px var(--card-shadow);
+    box-shadow: 0 1px 0 var(--card-shadow);
   }
 
   .badge {

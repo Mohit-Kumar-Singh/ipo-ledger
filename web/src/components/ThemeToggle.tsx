@@ -1,6 +1,7 @@
+import type { CSSProperties } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 
-export function ThemeToggle({ className = '' }: { className?: string }) {
+export function ThemeToggle({ className = '', style }: { className?: string; style?: CSSProperties }) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -10,7 +11,7 @@ export function ThemeToggle({ className = '' }: { className?: string }) {
       title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
       aria-label="Toggle theme"
       className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] ${className}`}
-      style={{ color: 'var(--ink-secondary)' }}
+      style={{ color: 'var(--ink-secondary)', ...style }}
     >
       {isDark ? (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
