@@ -29,6 +29,7 @@ const AllotmentBoardPage = lazy(() =>
 const NotificationsPage = lazy(() =>
   import('./pages/admin/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 )
+const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const MyAccountPage = lazy(() => import('./pages/member/MyAccountPage').then((m) => ({ default: m.MyAccountPage })))
 const MyApplicationsPage = lazy(() =>
   import('./pages/member/MyApplicationsPage').then((m) => ({ default: m.MyApplicationsPage })),
@@ -66,6 +67,7 @@ function App() {
                       <Route path="/applications" element={<ApplicationsPage />} />
                       <Route path="/allotment" element={<AllotmentBoardPage />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/settings" element={<SettingsPage />} />
                     </Route>
                   </Route>
                 </Route>

@@ -25,6 +25,7 @@ export function ApplicationsPage() {
   const [loading, setLoading] = useState(true)
   const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
 
   async function loadApplications() {
@@ -59,6 +60,13 @@ export function ApplicationsPage() {
 
   function openForm() {
     setShowForm(true)
+    setEditingApplication(null)
+    loadFormData()
+  }
+
+  function openEdit(a: ApplicationRow) {
+    setEditingApplication(a)
+    setShowForm(false)
     loadFormData()
   }
 
@@ -100,7 +108,7 @@ export function ApplicationsPage() {
         </button>
       </div>
 
-      {showForm && formDataLoading && <InlineSpinner label="Loading form…" />}
+      {(showForm || editingApplication) && formDataLoading && <InlineSpinner label="Loading form…" />}
 
       {showForm && !formDataLoading && (
         <NewApplicationForm
@@ -108,6 +116,19 @@ export function ApplicationsPage() {
           accounts={accounts}
           onDone={() => {
             setShowForm(false)
+            loadApplications()
+          }}
+        />
+      )}
+
+      {editingApplication && !formDataLoading && (
+        <NewApplicationForm
+          ipos={ipos}
+          accounts={accounts}
+          existing={editingApplication}
+          onCancel={() => setEditingApplication(null)}
+          onDone={() => {
+            setEditingApplication(null)
             loadApplications()
           }}
         />
@@ -182,6 +203,9 @@ export function ApplicationsPage() {
                           Mark sold
                         </button>
                       )}
+                      <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
+                        Edit
+                      </button>
                       <button
                         onClick={() => deleteApplication(a.id)}
                         className="text-xs font-medium hover:underline"
@@ -234,17 +258,21 @@ function NotifBadge({ status }: { status: Notification['status'] }) {
 function NewApplicationForm({
   ipos,
   accounts,
+  existing,
+  onCancel,
   onDone,
 }: {
   ipos: Ipo[]
   accounts: (DematAccount & { bank_accounts: BankAccount[] })[]
+  existing?: ApplicationRow
+  onCancel?: () => void
   onDone: () => void
 }) {
-  const [ipoId, setIpoId] = useState('')
-  const [dematId, setDematId] = useState('')
-  const [bankAccountId, setBankAccountId] = useState('')
-  const [lots, setLots] = useState('1')
-  const [category, setCategory] = useState<ApplicationCategory>('RETAIL')
+  const [ipoId, setIpoId] = useState(existing?.ipo_id ?? '')
+  const [dematId, setDematId] = useState(existing?.demat_id ?? '')
+  const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
+  const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
+  const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -257,6 +285,29 @@ function NewApplicationForm({
     e.preventDefault()
     setError(null)
     setSubmitting(true)
+
+    if (existing) {
+      // IPO/demat account are fixed once created — changing either is really
+      // a different application (and demat_id is part of the WhatsApp
+      // message trail), so only category/lots/bank account are editable.
+      const { error } = await supabase
+        .from('applications')
+        .update({
+          bank_account_id: bankAccountId || null,
+          category,
+          lots: Number(lots),
+          bid_amount: bidAmount || null,
+        })
+        .eq('id', existing.id)
+      setSubmitting(false)
+      if (error) {
+        setError(error.message)
+        return
+      }
+      onDone()
+      return
+    }
+
     const { error } = await supabase.from('applications').insert({
       ipo_id: ipoId,
       demat_id: dematId,
@@ -280,32 +331,44 @@ function NewApplicationForm({
   return (
     <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="IPO">
-        <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
-          <option value="">Select IPO</option>
-          {ipos.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.company_name}
-            </option>
-          ))}
-        </select>
+        {existing ? (
+          <p className="input" style={{ background: 'var(--page)' }}>
+            {selectedIpo?.company_name ?? existing.ipos?.company_name}
+          </p>
+        ) : (
+          <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
+            <option value="">Select IPO</option>
+            {ipos.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.company_name}
+              </option>
+            ))}
+          </select>
+        )}
       </Field>
       <Field label="Demat account">
-        <select
-          required
-          value={dematId}
-          onChange={(e) => {
-            setDematId(e.target.value)
-            setBankAccountId('')
-          }}
-          className="input"
-        >
-          <option value="">Select account</option>
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.holder_name}
-            </option>
-          ))}
-        </select>
+        {existing ? (
+          <p className="input" style={{ background: 'var(--page)' }}>
+            {selectedAccount?.holder_name ?? existing.demat_accounts?.holder_name}
+          </p>
+        ) : (
+          <select
+            required
+            value={dematId}
+            onChange={(e) => {
+              setDematId(e.target.value)
+              setBankAccountId('')
+            }}
+            className="input"
+          >
+            <option value="">Select account</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.holder_name}
+              </option>
+            ))}
+          </select>
+        )}
       </Field>
       <Field label="Bank account used">
         <select
@@ -347,13 +410,20 @@ function NewApplicationForm({
         <p className="badge badge-critical col-span-1 w-fit sm:col-span-2 lg:col-span-3">{error}</p>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting || !ipoId || !dematId}
-        className="btn-primary col-span-1 py-2.5 sm:col-span-2 lg:col-span-3"
-      >
-        {submitting ? 'Saving…' : 'Save application'}
-      </button>
+      <div className="col-span-1 flex gap-2 sm:col-span-2 lg:col-span-3">
+        <button
+          type="submit"
+          disabled={submitting || !ipoId || !dematId}
+          className="btn-primary flex-1 py-2.5"
+        >
+          {submitting ? 'Saving…' : existing ? 'Save changes' : 'Save application'}
+        </button>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="btn-secondary">
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   )
 }

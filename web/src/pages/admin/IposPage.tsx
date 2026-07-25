@@ -94,6 +94,7 @@ export function IposPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingIpo, setEditingIpo] = useState<Ipo | null>(null)
 
   const [showImport, setShowImport] = useState(false)
   const [importSource, setImportSource] = useState<'current' | 'upcoming'>('current')
@@ -227,6 +228,7 @@ export function IposPage() {
             onClick={() => {
               setShowImport((s) => !s)
               setShowAddForm(false)
+              setEditingIpo(null)
             }}
             className="btn-secondary"
           >
@@ -236,6 +238,7 @@ export function IposPage() {
             onClick={() => {
               setShowAddForm((s) => !s)
               setShowImport(false)
+              setEditingIpo(null)
             }}
             className="btn-primary"
           >
@@ -319,6 +322,17 @@ export function IposPage() {
         />
       )}
 
+      {editingIpo && (
+        <AddIpoForm
+          existing={editingIpo}
+          onCancel={() => setEditingIpo(null)}
+          onDone={() => {
+            setEditingIpo(null)
+            load()
+          }}
+        />
+      )}
+
       {loading ? (
         <InlineSpinner />
       ) : ipos.length === 0 ? (
@@ -364,7 +378,17 @@ export function IposPage() {
                   listingDate={ipo.listing_date}
                 />
 
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => {
+                      setEditingIpo(ipo)
+                      setShowAddForm(false)
+                      setShowImport(false)
+                    }}
+                    className="link-accent text-xs font-medium"
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => deleteIpo(ipo)}
                     className="text-xs font-medium hover:underline"
@@ -460,21 +484,21 @@ function Stat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function AddIpoForm({ onDone }: { onDone: () => void }) {
-  const [companyName, setCompanyName] = useState('')
-  const [symbol, setSymbol] = useState('')
-  const [priceLow, setPriceLow] = useState('')
-  const [priceHigh, setPriceHigh] = useState('')
-  const [lotSize, setLotSize] = useState('')
-  const [openDate, setOpenDate] = useState('')
-  const [closeDate, setCloseDate] = useState('')
-  const [allotmentDate, setAllotmentDate] = useState('')
-  const [listingDate, setListingDate] = useState('')
-  const [gmpNotes, setGmpNotes] = useState('')
-  const [issueSize, setIssueSize] = useState('')
-  const [retailIssueSize, setRetailIssueSize] = useState('')
-  const [registrar, setRegistrar] = useState<Registrar>('OTHER')
-  const [registrarUrl, setRegistrarUrl] = useState('')
+function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?: () => void; onDone: () => void }) {
+  const [companyName, setCompanyName] = useState(existing?.company_name ?? '')
+  const [symbol, setSymbol] = useState(existing?.symbol ?? '')
+  const [priceLow, setPriceLow] = useState(existing?.price_low != null ? String(existing.price_low) : '')
+  const [priceHigh, setPriceHigh] = useState(existing?.price_high != null ? String(existing.price_high) : '')
+  const [lotSize, setLotSize] = useState(existing ? String(existing.lot_size) : '')
+  const [openDate, setOpenDate] = useState(existing?.open_date ?? '')
+  const [closeDate, setCloseDate] = useState(existing?.close_date ?? '')
+  const [allotmentDate, setAllotmentDate] = useState(existing?.allotment_date ?? '')
+  const [listingDate, setListingDate] = useState(existing?.listing_date ?? '')
+  const [gmpNotes, setGmpNotes] = useState(existing?.gmp_notes ?? '')
+  const [issueSize, setIssueSize] = useState(existing?.issue_size ?? '')
+  const [retailIssueSize, setRetailIssueSize] = useState(existing?.retail_issue_size ?? '')
+  const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
+  const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -483,7 +507,7 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
     setError(null)
     setSubmitting(true)
 
-    const { error } = await upsertIpo({
+    const payload = {
       company_name: companyName,
       symbol: symbol || null,
       price_low: priceLow ? Number(priceLow) : null,
@@ -498,7 +522,13 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
       gmp_notes: gmpNotes || null,
       issue_size: issueSize || null,
       retail_issue_size: retailIssueSize || null,
-    })
+    }
+
+    // Editing a known row updates it directly by id; otherwise fall back to
+    // the name-based upsert (used by manual "Add" and the import flow).
+    const { error } = existing
+      ? { error: (await supabase.from('ipos').update(payload).eq('id', existing.id)).error?.message ?? null }
+      : await upsertIpo(payload)
 
     setSubmitting(false)
     if (error) {
@@ -576,13 +606,16 @@ function AddIpoForm({ onDone }: { onDone: () => void }) {
 
       {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2 lg:col-span-3">{error}</p>}
 
-      <button
-        type="submit"
-        disabled={submitting}
-        className="btn-primary col-span-1 py-2.5 sm:col-span-2 lg:col-span-3"
-      >
-        {submitting ? 'Saving…' : 'Save IPO'}
-      </button>
+      <div className="col-span-1 flex gap-2 sm:col-span-2 lg:col-span-3">
+        <button type="submit" disabled={submitting} className="btn-primary flex-1 py-2.5">
+          {submitting ? 'Saving…' : existing ? 'Save changes' : 'Save IPO'}
+        </button>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className="btn-secondary">
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   )
 }

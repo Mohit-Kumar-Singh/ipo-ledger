@@ -12,6 +12,7 @@ const adminLinks = [
   { to: '/applications', label: 'Applications' },
   { to: '/allotment', label: 'Allotment board' },
   { to: '/notifications', label: 'Notifications' },
+  { to: '/settings', label: 'Settings' },
 ]
 
 const memberLinks = [
