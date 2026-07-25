@@ -8,6 +8,7 @@ interface EditingBank {
   holderName: string
   upi: string
   bankName: string
+  phoneDigits: string
   isDefault: boolean
 }
 
@@ -39,6 +40,7 @@ export function BankAccountsPage() {
       holderName: b.account_holder_name ?? '',
       upi: b.upi_id ?? '',
       bankName: b.bank_name ?? '',
+      phoneDigits: b.phone_e164?.replace(/^\+91/, '') ?? '',
       isDefault: b.is_default,
     })
   }
@@ -121,6 +123,11 @@ export function BankAccountsPage() {
                     {b.bank_name}
                   </span>
                 )}
+                {b.phone_e164 && (
+                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
+                    {b.phone_e164}
+                  </span>
+                )}
                 {b.is_default && <span className="badge badge-info ml-2">default</span>}
               </div>
               <div className="flex gap-3">
@@ -155,19 +162,29 @@ function BankForm({
   const [holderName, setHolderName] = useState(existing?.holderName ?? '')
   const [upi, setUpi] = useState(existing?.upi ?? '')
   const [bankName, setBankName] = useState(existing?.bankName ?? '')
+  const [phoneDigits, setPhoneDigits] = useState(existing?.phoneDigits ?? '')
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  const phoneValid = phoneDigits.length === 0 || /^[0-9]{10}$/.test(phoneDigits)
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+
+    if (!phoneValid) {
+      setError('Phone number must be exactly 10 digits, or left blank.')
+      return
+    }
+
     setSubmitting(true)
 
     const payload = {
       account_holder_name: holderName.trim(),
       upi_id: upi.trim() || null,
       bank_name: bankName.trim() || null,
+      phone_e164: phoneDigits ? `+91${phoneDigits}` : null,
       is_default: isDefault,
     }
 
@@ -193,6 +210,29 @@ function BankForm({
       </Field>
       <Field label="Bank" hint="optional">
         <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input" />
+      </Field>
+      <Field label="Phone number" hint="optional — sends the applied message to this holder too">
+        <div className="flex items-center gap-2">
+          <span
+            className="rounded-md border px-3 py-2 text-sm"
+            style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
+          >
+            +91
+          </span>
+          <input
+            inputMode="numeric"
+            maxLength={10}
+            value={phoneDigits}
+            onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+            className="input"
+            placeholder="9876543210"
+          />
+        </div>
+        {!phoneValid && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
+            Must be exactly 10 digits.
+          </p>
+        )}
       </Field>
       <label className="col-span-1 flex items-center gap-2 text-sm sm:col-span-2" style={{ color: 'var(--ink-secondary)' }}>
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />

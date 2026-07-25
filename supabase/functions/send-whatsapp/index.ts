@@ -87,7 +87,7 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const { data: app } = await admin
     .from('applications')
     .select(
-      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), bank_accounts(account_holder_name, bank_name, last4, upi_id)',
+      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), bank_accounts(account_holder_name, bank_name, last4, upi_id, phone_e164)',
     )
     .eq('id', applicationId)
     .single()
@@ -97,7 +97,13 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const phone = app.demat_accounts.phone_e164 as string
   const companyName = app.ipos.company_name as string
   const b = app.bank_accounts as
-    | { account_holder_name?: string | null; bank_name?: string | null; last4?: string | null; upi_id?: string | null }
+    | {
+        account_holder_name?: string | null
+        bank_name?: string | null
+        last4?: string | null
+        upi_id?: string | null
+        phone_e164?: string | null
+      }
     | null
   // Bank/UPI accounts are no longer tied to a single demat holder — a bank
   // account can belong to someone other than the demat account this
@@ -126,6 +132,25 @@ async function queueForApplication(applicationId: string, templateKind: Template
     variables: { params: variables },
     status: 'QUEUED',
   })
+
+  // On apply, also notify whoever's bank/UPI was actually used — if it's a
+  // different person than the demat holder and they gave a phone number.
+  // (Not done on allotment: that message is about the demat holder's
+  // shares, not the funds that were debited.)
+  if (templateKind === 'ipo_applied' && b?.phone_e164 && b.phone_e164 !== phone) {
+    const bankHolderName = b.account_holder_name || 'there'
+    await admin.from('notifications').insert({
+      application_id: applicationId,
+      demat_id: app.demat_id,
+      type: notifType,
+      to_phone: b.phone_e164,
+      template_name: 'ipo_applied_bank_holder',
+      variables: {
+        params: [bankHolderName, companyName, holderName, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`],
+      },
+      status: 'QUEUED',
+    })
+  }
 }
 
 // Actually sends (or simulates) a QUEUED/FAILED notification and updates its status.

@@ -38,6 +38,7 @@ export interface BankAccount {
   bank_name: string | null
   last4: string | null
   upi_id: string | null
+  phone_e164: string | null
   is_default: boolean
 }
 

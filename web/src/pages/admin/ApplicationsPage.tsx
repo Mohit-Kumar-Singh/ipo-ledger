@@ -15,7 +15,7 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
   demat_accounts: Pick<DematAccount, 'holder_name'>
-  notifications: Pick<Notification, 'id' | 'type' | 'status'>[]
+  notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone'>[]
 }
 
 export function ApplicationsPage() {
@@ -33,7 +33,7 @@ export function ApplicationsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('applications')
-      .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status)')
+      .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status, to_phone)')
       .order('applied_at', { ascending: false })
     setApplications((data ?? []) as ApplicationRow[])
     setLoading(false)
@@ -159,7 +159,6 @@ export function ApplicationsPage() {
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {applications.map((a) => {
-                const notif = a.notifications?.find((n) => n.type === 'APPLIED')
                 return (
                 <tr key={a.id} className="hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -172,18 +171,25 @@ export function ApplicationsPage() {
                     <StatusBadge status={a.status} />
                   </td>
                   <td className="px-4 py-2.5">
-                    {notif ? (
-                      <div className="flex items-center gap-2">
-                        <NotifBadge status={notif.status} />
-                        {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
-                          <button
-                            onClick={() => dispatchNotification(notif.id)}
-                            disabled={dispatching === notif.id}
-                            className="link-accent text-xs font-medium disabled:opacity-50"
-                          >
-                            {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
-                          </button>
-                        )}
+                    {a.notifications && a.notifications.length > 0 ? (
+                      <div className="flex flex-col gap-1.5">
+                        {a.notifications.map((notif) => (
+                          <div key={notif.id} className="flex items-center gap-2">
+                            <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                              {notif.to_phone}
+                            </span>
+                            <NotifBadge status={notif.status} />
+                            {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
+                              <button
+                                onClick={() => dispatchNotification(notif.id)}
+                                disabled={dispatching === notif.id}
+                                className="link-accent text-xs font-medium disabled:opacity-50"
+                              >
+                                {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <span style={{ color: 'var(--ink-muted)' }}>—</span>
