@@ -287,6 +287,15 @@ export function IposPage() {
 
           {!importLoading && candidates.length > 0 && (
             <>
+              <button
+                onClick={saveSelected}
+                disabled={selected.size === 0 || bulkSaving}
+                className="btn-primary disabled:opacity-50"
+              >
+                {bulkSaving
+                  ? `Saving ${bulkProgress.done}/${bulkProgress.total}…`
+                  : `Save ${selected.size} selected`}
+              </button>
               <div className="grid grid-cols-1 gap-3 overflow-y-auto sm:grid-cols-2" style={{ maxHeight: '480px' }}>
                 {candidates.map((c) => (
                   <ImportCard
@@ -299,15 +308,6 @@ export function IposPage() {
                   />
                 ))}
               </div>
-              <button
-                onClick={saveSelected}
-                disabled={selected.size === 0 || bulkSaving}
-                className="btn-primary disabled:opacity-50"
-              >
-                {bulkSaving
-                  ? `Saving ${bulkProgress.done}/${bulkProgress.total}…`
-                  : `Save ${selected.size} selected`}
-              </button>
             </>
           )}
         </div>
@@ -421,8 +421,13 @@ function ImportCard({
 }) {
   return (
     <label
-      className="card flex cursor-pointer flex-col gap-3 p-4"
-      style={{ opacity: eligible ? 1 : 0.6 }}
+      className="card flex cursor-pointer flex-col gap-3 p-4 transition-shadow"
+      style={{
+        opacity: eligible ? 1 : 0.6,
+        borderColor: checked ? 'var(--accent)' : undefined,
+        background: checked ? 'var(--accent-tint)' : undefined,
+        boxShadow: checked ? '0 0 0 1px var(--accent), 0 4px 12px rgba(9, 105, 218, 0.2)' : undefined,
+      }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex items-start gap-2">
