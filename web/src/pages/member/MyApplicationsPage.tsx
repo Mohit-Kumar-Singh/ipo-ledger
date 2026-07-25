@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { Application, Ipo } from '../../types/database'
+import type { Application, BankAccount, Ipo } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
-type ApplicationRow = Application & { ipos: Pick<Ipo, 'company_name' | 'listing_date'> }
+type ApplicationRow = Application & {
+  ipos: Pick<Ipo, 'company_name' | 'listing_date'>
+  bank_accounts: Pick<BankAccount, 'account_holder_name' | 'bank_name' | 'last4' | 'upi_id'> | null
+}
 
 export function MyApplicationsPage() {
   const [applications, setApplications] = useState<ApplicationRow[]>([])
@@ -12,7 +15,7 @@ export function MyApplicationsPage() {
   useEffect(() => {
     supabase
       .from('applications')
-      .select('*, ipos(company_name, listing_date)')
+      .select('*, ipos(company_name, listing_date), bank_accounts(account_holder_name, bank_name, last4, upi_id)')
       .order('applied_at', { ascending: false })
       .then(({ data }) => {
         setApplications((data ?? []) as ApplicationRow[])
@@ -40,6 +43,14 @@ export function MyApplicationsPage() {
               {a.lots} lot(s) · ₹{a.bid_amount ?? '—'}
               {a.ipos?.listing_date && ` · listing ${a.ipos.listing_date}`}
             </p>
+            {a.bank_accounts && (
+              <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+                via{' '}
+                {[a.bank_accounts.account_holder_name, a.bank_accounts.bank_name, a.bank_accounts.upi_id]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            )}
             {a.status === 'ALLOTTED' && (
               <p className="mt-1 text-sm font-medium" style={{ color: 'var(--good)' }}>
                 Allotted — please sell on listing day{a.ipos?.listing_date ? ` (${a.ipos.listing_date})` : ''}.

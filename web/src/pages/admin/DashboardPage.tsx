@@ -127,6 +127,30 @@ export function DashboardPage() {
   )
 }
 
+// Counts up from 0 to `target` on mount/change instead of snapping straight
+// to the number — small nod to the animated-figures feel of consumer
+// investing apps (Groww etc.) on the dashboard's headline stats.
+function useCountUp(target: number, duration = 500) {
+  const [value, setValue] = useState(0)
+  useEffect(() => {
+    if (target === 0) {
+      setValue(0)
+      return
+    }
+    let raf: number
+    const start = performance.now()
+    function tick(now: number) {
+      const t = Math.min((now - start) / duration, 1)
+      const eased = 1 - Math.pow(1 - t, 3)
+      setValue(Math.round(target * eased))
+      if (t < 1) raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [target, duration])
+  return value
+}
+
 function StatTile({
   label,
   value,
@@ -142,6 +166,7 @@ function StatTile({
     good: 'var(--good)',
     critical: 'var(--critical)',
   }[tone]
+  const animated = useCountUp(value)
 
   return (
     <div className="card p-4">
@@ -152,7 +177,7 @@ function StatTile({
         className="mt-2 text-3xl font-semibold"
         style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
       >
-        {value}
+        {animated}
       </p>
     </div>
   )

@@ -1,14 +1,13 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { describeFunctionError, supabase } from '../../lib/supabase'
-import type { BankAccount, DematAccount, Profile } from '../../types/database'
+import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
-type AccountWithBanks = DematAccount & { bank_accounts: BankAccount[] }
 type EditingAccount = { id: string; holderName: string; phoneDigits: string; pan: string; dematAccountNo: string }
 
 export function AccountsPage() {
-  const [accounts, setAccounts] = useState<AccountWithBanks[]>([])
+  const [accounts, setAccounts] = useState<DematAccount[]>([])
   const [unlinkedMembers, setUnlinkedMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -20,10 +19,10 @@ export function AccountsPage() {
   async function load() {
     setLoading(true)
     const [accountsRes, membersRes] = await Promise.all([
-      supabase.from('demat_accounts').select('*, bank_accounts(*)').order('created_at', { ascending: false }),
+      supabase.from('demat_accounts').select('*').order('created_at', { ascending: false }),
       supabase.from('profiles').select('*').eq('role', 'member'),
     ])
-    const loadedAccounts = (accountsRes.data ?? []) as AccountWithBanks[]
+    const loadedAccounts = (accountsRes.data ?? []) as DematAccount[]
     const linkedIds = new Set(loadedAccounts.map((a) => a.linked_user_id).filter(Boolean))
     setAccounts(loadedAccounts)
     setUnlinkedMembers(((membersRes.data ?? []) as Profile[]).filter((p) => !linkedIds.has(p.id)))
@@ -61,7 +60,7 @@ export function AccountsPage() {
     setRevealing(null)
   }
 
-  async function startEdit(a: AccountWithBanks) {
+  async function startEdit(a: DematAccount) {
     setRevealing(a.id)
     const pan = await fetchPan(a.id)
     setRevealing(null)
@@ -208,16 +207,6 @@ export function AccountsPage() {
                   </button>
                 </div>
               </div>
-              {a.bank_accounts?.length > 0 && (
-                <ul className="mt-2 flex flex-wrap gap-2">
-                  {a.bank_accounts.map((b) => (
-                    <li key={b.id} className="badge badge-neutral">
-                      {[b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account'}
-                      {b.is_default && ' (default)'}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
           ))}
           {accounts.length === 0 && (

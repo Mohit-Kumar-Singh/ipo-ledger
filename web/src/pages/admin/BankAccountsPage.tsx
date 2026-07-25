@@ -1,13 +1,10 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
-import type { BankAccount, DematAccount } from '../../types/database'
+import type { BankAccount } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
-
-type BankRow = BankAccount & { demat_accounts: Pick<DematAccount, 'holder_name'> }
 
 interface EditingBank {
   id: string
-  dematId: string
   holderName: string
   upi: string
   bankName: string
@@ -15,23 +12,19 @@ interface EditingBank {
 }
 
 export function BankAccountsPage() {
-  const [banks, setBanks] = useState<BankRow[]>([])
-  const [demats, setDemats] = useState<DematAccount[]>([])
+  const [banks, setBanks] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
 
   async function load() {
     setLoading(true)
-    const [banksRes, dematsRes] = await Promise.all([
-      supabase
-        .from('bank_accounts')
-        .select('*, demat_accounts(holder_name)')
-        .order('is_default', { ascending: false }),
-      supabase.from('demat_accounts').select('*').order('holder_name'),
-    ])
-    setBanks((banksRes.data ?? []) as BankRow[])
-    setDemats((dematsRes.data ?? []) as DematAccount[])
+    const { data } = await supabase
+      .from('bank_accounts')
+      .select('*')
+      .order('is_default', { ascending: false })
+      .order('account_holder_name')
+    setBanks((data ?? []) as BankAccount[])
     setLoading(false)
   }
 
@@ -39,11 +32,10 @@ export function BankAccountsPage() {
     load()
   }, [])
 
-  function startEdit(b: BankRow) {
+  function startEdit(b: BankAccount) {
     setShowForm(false)
     setEditing({
       id: b.id,
-      dematId: b.demat_id,
       holderName: b.account_holder_name ?? '',
       upi: b.upi_id ?? '',
       bankName: b.bank_name ?? '',
@@ -61,15 +53,6 @@ export function BankAccountsPage() {
     load()
   }
 
-  // Grouped by linked demat account, so combinations (which holder ×
-  // which bank/UPI) are easy to scan when deciding how to apply.
-  const grouped = new Map<string, { holderName: string; rows: BankRow[] }>()
-  for (const b of banks) {
-    const key = b.demat_id
-    if (!grouped.has(key)) grouped.set(key, { holderName: b.demat_accounts?.holder_name ?? 'Unknown', rows: [] })
-    grouped.get(key)!.rows.push(b)
-  }
-
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -78,8 +61,8 @@ export function BankAccountsPage() {
             Bank / UPI accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {banks.length} linked across {demats.length} demat account{demats.length === 1 ? '' : 's'} — the
-            holder × bank/UPI combinations you apply IPOs from.
+            {banks.length} saved — pick any of these for any demat account when you apply, so one bank/UPI can be
+            reused across holders and one holder can use several.
           </p>
         </div>
         <button
@@ -88,20 +71,13 @@ export function BankAccountsPage() {
             setShowForm((s) => !s)
           }}
           className="btn-primary"
-          disabled={demats.length === 0}
-          title={demats.length === 0 ? 'Add a demat account first' : undefined}
         >
           {showForm ? 'Cancel' : '+ Add bank/UPI account'}
         </button>
       </div>
 
-      {demats.length === 0 && !loading && (
-        <p className="badge badge-warning w-fit">Add a demat account on the Accounts page first.</p>
-      )}
-
       {showForm && (
         <BankForm
-          demats={demats}
           onCancel={() => setShowForm(false)}
           onDone={() => {
             setShowForm(false)
@@ -112,7 +88,6 @@ export function BankAccountsPage() {
 
       {editing && (
         <BankForm
-          demats={demats}
           existing={editing}
           onCancel={() => setEditing(null)}
           onDone={() => {
@@ -129,43 +104,36 @@ export function BankAccountsPage() {
           No bank/UPI accounts yet.
         </p>
       ) : (
-        <div className="space-y-4">
-          {Array.from(grouped.entries()).map(([dematId, group]) => (
-            <div key={dematId} className="card p-4">
-              <p className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                {group.holderName}
-              </p>
-              <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                {group.rows.map((b) => (
-                  <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <div className="text-sm">
-                      <span style={{ color: 'var(--ink-primary)' }}>{b.account_holder_name}</span>
-                      {b.upi_id && (
-                        <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
-                          {b.upi_id}
-                        </span>
-                      )}
-                      {b.bank_name && (
-                        <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
-                          {b.bank_name}
-                        </span>
-                      )}
-                      {b.is_default && <span className="badge badge-info ml-2">default</span>}
-                    </div>
-                    <div className="flex gap-3">
-                      <button onClick={() => startEdit(b)} className="link-accent text-xs font-medium">
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteBank(b.id)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--critical)' }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
+        <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+          {banks.map((b) => (
+            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
+              <div className="text-sm">
+                <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {b.account_holder_name}
+                </span>
+                {b.upi_id && (
+                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
+                    {b.upi_id}
+                  </span>
+                )}
+                {b.bank_name && (
+                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
+                    {b.bank_name}
+                  </span>
+                )}
+                {b.is_default && <span className="badge badge-info ml-2">default</span>}
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => startEdit(b)} className="link-accent text-xs font-medium">
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteBank(b.id)}
+                  className="text-xs font-medium hover:underline"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  Delete
+                </button>
               </div>
             </div>
           ))}
@@ -176,17 +144,14 @@ export function BankAccountsPage() {
 }
 
 function BankForm({
-  demats,
   existing,
   onCancel,
   onDone,
 }: {
-  demats: DematAccount[]
   existing?: EditingBank
   onCancel: () => void
   onDone: () => void
 }) {
-  const [dematId, setDematId] = useState(existing?.dematId ?? '')
   const [holderName, setHolderName] = useState(existing?.holderName ?? '')
   const [upi, setUpi] = useState(existing?.upi ?? '')
   const [bankName, setBankName] = useState(existing?.bankName ?? '')
@@ -200,8 +165,7 @@ function BankForm({
     setSubmitting(true)
 
     const payload = {
-      demat_id: dematId,
-      account_holder_name: holderName.trim() || null,
+      account_holder_name: holderName.trim(),
       upi_id: upi.trim() || null,
       bank_name: bankName.trim() || null,
       is_default: isDefault,
@@ -221,20 +185,10 @@ function BankForm({
 
   return (
     <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
-      <Field label="Linked demat account">
-        <select required value={dematId} onChange={(e) => setDematId(e.target.value)} className="input">
-          <option value="">Select account</option>
-          {demats.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.holder_name}
-            </option>
-          ))}
-        </select>
+      <Field label="Account holder name">
+        <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
-      <Field label="Account holder name" hint="optional">
-        <input value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
-      </Field>
-      <Field label="UPI ID">
+      <Field label="UPI ID" hint="optional">
         <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="name@bank" className="input" />
       </Field>
       <Field label="Bank" hint="optional">
@@ -242,7 +196,7 @@ function BankForm({
       </Field>
       <label className="col-span-1 flex items-center gap-2 text-sm sm:col-span-2" style={{ color: 'var(--ink-secondary)' }}>
         <input type="checkbox" checked={isDefault} onChange={(e) => setIsDefault(e.target.checked)} />
-        Use as default for this account
+        Use as default
       </label>
 
       {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2">{error}</p>}

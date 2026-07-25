@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
 import { NotificationToastHost } from '../NotificationToastHost'
@@ -26,6 +26,7 @@ export function AppShell() {
   const isAdmin = profile?.role === 'admin'
   const links = isAdmin ? adminLinks : memberLinks
   const [navOpen, setNavOpen] = useState(false)
+  const location = useLocation()
 
   const initials = (profile?.full_name ?? '?')
     .split(' ')
@@ -137,11 +138,19 @@ export function AppShell() {
               </NavLink>
             ))}
           </nav>
+          <div
+            className="border-t px-4 py-2.5 text-xs"
+            style={{ borderColor: 'var(--border)', color: 'var(--ink-muted)' }}
+          >
+            IPO Ledger v{__APP_VERSION__}
+          </div>
         </aside>
 
         <div className="min-w-0 flex-1 overflow-x-hidden">
           <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
-            <Outlet />
+            <div key={location.pathname} className="animate-page-in">
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>

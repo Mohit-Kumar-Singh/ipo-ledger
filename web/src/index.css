@@ -106,6 +106,34 @@ table {
   font-variant-numeric: tabular-nums;
 }
 
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-page-in {
+  animation: page-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-page-in {
+    animation: none;
+  }
+  .card,
+  .btn-primary,
+  .btn-secondary {
+    transition: none !important;
+  }
+  .card:hover {
+    transform: none;
+  }
+}
+
 @layer components {
   .input {
     @apply w-full rounded-md border px-3 py-2 text-sm transition-colors outline-none;
@@ -122,22 +150,29 @@ table {
   }
 
   .btn-primary {
-    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50;
+    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
     background: var(--btn-primary-bg);
     border-color: rgba(31, 35, 40, 0.15);
+    transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
   }
   .btn-primary:hover:not(:disabled) {
     background: var(--btn-primary-hover);
   }
 
   .btn-secondary {
-    @apply rounded-md border px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50;
+    @apply rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50;
     border-color: var(--border-strong);
     color: var(--ink-primary);
     background: var(--surface);
+    transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
   }
   .btn-secondary:hover:not(:disabled) {
     background: var(--hover-surface);
+  }
+
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled) {
+    transform: scale(0.97);
   }
 
   .link-accent {
@@ -152,6 +187,11 @@ table {
     border-color: var(--border-strong);
     background: var(--surface);
     box-shadow: 0 1px 0 var(--card-shadow);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px var(--card-shadow);
   }
 
   .badge {

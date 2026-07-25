@@ -96,10 +96,20 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const holderName = app.demat_accounts.holder_name as string
   const phone = app.demat_accounts.phone_e164 as string
   const companyName = app.ipos.company_name as string
-  const b = app.bank_accounts as { bank_name?: string; last4?: string; upi_id?: string } | null
+  const b = app.bank_accounts as
+    | { account_holder_name?: string | null; bank_name?: string | null; last4?: string | null; upi_id?: string | null }
+    | null
+  // Bank/UPI accounts are no longer tied to a single demat holder — a bank
+  // account can belong to someone other than the demat account this
+  // application is on, so name whoever's bank/UPI it is when that differs
+  // from the demat holder, rather than assuming it's always their own.
+  const bankDetail = b
+    ? [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ')
+    : ''
   const bank = b
-    ? [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ') ||
-      'your linked bank'
+    ? b.account_holder_name && b.account_holder_name !== holderName
+      ? `${bankDetail || 'bank/UPI'} (${b.account_holder_name}'s)`
+      : bankDetail || 'your linked bank'
     : 'your linked bank'
 
   const variables =

@@ -21,7 +21,8 @@ type ApplicationRow = Application & {
 export function ApplicationsPage() {
   const [applications, setApplications] = useState<ApplicationRow[]>([])
   const [ipos, setIpos] = useState<Ipo[]>([])
-  const [accounts, setAccounts] = useState<(DematAccount & { bank_accounts: BankAccount[] })[]>([])
+  const [accounts, setAccounts] = useState<DematAccount[]>([])
+  const [banks, setBanks] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
@@ -38,19 +39,23 @@ export function ApplicationsPage() {
     setLoading(false)
   }
 
-  // IPOs + accounts (with their banks) are only needed to populate the "New
-  // application" form's dropdowns — no point fetching them on every page load
-  // when most visits are just reviewing the table. Re-fetched every time the
-  // form opens (not cached after the first load) so newly added IPOs/accounts/
-  // bank-UPI entries show up immediately instead of needing a page refresh.
+  // IPOs + demat accounts + bank/UPI accounts are only needed to populate the
+  // "New application" form's dropdowns — no point fetching them on every page
+  // load when most visits are just reviewing the table. Re-fetched every time
+  // the form opens (not cached after the first load) so newly added IPOs/
+  // accounts/bank-UPI entries show up immediately instead of needing a page
+  // refresh. Demat accounts and bank/UPI accounts are independent lists now —
+  // any combination of the two can be picked per application.
   async function loadFormData() {
     setFormDataLoading(true)
-    const [iposRes, accountsRes] = await Promise.all([
+    const [iposRes, accountsRes, banksRes] = await Promise.all([
       supabase.from('ipos').select('*').order('company_name'),
-      supabase.from('demat_accounts').select('*, bank_accounts(*)').order('holder_name'),
+      supabase.from('demat_accounts').select('*').order('holder_name'),
+      supabase.from('bank_accounts').select('*').order('is_default', { ascending: false }),
     ])
     setIpos((iposRes.data ?? []) as Ipo[])
-    setAccounts((accountsRes.data ?? []) as (DematAccount & { bank_accounts: BankAccount[] })[])
+    setAccounts((accountsRes.data ?? []) as DematAccount[])
+    setBanks((banksRes.data ?? []) as BankAccount[])
     setFormDataLoading(false)
   }
 
@@ -114,6 +119,7 @@ export function ApplicationsPage() {
         <NewApplicationForm
           ipos={ipos}
           accounts={accounts}
+          banks={banks}
           onDone={() => {
             setShowForm(false)
             loadApplications()
@@ -125,6 +131,7 @@ export function ApplicationsPage() {
         <NewApplicationForm
           ipos={ipos}
           accounts={accounts}
+          banks={banks}
           existing={editingApplication}
           onCancel={() => setEditingApplication(null)}
           onDone={() => {
@@ -258,12 +265,14 @@ function NotifBadge({ status }: { status: Notification['status'] }) {
 function NewApplicationForm({
   ipos,
   accounts,
+  banks,
   existing,
   onCancel,
   onDone,
 }: {
   ipos: Ipo[]
-  accounts: (DematAccount & { bank_accounts: BankAccount[] })[]
+  accounts: DematAccount[]
+  banks: BankAccount[]
   existing?: ApplicationRow
   onCancel?: () => void
   onDone: () => void
@@ -355,10 +364,7 @@ function NewApplicationForm({
           <select
             required
             value={dematId}
-            onChange={(e) => {
-              setDematId(e.target.value)
-              setBankAccountId('')
-            }}
+            onChange={(e) => setDematId(e.target.value)}
             className="input"
           >
             <option value="">Select account</option>
@@ -371,14 +377,9 @@ function NewApplicationForm({
         )}
       </Field>
       <Field label="Bank account used">
-        <select
-          value={bankAccountId}
-          onChange={(e) => setBankAccountId(e.target.value)}
-          className="input"
-          disabled={!selectedAccount}
-        >
-          <option value="">Select bank</option>
-          {selectedAccount?.bank_accounts.map((b) => (
+        <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="input">
+          <option value="">Select bank/UPI</option>
+          {banks.map((b) => (
             <option key={b.id} value={b.id}>
               {[b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account'}
             </option>
