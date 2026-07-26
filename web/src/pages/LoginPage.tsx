@@ -21,11 +21,22 @@ export function LoginPage() {
 
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center px-4 py-8"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8"
       style={{ background: 'var(--page)' }}
     >
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full opacity-30 blur-3xl"
+        style={{ background: 'var(--accent)' }}
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute -right-24 -bottom-32 h-80 w-80 rounded-full opacity-20 blur-3xl"
+        style={{ background: 'var(--violet)' }}
+      />
+
       <ThemeToggle className="absolute top-4 right-4" />
-      <div className="card w-full max-w-sm p-7">
+      <div className="card animate-page-in relative w-full max-w-sm p-7" style={{ boxShadow: 'var(--shadow-lg)' }}>
         <div className="mb-6 flex items-center gap-2">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold text-white"

@@ -34,15 +34,28 @@ function statusMeta(status: Notification['status']) {
  *  Open WhatsApp button. RLS scopes which rows each viewer receives here. */
 export function NotificationToastHost() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
+  const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
+
+  // Plays the exit animation before actually removing the toast, instead of
+  // snapping it out of the list instantly.
+  function removeToast(id: string) {
+    setLeavingIds((s) => new Set(s).add(id))
+    setTimeout(() => {
+      setToasts((t) => t.filter((x) => x.id !== id))
+      setLeavingIds((s) => {
+        const next = new Set(s)
+        next.delete(id)
+        return next
+      })
+    }, 200)
+  }
 
   useEffect(() => {
     function handleChange(notification: Notification) {
       if (notification.status === 'QUEUED') return
       const id = `${notification.id}-${notification.status}-${Date.now()}`
       setToasts((t) => [...t, { id, notification }])
-      setTimeout(() => {
-        setToasts((t) => t.filter((x) => x.id !== id))
-      }, 15000)
+      setTimeout(() => removeToast(id), 15000)
     }
 
     const channel = supabase
@@ -65,7 +78,7 @@ export function NotificationToastHost() {
   }, [])
 
   function dismiss(id: string) {
-    setToasts((t) => t.filter((x) => x.id !== id))
+    removeToast(id)
   }
 
   if (toasts.length === 0) return null
@@ -75,7 +88,11 @@ export function NotificationToastHost() {
       {toasts.map(({ id, notification: n }) => {
         const meta = statusMeta(n.status)
         return (
-          <div key={id} className="card p-4" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.15)' }}>
+          <div
+            key={id}
+            className={`card p-4 ${leavingIds.has(id) ? 'animate-toast-out' : 'animate-toast-in'}`}
+            style={{ boxShadow: 'var(--shadow-lg)' }}
+          >
             <div className="flex items-start justify-between gap-2">
               <span className={`badge ${meta.badge}`}>{meta.label}</span>
               <button

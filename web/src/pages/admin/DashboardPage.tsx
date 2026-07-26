@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { Skeleton } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
 
 interface DashboardData {
@@ -52,7 +53,7 @@ export function DashboardPage() {
     }
   }, [])
 
-  if (loading || !data) return <p style={{ color: 'var(--ink-muted)' }}>Loading dashboard…</p>
+  if (loading || !data) return <DashboardSkeleton />
 
   return (
     <div className="space-y-8">
@@ -172,7 +173,7 @@ function StatTile({
   const animated = useCountUp(value)
 
   return (
-    <div className="card p-4">
+    <div className="card stagger-item p-4">
       <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
         {label}
       </p>
@@ -202,8 +203,47 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
 
 function Row({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between px-4 py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+    <div
+      className="stagger-item flex items-center justify-between px-4 py-2.5 text-sm"
+      style={{ borderColor: 'var(--border)' }}
+    >
       {children}
+    </div>
+  )
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-8">
+      <div className="space-y-2">
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-4 w-64" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card space-y-3 p-4">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-8 w-14" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="space-y-2">
+            <Skeleton className="h-4 w-48" />
+            <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+              {Array.from({ length: 3 }).map((_, j) => (
+                <div key={j} className="flex items-center justify-between px-4 py-2.5">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

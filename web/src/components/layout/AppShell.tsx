@@ -32,10 +32,7 @@ export function AppShell() {
       <NotificationToastHost />
 
       {/* GitHub-style top header — always dark, in both light and dark theme */}
-      <header
-        className="sticky top-0 z-30 flex h-14 items-center gap-3 px-4 md:px-5"
-        style={{ background: 'var(--header-bg)' }}
-      >
+      <header className="glass-header sticky top-0 z-30 flex h-14 items-center gap-3 px-4 md:px-5">
         <button
           onClick={() => setNavOpen(true)}
           aria-label="Open menu"
@@ -97,16 +94,20 @@ export function AppShell() {
         {navOpen && (
           <div
             onClick={() => setNavOpen(false)}
-            className="fixed inset-0 z-40 md:hidden"
+            className="fixed inset-0 z-40 animate-page-in md:hidden"
             style={{ background: 'rgba(0,0,0,0.4)' }}
           />
         )}
 
         <aside
-          className={`fixed inset-y-0 left-0 z-50 mt-14 flex w-64 shrink-0 flex-col border-r transition-transform md:sticky md:top-14 md:z-auto md:mt-0 md:h-[calc(100vh-3.5rem)] md:w-60 md:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-50 mt-14 flex w-64 shrink-0 flex-col border-r transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-14 md:z-auto md:mt-0 md:h-[calc(100vh-3.5rem)] md:w-60 md:translate-x-0 md:shadow-none ${
             navOpen ? 'translate-x-0' : '-translate-x-full'
           }`}
-          style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}
+          style={{
+            borderColor: 'var(--border)',
+            background: 'var(--surface)',
+            boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
+          }}
         >
           <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
             {links.map((l) => (
@@ -116,13 +117,13 @@ export function AppShell() {
                 end={l.to === '/'}
                 onClick={() => setNavOpen(false)}
                 className={({ isActive }) =>
-                  `rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive ? '' : 'hover:bg-[var(--hover-surface)]'
+                  `rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200 ease-out ${
+                    isActive ? '' : 'hover:translate-x-0.5 hover:bg-[var(--hover-surface)]'
                   }`
                 }
                 style={({ isActive }) =>
                   isActive
-                    ? { background: 'var(--accent-tint)', color: 'var(--accent-hover)' }
+                    ? { background: 'var(--accent-tint)', color: 'var(--accent-hover)', boxShadow: 'var(--shadow-sm)' }
                     : { color: 'var(--ink-secondary)' }
                 }
               >

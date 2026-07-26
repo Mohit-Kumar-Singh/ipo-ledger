@@ -349,7 +349,7 @@ export function IposPage() {
           {ipos.map((ipo) => {
             const status = deriveStatus(ipo)
             return (
-              <div key={ipo.id} className="card flex flex-col gap-3 p-4">
+              <div key={ipo.id} className="card stagger-item flex flex-col gap-3 p-4">
                 <div className="flex items-start justify-between gap-2">
                   <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                     {ipo.company_name}

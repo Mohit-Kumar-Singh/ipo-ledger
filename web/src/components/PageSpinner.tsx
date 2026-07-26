@@ -48,6 +48,10 @@ export function PageSpinner() {
   )
 }
 
+export function Skeleton({ className = '' }: { className?: string }) {
+  return <div className={`skeleton ${className}`} />
+}
+
 export function InlineSpinner({ label = 'Loading…' }: { label?: string }) {
   const slow = useIsTakingAWhile()
   return (

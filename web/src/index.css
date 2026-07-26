@@ -47,6 +47,13 @@
   /* "Done"/merged purple — used for final states like Sold/Listed */
   --violet: #8250df;
   --violet-tint: #fbefff;
+
+  /* Layered shadow system — soft ambient layer + tighter contact layer */
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 1px rgba(16, 24, 40, 0.04);
+  --shadow-md: 0 6px 12px rgba(16, 24, 40, 0.07), 0 2px 4px rgba(16, 24, 40, 0.05);
+  --shadow-lg: 0 16px 32px rgba(16, 24, 40, 0.12), 0 4px 10px rgba(16, 24, 40, 0.06);
+  --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(9, 105, 218, 0.18);
+  --shadow-glow-primary: 0 8px 20px rgba(31, 136, 61, 0.28);
 }
 
 :root[data-theme='dark'] {
@@ -90,6 +97,13 @@
 
   --violet: #a371f7;
   --violet-tint: rgba(163, 113, 247, 0.15);
+
+  /* Layered shadow system — dark surfaces need deeper, higher-contrast layers */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 6px 12px rgba(0, 0, 0, 0.35), 0 2px 4px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.45), 0 4px 10px rgba(0, 0, 0, 0.3);
+  --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(47, 129, 247, 0.25);
+  --shadow-glow-primary: 0 8px 20px rgba(46, 160, 67, 0.3);
 }
 
 body {
@@ -120,8 +134,82 @@ table {
   animation: page-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+.skeleton {
+  background-image: linear-gradient(90deg, var(--hover-surface) 25%, var(--border) 37%, var(--hover-surface) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease infinite;
+  border-radius: 0.5rem;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(24px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes toast-out {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(24px) scale(0.96);
+  }
+}
+.animate-toast-in {
+  animation: toast-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.animate-toast-out {
+  animation: toast-out 0.2s ease forwards;
+}
+
+/* Fade+rise each child in, staggered by position — pure CSS, no per-item
+   inline delay needed. Caps at 12 items; anything beyond shares the last delay. */
+.stagger-item {
+  opacity: 0;
+  animation: page-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.stagger-item:nth-child(1) { animation-delay: 0.02s; }
+.stagger-item:nth-child(2) { animation-delay: 0.06s; }
+.stagger-item:nth-child(3) { animation-delay: 0.1s; }
+.stagger-item:nth-child(4) { animation-delay: 0.14s; }
+.stagger-item:nth-child(5) { animation-delay: 0.18s; }
+.stagger-item:nth-child(6) { animation-delay: 0.22s; }
+.stagger-item:nth-child(7) { animation-delay: 0.26s; }
+.stagger-item:nth-child(8) { animation-delay: 0.3s; }
+.stagger-item:nth-child(9) { animation-delay: 0.34s; }
+.stagger-item:nth-child(10) { animation-delay: 0.38s; }
+.stagger-item:nth-child(n + 11) { animation-delay: 0.42s; }
+
+.glass-header {
+  background: color-mix(in srgb, var(--header-bg) 88%, transparent);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: var(--shadow-sm);
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .animate-page-in {
+  .animate-page-in,
+  .animate-toast-in,
+  .animate-toast-out,
+  .skeleton {
+    animation: none;
+  }
+  .stagger-item {
+    opacity: 1;
     animation: none;
   }
   .card,
@@ -136,10 +224,11 @@ table {
 
 @layer components {
   .input {
-    @apply w-full rounded-md border px-3 py-2 text-sm transition-colors outline-none;
+    @apply w-full rounded-lg border px-3 py-2 text-sm outline-none;
     border-color: var(--border-strong);
     background: var(--surface);
     color: var(--ink-primary);
+    transition: border-color 0.15s ease, box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease;
   }
   .input::placeholder {
     color: var(--ink-muted);
@@ -150,29 +239,34 @@ table {
   }
 
   .btn-primary {
-    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: var(--btn-primary-bg);
+    @apply rounded-lg border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: linear-gradient(135deg, var(--btn-primary-bg), var(--btn-primary-hover));
     border-color: rgba(31, 35, 40, 0.15);
-    transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
   }
   .btn-primary:hover:not(:disabled) {
-    background: var(--btn-primary-hover);
+    filter: brightness(1.08);
+    box-shadow: var(--shadow-glow-primary);
+    transform: translateY(-1px);
   }
 
   .btn-secondary {
-    @apply rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50;
+    @apply rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-50;
     border-color: var(--border-strong);
     color: var(--ink-primary);
     background: var(--surface);
-    transition: background-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    transition: background-color 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
   }
   .btn-secondary:hover:not(:disabled) {
     background: var(--hover-surface);
+    box-shadow: var(--shadow-sm);
+    transform: translateY(-1px);
   }
 
   .btn-primary:active:not(:disabled),
   .btn-secondary:active:not(:disabled) {
-    transform: scale(0.97);
+    transform: translateY(0) scale(0.97);
   }
 
   .link-accent {
@@ -183,15 +277,15 @@ table {
   }
 
   .card {
-    @apply rounded-md border;
+    @apply rounded-xl border;
     border-color: var(--border-strong);
     background: var(--surface);
-    box-shadow: 0 1px 0 var(--card-shadow);
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
   }
   .card:hover {
-    transform: translateY(-1px);
-    box-shadow: 0 6px 16px var(--card-shadow);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
   }
 
   .badge {
