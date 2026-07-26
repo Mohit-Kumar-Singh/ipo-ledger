@@ -4,14 +4,10 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ThemeToggle } from '../components/ThemeToggle'
 
-type Method = 'email' | 'phone'
 type EmailMode = 'signin' | 'register'
-
-const PHONE_RE = /^[0-9]{10}$/
 
 export function LoginPage() {
   const { session } = useAuth()
-  const [method, setMethod] = useState<Method>('email')
   const [emailMode, setEmailMode] = useState<EmailMode>('signin')
 
   if (session) return <Navigate to="/" replace />
@@ -42,49 +38,29 @@ export function LoginPage() {
           </span>
         </div>
 
-        <div
-          className="mb-5 flex gap-1 rounded-lg p-1"
-          style={{ background: 'var(--page)' }}
-          role="tablist"
-          aria-label="Sign-in method"
-        >
-          <MethodTab active={method === 'email'} onClick={() => setMethod('email')}>
-            Email
-          </MethodTab>
-          <MethodTab active={method === 'phone'} onClick={() => setMethod('phone')}>
-            Phone
-          </MethodTab>
+        <div className="mb-5 flex gap-4 text-sm font-medium" style={{ borderColor: 'var(--border)' }}>
+          <button
+            onClick={() => setEmailMode('signin')}
+            className="pb-2"
+            style={{
+              color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
+              borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            Sign in
+          </button>
+          <button
+            onClick={() => setEmailMode('register')}
+            className="pb-2"
+            style={{
+              color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
+              borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
+            }}
+          >
+            Create account
+          </button>
         </div>
-
-        {method === 'email' ? (
-          <>
-            <div className="mb-5 flex gap-4 text-sm font-medium" style={{ borderColor: 'var(--border)' }}>
-              <button
-                onClick={() => setEmailMode('signin')}
-                className="pb-2"
-                style={{
-                  color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
-                  borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
-                }}
-              >
-                Sign in
-              </button>
-              <button
-                onClick={() => setEmailMode('register')}
-                className="pb-2"
-                style={{
-                  color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
-                  borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
-                }}
-              >
-                Create account
-              </button>
-            </div>
-            {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
-          </>
-        ) : (
-          <PhoneAuthForm />
-        )}
+        {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
 
         <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
           <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
@@ -97,30 +73,11 @@ export function LoginPage() {
         </button>
 
         <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          Creating an account gives you read-only access. An admin still needs to link it to a demat account
-          before you'll see any data.
+          Creating an account gives you your own portal — add your demat/PAN and bank/UPI accounts and start
+          tracking IPO applications.
         </p>
       </div>
     </div>
-  )
-}
-
-function MethodTab({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) {
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className="flex-1 rounded-md py-1.5 text-sm font-medium transition-colors"
-      style={
-        active
-          ? { background: 'var(--surface)', color: 'var(--ink-primary)', boxShadow: '0 1px 2px rgba(11,11,11,0.06)' }
-          : { color: 'var(--ink-muted)' }
-      }
-    >
-      {children}
-    </button>
   )
 }
 
@@ -251,109 +208,6 @@ function EmailRegisterForm() {
       {notice && <p className="badge badge-good w-fit">{notice}</p>}
       <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
         {submitting ? 'Creating account…' : 'Create account'}
-      </button>
-    </form>
-  )
-}
-
-function PhoneAuthForm() {
-  const [phoneDigits, setPhoneDigits] = useState('')
-  const [otp, setOtp] = useState('')
-  const [codeSent, setCodeSent] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
-  const phoneValid = PHONE_RE.test(phoneDigits)
-  const fullPhone = `+91${phoneDigits}`
-
-  async function sendCode(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    if (!phoneValid) {
-      setError('Phone number must be exactly 10 digits.')
-      return
-    }
-    setSubmitting(true)
-    const { error } = await supabase.auth.signInWithOtp({ phone: fullPhone })
-    setSubmitting(false)
-    if (error) {
-      setError(error.message)
-      return
-    }
-    setCodeSent(true)
-  }
-
-  async function verifyCode(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setSubmitting(true)
-    const { error } = await supabase.auth.verifyOtp({ phone: fullPhone, token: otp, type: 'sms' })
-    setSubmitting(false)
-    if (error) setError(error.message)
-  }
-
-  if (!codeSent) {
-    return (
-      <form onSubmit={sendCode} className="space-y-3">
-        <Field label="Phone number" hint="10 digits, no country code">
-          <div className="flex items-center gap-2">
-            <span
-              className="rounded-md border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
-            >
-              +91
-            </span>
-            <input
-              required
-              inputMode="numeric"
-              maxLength={10}
-              value={phoneDigits}
-              onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-              className="input"
-              placeholder="9876543210"
-              autoComplete="tel-national"
-            />
-          </div>
-        </Field>
-        {error && <p className="badge badge-critical w-fit">{error}</p>}
-        <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
-          {submitting ? 'Sending code…' : 'Send code'}
-        </button>
-      </form>
-    )
-  }
-
-  return (
-    <form onSubmit={verifyCode} className="space-y-3">
-      <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-        Code sent to +91 {phoneDigits}.{' '}
-        <button
-          type="button"
-          onClick={() => {
-            setCodeSent(false)
-            setOtp('')
-            setError(null)
-          }}
-          className="link-accent"
-        >
-          Change number
-        </button>
-      </p>
-      <Field label="6-digit code">
-        <input
-          required
-          inputMode="numeric"
-          maxLength={6}
-          value={otp}
-          onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ''))}
-          className="input font-mono tracking-widest"
-          placeholder="123456"
-          autoComplete="one-time-code"
-        />
-      </Field>
-      {error && <p className="badge badge-critical w-fit">{error}</p>}
-      <button type="submit" disabled={submitting || otp.length < 6} className="btn-primary w-full py-2.5">
-        {submitting ? 'Verifying…' : 'Verify & continue'}
       </button>
     </form>
   )

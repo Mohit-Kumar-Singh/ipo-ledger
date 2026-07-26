@@ -4,7 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
 import { NotificationToastHost } from '../NotificationToastHost'
 
-const adminLinks = [
+const links = [
   { to: '/', label: 'Dashboard' },
   { to: '/accounts', label: 'Accounts' },
   { to: '/bank-accounts', label: 'Bank / UPI accounts' },
@@ -15,17 +15,8 @@ const adminLinks = [
   { to: '/settings', label: 'Settings' },
 ]
 
-const memberLinks = [
-  { to: '/', label: 'My account' },
-  { to: '/my-bank-accounts', label: 'My bank/UPI accounts' },
-  { to: '/my-applications', label: 'My applications' },
-  { to: '/my-messages', label: 'My messages' },
-]
-
 export function AppShell() {
   const { profile, signOut } = useAuth()
-  const isAdmin = profile?.role === 'admin'
-  const links = isAdmin ? adminLinks : memberLinks
   const [navOpen, setNavOpen] = useState(false)
   const location = useLocation()
 
@@ -38,7 +29,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--page)' }}>
-      {isAdmin && <NotificationToastHost />}
+      <NotificationToastHost />
 
       {/* GitHub-style top header — always dark, in both light and dark theme */}
       <header

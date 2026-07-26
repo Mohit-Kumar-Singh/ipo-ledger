@@ -28,9 +28,10 @@ function statusMeta(status: Notification['status']) {
   return { label: 'WhatsApp sent', badge: 'badge-good' }
 }
 
-/** Admin-only. Pops up a card the moment a notification is actually dispatched
- *  (SENT, SIMULATED or FAILED) — not when it's merely QUEUED, since queuing no
- *  longer sends anything; the admin triggers that explicitly via the Send button. */
+/** Pops up a card the moment a notification is actually dispatched (SENT,
+ *  SIMULATED or FAILED) — not when it's merely QUEUED, since queuing no
+ *  longer sends anything; sending is triggered explicitly via the Send /
+ *  Open WhatsApp button. RLS scopes which rows each viewer receives here. */
 export function NotificationToastHost() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
 

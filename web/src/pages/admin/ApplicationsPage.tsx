@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
 import type {
   Application,
   ApplicationCategory,
@@ -15,10 +17,12 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
   demat_accounts: Pick<DematAccount, 'holder_name'>
-  notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone'>[]
+  notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
 }
 
 export function ApplicationsPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [applications, setApplications] = useState<ApplicationRow[]>([])
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [accounts, setAccounts] = useState<DematAccount[]>([])
@@ -33,7 +37,9 @@ export function ApplicationsPage() {
     setLoading(true)
     const { data } = await supabase
       .from('applications')
-      .select('*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status, to_phone)')
+      .select(
+        '*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status, to_phone, template_name, variables)',
+      )
       .order('applied_at', { ascending: false })
     setApplications((data ?? []) as ApplicationRow[])
     setLoading(false)
@@ -80,9 +86,19 @@ export function ApplicationsPage() {
     loadApplications()
   }
 
-  async function dispatchNotification(notificationId: string) {
-    setDispatching(notificationId)
-    await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
+  async function dispatchNotification(n: ApplicationRow['notifications'][number]) {
+    setDispatching(n.id)
+    if (isAdmin) {
+      await supabase.functions.invoke('send-whatsapp', { body: { notification_id: n.id } })
+    } else {
+      const params = (n.variables as { params?: string[] } | null)?.params ?? []
+      const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')
+      window.open(buildWaMeLink(n.to_phone, text), '_blank', 'noopener,noreferrer')
+      await supabase
+        .from('notifications')
+        .update({ status: 'SENT', updated_at: new Date().toISOString() })
+        .eq('id', n.id)
+    }
     setDispatching(null)
     loadApplications()
   }
@@ -181,11 +197,19 @@ export function ApplicationsPage() {
                             <NotifBadge status={notif.status} />
                             {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
                               <button
-                                onClick={() => dispatchNotification(notif.id)}
+                                onClick={() => dispatchNotification(notif)}
                                 disabled={dispatching === notif.id}
                                 className="link-accent text-xs font-medium disabled:opacity-50"
                               >
-                                {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
+                                {dispatching === notif.id
+                                  ? isAdmin
+                                    ? 'Sending…'
+                                    : 'Opening…'
+                                  : isAdmin
+                                    ? notif.status === 'FAILED'
+                                      ? 'Retry'
+                                      : 'Send'
+                                    : 'Open WhatsApp'}
                               </button>
                             )}
                           </div>

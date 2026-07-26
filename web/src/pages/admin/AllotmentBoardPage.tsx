@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -25,7 +27,11 @@ const notifBadgeClass: Record<Notification['status'], string> = {
   SIMULATED: 'badge-warning',
 }
 
+type AllottedNotif = Pick<Notification, 'id' | 'status' | 'to_phone' | 'template_name' | 'variables'>
+
 export function AllotmentBoardPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [selectedIpoId, setSelectedIpoId] = useState('')
   const [rows, setRows] = useState<AllotmentBoardRow[]>([])
@@ -33,7 +39,7 @@ export function AllotmentBoardPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
-  const [allottedNotifs, setAllottedNotifs] = useState<Record<string, Pick<Notification, 'id' | 'status'>>>({})
+  const [allottedNotifs, setAllottedNotifs] = useState<Record<string, AllottedNotif>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
 
   useEffect(() => {
@@ -68,11 +74,19 @@ export function AllotmentBoardPage() {
     if (appIds.length > 0) {
       const { data: notifs } = await supabase
         .from('notifications')
-        .select('id, application_id, status')
+        .select('id, application_id, status, to_phone, template_name, variables')
         .eq('type', 'ALLOTTED')
         .in('application_id', appIds)
-      const map: Record<string, Pick<Notification, 'id' | 'status'>> = {}
-      for (const n of notifs ?? []) map[n.application_id as string] = { id: n.id, status: n.status }
+      const map: Record<string, AllottedNotif> = {}
+      for (const n of notifs ?? []) {
+        map[n.application_id as string] = {
+          id: n.id,
+          status: n.status,
+          to_phone: n.to_phone,
+          template_name: n.template_name,
+          variables: n.variables,
+        }
+      }
       setAllottedNotifs(map)
     } else {
       setAllottedNotifs({})
@@ -80,9 +94,19 @@ export function AllotmentBoardPage() {
     setLoading(false)
   }
 
-  async function dispatchNotification(notificationId: string) {
-    setDispatching(notificationId)
-    await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
+  async function dispatchNotification(n: AllottedNotif) {
+    setDispatching(n.id)
+    if (isAdmin) {
+      await supabase.functions.invoke('send-whatsapp', { body: { notification_id: n.id } })
+    } else {
+      const params = (n.variables as { params?: string[] } | null)?.params ?? []
+      const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')
+      window.open(buildWaMeLink(n.to_phone, text), '_blank', 'noopener,noreferrer')
+      await supabase
+        .from('notifications')
+        .update({ status: 'SENT', updated_at: new Date().toISOString() })
+        .eq('id', n.id)
+    }
     setDispatching(null)
     loadBoard(selectedIpoId)
   }
@@ -215,11 +239,19 @@ export function AllotmentBoardPage() {
                         <span className={`badge ${notifBadgeClass[notif.status]}`}>{notif.status}</span>
                         {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
                           <button
-                            onClick={() => dispatchNotification(notif.id)}
+                            onClick={() => dispatchNotification(notif)}
                             disabled={dispatching === notif.id}
                             className="link-accent text-xs font-medium disabled:opacity-50"
                           >
-                            {dispatching === notif.id ? 'Sending…' : notif.status === 'FAILED' ? 'Retry' : 'Send'}
+                            {dispatching === notif.id
+                              ? isAdmin
+                                ? 'Sending…'
+                                : 'Opening…'
+                              : isAdmin
+                                ? notif.status === 'FAILED'
+                                  ? 'Retry'
+                                  : 'Send'
+                                : 'Open WhatsApp'}
                           </button>
                         )}
                       </div>

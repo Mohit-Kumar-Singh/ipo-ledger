@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import type { BankAccount } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -13,6 +14,7 @@ interface EditingBank {
 }
 
 export function BankAccountsPage() {
+  const { session } = useAuth()
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -78,8 +80,9 @@ export function BankAccountsPage() {
         </button>
       </div>
 
-      {showForm && (
+      {showForm && session && (
         <BankForm
+          userId={session.user.id}
           onCancel={() => setShowForm(false)}
           onDone={() => {
             setShowForm(false)
@@ -88,8 +91,9 @@ export function BankAccountsPage() {
         />
       )}
 
-      {editing && (
+      {editing && session && (
         <BankForm
+          userId={session.user.id}
           existing={editing}
           onCancel={() => setEditing(null)}
           onDone={() => {
@@ -151,10 +155,12 @@ export function BankAccountsPage() {
 }
 
 function BankForm({
+  userId,
   existing,
   onCancel,
   onDone,
 }: {
+  userId: string
   existing?: EditingBank
   onCancel: () => void
   onDone: () => void
@@ -188,9 +194,12 @@ function BankForm({
       is_default: isDefault,
     }
 
+    // linked_user_id is only set on creation (the creator becomes the owner
+    // for RLS purposes) — never reassigned on edit, so an admin editing
+    // someone else's entry doesn't change who owns it.
     const { error } = existing
       ? await supabase.from('bank_accounts').update(payload).eq('id', existing.id)
-      : await supabase.from('bank_accounts').insert(payload)
+      : await supabase.from('bank_accounts').insert({ ...payload, linked_user_id: userId })
 
     setSubmitting(false)
     if (error) {

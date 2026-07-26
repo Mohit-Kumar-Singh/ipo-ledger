@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -91,6 +92,8 @@ async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: str
 }
 
 export function IposPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -223,28 +226,30 @@ export function IposPage() {
             {ipos.length} tracked
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => {
-              setShowImport((s) => !s)
-              setShowAddForm(false)
-              setEditingIpo(null)
-            }}
-            className="btn-secondary"
-          >
-            {showImport ? 'Cancel' : 'Import from ipoji.com'}
-          </button>
-          <button
-            onClick={() => {
-              setShowAddForm((s) => !s)
-              setShowImport(false)
-              setEditingIpo(null)
-            }}
-            className="btn-primary"
-          >
-            {showAddForm ? 'Cancel' : '+ Add IPO'}
-          </button>
-        </div>
+        {isAdmin && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                setShowImport((s) => !s)
+                setShowAddForm(false)
+                setEditingIpo(null)
+              }}
+              className="btn-secondary"
+            >
+              {showImport ? 'Cancel' : 'Import from ipoji.com'}
+            </button>
+            <button
+              onClick={() => {
+                setShowAddForm((s) => !s)
+                setShowImport(false)
+                setEditingIpo(null)
+              }}
+              className="btn-primary"
+            >
+              {showAddForm ? 'Cancel' : '+ Add IPO'}
+            </button>
+          </div>
+        )}
       </div>
 
       {showImport && (
@@ -378,25 +383,27 @@ export function IposPage() {
                   listingDate={ipo.listing_date}
                 />
 
-                <div className="flex justify-end gap-3">
-                  <button
-                    onClick={() => {
-                      setEditingIpo(ipo)
-                      setShowAddForm(false)
-                      setShowImport(false)
-                    }}
-                    className="link-accent text-xs font-medium"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => deleteIpo(ipo)}
-                    className="text-xs font-medium hover:underline"
-                    style={{ color: 'var(--critical)' }}
-                  >
-                    Delete
-                  </button>
-                </div>
+                {isAdmin && (
+                  <div className="flex justify-end gap-3">
+                    <button
+                      onClick={() => {
+                        setEditingIpo(ipo)
+                        setShowAddForm(false)
+                        setShowImport(false)
+                      }}
+                      className="link-accent text-xs font-medium"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteIpo(ipo)}
+                      className="text-xs font-medium hover:underline"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
               </div>
             )
           })}

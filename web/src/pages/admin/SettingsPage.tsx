@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import type { RegistrarLink } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -13,6 +14,8 @@ interface PanAccessLogRow {
 }
 
 export function SettingsPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   return (
     <div className="space-y-8">
       <div>
@@ -20,16 +23,16 @@ export function SettingsPage() {
           Settings
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Registrar links and the PAN-reveal audit trail.
+          Registrar links{isAdmin && ' and the PAN-reveal audit trail'}.
         </p>
       </div>
-      <RegistrarLinksSection />
-      <PanAccessLogSection />
+      <RegistrarLinksSection editable={isAdmin} />
+      {isAdmin && <PanAccessLogSection />}
     </div>
   )
 }
 
-function RegistrarLinksSection() {
+function RegistrarLinksSection({ editable }: { editable: boolean }) {
   const [links, setLinks] = useState<RegistrarLink[]>([])
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
@@ -85,18 +88,26 @@ function RegistrarLinksSection() {
                 >
                   {r.registrar}
                 </span>
-                <input
-                  value={drafts[r.registrar] ?? ''}
-                  onChange={(e) => setDrafts((d) => ({ ...d, [r.registrar]: e.target.value }))}
-                  className="input flex-1"
-                />
-                <button
-                  onClick={() => save(r.registrar)}
-                  disabled={!dirty || saving === r.registrar}
-                  className="btn-secondary shrink-0 disabled:opacity-50"
-                >
-                  {saving === r.registrar ? 'Saving…' : 'Save'}
-                </button>
+                {editable ? (
+                  <>
+                    <input
+                      value={drafts[r.registrar] ?? ''}
+                      onChange={(e) => setDrafts((d) => ({ ...d, [r.registrar]: e.target.value }))}
+                      className="input flex-1"
+                    />
+                    <button
+                      onClick={() => save(r.registrar)}
+                      disabled={!dirty || saving === r.registrar}
+                      className="btn-secondary shrink-0 disabled:opacity-50"
+                    >
+                      {saving === r.registrar ? 'Saving…' : 'Save'}
+                    </button>
+                  </>
+                ) : (
+                  <span className="flex-1 truncate text-sm" style={{ color: 'var(--ink-muted)' }}>
+                    {r.check_url}
+                  </span>
+                )}
               </div>
             )
           })}

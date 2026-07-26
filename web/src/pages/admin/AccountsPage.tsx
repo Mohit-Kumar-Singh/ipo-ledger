@@ -1,12 +1,15 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { describeFunctionError, supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
 type EditingAccount = { id: string; holderName: string; phoneDigits: string; pan: string; dematAccountNo: string }
 
 export function AccountsPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [accounts, setAccounts] = useState<DematAccount[]>([])
   const [unlinkedMembers, setUnlinkedMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
@@ -171,7 +174,7 @@ export function AccountsPage() {
                   {!a.linked_user_id && (
                     <>
                       <span className="badge badge-neutral">not linked</span>
-                      {unlinkedMembers.length > 0 && (
+                      {isAdmin && unlinkedMembers.length > 0 && (
                         <select
                           value=""
                           disabled={linking === a.id}

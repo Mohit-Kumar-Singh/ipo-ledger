@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
+import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
 export function NotificationsPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -25,9 +29,19 @@ export function NotificationsPage() {
 
   async function dispatch(n: Notification) {
     setRetrying(n.id)
-    await supabase.functions.invoke('send-whatsapp', {
-      body: { notification_id: n.id },
-    })
+    if (isAdmin) {
+      await supabase.functions.invoke('send-whatsapp', {
+        body: { notification_id: n.id },
+      })
+    } else {
+      const params = (n.variables as { params?: string[] } | null)?.params ?? []
+      const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')
+      window.open(buildWaMeLink(n.to_phone, text), '_blank', 'noopener,noreferrer')
+      await supabase
+        .from('notifications')
+        .update({ status: 'SENT', updated_at: new Date().toISOString() })
+        .eq('id', n.id)
+    }
     setRetrying(null)
     load()
   }
@@ -79,7 +93,15 @@ export function NotificationsPage() {
                         disabled={retrying === n.id}
                         className="link-accent text-xs font-medium disabled:opacity-50"
                       >
-                        {retrying === n.id ? 'Sending…' : n.status === 'FAILED' ? 'Retry' : 'Send'}
+                        {retrying === n.id
+                          ? isAdmin
+                            ? 'Sending…'
+                            : 'Opening…'
+                          : isAdmin
+                            ? n.status === 'FAILED'
+                              ? 'Retry'
+                              : 'Send'
+                            : 'Open WhatsApp'}
                       </button>
                     )}
                   </td>

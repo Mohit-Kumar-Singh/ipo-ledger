@@ -12,10 +12,10 @@ planning docs: [00-README.md](00-README.md) through [06-whatsapp-setup.md](06-wh
 
 ## Sign-in methods — one-time Supabase dashboard setup
 
-The Login page supports email/password, Google, and phone OTP. Email/password
-works out of the box. The other two need providers enabled in **Supabase
-dashboard → Authentication → Providers** before they'll actually work (the
-buttons will otherwise fail with a clear "provider not enabled" error):
+The Login page supports email/password and Google. Email/password works out
+of the box. Google needs a provider enabled in **Supabase dashboard →
+Authentication → Providers** before it'll actually work (the button will
+otherwise fail with a clear "provider not enabled" error):
 
 **Google**
 1. In [Google Cloud Console](https://console.cloud.google.com), create an
@@ -24,16 +24,10 @@ buttons will otherwise fail with a clear "provider not enabled" error):
 2. Supabase dashboard → Authentication → Providers → **Google** → enable, paste
    the Client ID and Client Secret.
 
-**Phone (SMS OTP)**
-1. Supabase dashboard → Authentication → Providers → **Phone** → enable.
-2. Pick and configure an SMS provider (Twilio, MessageBird, Vonage, or
-   TextLocal) with their API credentials — this is a separate paid account,
-   billed per SMS by that provider, not by Supabase.
-
-Registration is intentionally open (anyone can create an account via any of
-these three methods) — a new account gets read-only `member` access with
-nothing linked to it until an admin connects it to a demat account from the
-**Accounts** page ("Link to registered member").
+Registration is intentionally open (anyone can create an account via either
+method) — a new account is a full self-service member: add your own
+demat/PAN and bank/UPI accounts and start tracking IPO applications
+immediately, no admin action needed.
 
 ---
 

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../contexts/AuthContext'
 import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
 
 interface DashboardData {
@@ -11,6 +12,8 @@ interface DashboardData {
 }
 
 export function DashboardPage() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -58,7 +61,7 @@ export function DashboardPage() {
           Dashboard
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Overview across all accounts and IPOs
+          {isAdmin ? 'Overview across all accounts and IPOs' : 'Overview of your accounts and upcoming IPOs'}
         </p>
       </div>
 
