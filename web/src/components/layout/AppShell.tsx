@@ -17,6 +17,7 @@ const adminLinks = [
 
 const memberLinks = [
   { to: '/', label: 'My account' },
+  { to: '/my-bank-accounts', label: 'My bank/UPI accounts' },
   { to: '/my-applications', label: 'My applications' },
   { to: '/my-messages', label: 'My messages' },
 ]

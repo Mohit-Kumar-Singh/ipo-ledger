@@ -1,0 +1,38 @@
+// Client-side reconstruction of the Meta-approved WhatsApp template bodies
+// (see 04-api-and-functions.md §4), used only for the member self-send path
+// (wa.me deep link — a plain pre-filled compose box, not the Business API,
+// so no template approval is needed here). Signed with the sender's own
+// name instead of the admin's, since the member is sending from their own
+// WhatsApp account.
+
+export type TemplateName = 'ipo_applied' | 'ipo_allotted' | 'ipo_applied_bank_holder'
+
+export function renderMessageBody(templateName: string, params: string[], signerName: string): string {
+  const p = (i: number) => params[i] ?? ''
+  switch (templateName) {
+    case 'ipo_applied':
+      return (
+        `Hi ${p(0)}, I've applied for the *${p(1)}* IPO from your account using ${p(2)} — ${p(3)}. ` +
+        `You may get a UPI/ASBA mandate request from your bank; please approve it today so the ` +
+        `application goes through. The amount stays blocked in your account until allotment. — ${signerName}`
+      )
+    case 'ipo_allotted':
+      return (
+        `Hi ${p(0)}, good news! The *${p(1)}* IPO applied from your account has been *ALLOTTED* 🎉 (${p(2)}). ` +
+        `Listing date: *${p(3)}*. Plan: sell on listing day — I'll message you that morning. Shares will be ` +
+        `visible in your demat by listing. — ${signerName}`
+      )
+    case 'ipo_applied_bank_holder':
+      return (
+        `Hi ${p(0)}, heads up — I've used your bank/UPI account for ${p(2)}'s *${p(1)}* IPO application (${p(3)}). ` +
+        `You may get a UPI/ASBA mandate request from your bank; please approve it today. — ${signerName}`
+      )
+    default:
+      return params.join(' · ')
+  }
+}
+
+export function buildWaMeLink(phoneE164: string, text: string): string {
+  const digits = phoneE164.replace(/[^0-9]/g, '')
+  return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`
+}

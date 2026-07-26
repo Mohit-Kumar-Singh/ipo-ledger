@@ -1,4 +1,5 @@
-// Admin-only. Decrypts a PAN for the "Copy PAN" action and logs the access.
+// Admin, or the member an account is linked to. Decrypts a PAN for the
+// "Copy PAN" / edit-account action and logs the access.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 import { jsonError, jsonResponse, logError, logRequest } from '../_shared/http.ts'
@@ -26,11 +27,22 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('id', userData.user.id)
       .single()
-    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
+    const isAdmin = profile?.role === 'admin'
 
     const body = await req.json().catch(() => ({}))
     const { demat_id } = body
     if (!demat_id) return jsonError('demat_id is required', 400, cors)
+
+    if (!isAdmin) {
+      const { data: account } = await admin
+        .from('demat_accounts')
+        .select('linked_user_id')
+        .eq('id', demat_id)
+        .single()
+      if (account?.linked_user_id !== userData.user.id) {
+        return new Response('forbidden', { status: 403, headers: cors })
+      }
+    }
 
     const { data: pan, error } = await admin.rpc('decrypt_pan', { p_demat_id: demat_id, p_key: PAN_KEY })
     if (error || !pan) return jsonError(error?.message ?? 'not found', 404, cors)

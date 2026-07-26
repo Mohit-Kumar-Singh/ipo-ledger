@@ -34,6 +34,7 @@ export interface DematAccount {
 export interface BankAccount {
   id: string
   demat_id: string | null
+  linked_user_id: string | null
   account_holder_name: string | null
   bank_name: string | null
   last4: string | null

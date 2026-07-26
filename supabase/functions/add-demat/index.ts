@@ -1,7 +1,11 @@
-// Admin-only. Encrypts the PAN with PAN_KEY (a function secret, never exposed
-// to the browser or stored in Postgres config) and inserts or updates the
-// demat account — pass demat_id to update an existing row instead of creating
-// a new one.
+// Any signed-in user. Encrypts the PAN with PAN_KEY (a function secret, never
+// exposed to the browser or stored in Postgres config) and inserts or
+// updates the demat account — pass demat_id to update an existing row
+// instead of creating a new one.
+//
+// Admins may create/edit any account. Members may only create their own
+// (auto-linked to their own user id, ignoring any client-supplied link) or
+// edit an account already linked to them.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 import { jsonError, jsonResponse, logError, logRequest } from '../_shared/http.ts'
@@ -34,12 +38,23 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('id', userData.user.id)
       .single()
-    if (profile?.role !== 'admin') return new Response('forbidden', { status: 403, headers: cors })
+    const isAdmin = profile?.role === 'admin'
 
     const body = await req.json().catch(() => ({}))
     const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id } = body
     if (!holder_name || !pan) {
       return jsonError('holder_name and pan are required', 400, cors)
+    }
+
+    if (!isAdmin && demat_id) {
+      const { data: existing } = await admin
+        .from('demat_accounts')
+        .select('linked_user_id')
+        .eq('id', demat_id)
+        .single()
+      if (existing?.linked_user_id !== userData.user.id) {
+        return new Response('forbidden', { status: 403, headers: cors })
+      }
     }
 
     // Accept either a bare 10-digit number (phone_digits) or a full +91-prefixed
@@ -72,7 +87,12 @@ Deno.serve(async (req) => {
       return jsonError(error.message, status, cors)
     }
 
-    return jsonResponse({ id: demat_id ?? data }, 200, cors)
+    const newId = demat_id ?? data
+    if (!isAdmin && !demat_id) {
+      await admin.from('demat_accounts').update({ linked_user_id: userData.user.id }).eq('id', newId)
+    }
+
+    return jsonResponse({ id: newId }, 200, cors)
   } catch (err) {
     logError('add-demat', err)
     return jsonError('Internal error', 500, corsHeadersFor(req))

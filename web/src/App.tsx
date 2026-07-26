@@ -31,6 +31,9 @@ const NotificationsPage = lazy(() =>
 )
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const MyAccountPage = lazy(() => import('./pages/member/MyAccountPage').then((m) => ({ default: m.MyAccountPage })))
+const MyBankAccountsPage = lazy(() =>
+  import('./pages/member/MyBankAccountsPage').then((m) => ({ default: m.MyBankAccountsPage })),
+)
 const MyApplicationsPage = lazy(() =>
   import('./pages/member/MyApplicationsPage').then((m) => ({ default: m.MyApplicationsPage })),
 )
@@ -57,6 +60,7 @@ function App() {
                 <Route element={<ProtectedRoute />}>
                   <Route element={<AppShell />}>
                     <Route path="/" element={<HomePage />} />
+                    <Route path="/my-bank-accounts" element={<MyBankAccountsPage />} />
                     <Route path="/my-applications" element={<MyApplicationsPage />} />
                     <Route path="/my-messages" element={<MyMessagesPage />} />
 
