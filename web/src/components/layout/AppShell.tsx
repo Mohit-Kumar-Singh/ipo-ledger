@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
 import { ToastHost } from '../ToastHost'
@@ -13,6 +13,7 @@ const links = [
   { to: '/allotment', label: 'Allotment board' },
   { to: '/notifications', label: 'Notifications' },
   { to: '/settings', label: 'Settings' },
+  { to: '/profile', label: 'Profile' },
 ]
 
 export function AppShell() {
@@ -64,18 +65,26 @@ export function AppShell() {
         />
 
         <div className="flex items-center gap-2 pl-1">
-          <div
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-            style={{ background: 'var(--header-hover)', color: 'var(--header-fg)' }}
+          <Link
+            to="/profile"
+            title="Edit profile"
+            className="flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors"
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--header-hover)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
-            {initials}
-          </div>
-          <span
-            className="hidden max-w-[10rem] truncate text-sm font-medium lg:block"
-            style={{ color: 'var(--header-fg)' }}
-          >
-            {profile?.full_name ?? '…'}
-          </span>
+            <div
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+              style={{ background: 'var(--header-hover)', color: 'var(--header-fg)' }}
+            >
+              {initials}
+            </div>
+            <span
+              className="hidden max-w-[10rem] truncate text-sm font-medium lg:block"
+              style={{ color: 'var(--header-fg)' }}
+            >
+              {profile?.full_name ?? '…'}
+            </span>
+          </Link>
           <button
             onClick={signOut}
             title="Sign out"

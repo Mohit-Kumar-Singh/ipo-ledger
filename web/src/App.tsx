@@ -27,6 +27,7 @@ const NotificationsPage = lazy(() =>
   import('./pages/admin/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 )
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })))
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
 function App() {
   return (
@@ -49,6 +50,7 @@ function App() {
                     <Route path="/allotment" element={<AllotmentBoardPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
                   </Route>
                 </Route>
               </Routes>

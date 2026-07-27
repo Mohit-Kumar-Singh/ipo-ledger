@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
-import { dispatchAdminWhatsapp } from '../../lib/dispatchWhatsapp'
+import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -103,13 +102,7 @@ export function AllotmentBoardPage() {
     if (isAdmin) {
       await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
     } else {
-      const params = (n.variables as { params?: string[] } | null)?.params ?? []
-      const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')
-      window.open(buildWaMeLink(n.to_phone, text), '_blank', 'noopener,noreferrer')
-      await supabase
-        .from('notifications')
-        .update({ status: 'SENT', updated_at: new Date().toISOString() })
-        .eq('id', n.id)
+      await openWhatsAppForNotification(n, profile?.full_name ?? 'there')
     }
     setDispatching(null)
     loadBoard(selectedIpoId)
