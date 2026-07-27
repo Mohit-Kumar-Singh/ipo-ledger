@@ -1,9 +1,20 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { parseGmpPercent } from '../../lib/ipoGmp'
+import { showToast } from '../../lib/toast'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
+
+const LOW_GMP_THRESHOLD = 10
+
+function warnIfLowGmp(companyName: string, gmpNotes: string | null | undefined) {
+  const pct = parseGmpPercent(gmpNotes)
+  if (pct !== null && pct < LOW_GMP_THRESHOLD) {
+    showToast(`${companyName}: GMP is ${pct}% — below the ${LOW_GMP_THRESHOLD}% threshold.`, 'warning')
+  }
+}
 
 const registrars: Registrar[] = [
   'MUFG_INTIME',
@@ -191,8 +202,12 @@ export function IposPage() {
         retail_subscription_rate: detail?.retail_subscription_rate ?? null,
       })
 
-      if (error) skipped++
-      else saved++
+      if (error) {
+        skipped++
+      } else {
+        saved++
+        warnIfLowGmp(c.company_name, c.gmp)
+      }
       setBulkProgress((p) => ({ ...p, done: p.done + 1 }))
     }
 
@@ -626,6 +641,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       setError(error)
       return
     }
+    warnIfLowGmp(companyName, gmpNotes)
     onDone()
   }
 

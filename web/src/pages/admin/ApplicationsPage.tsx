@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
+import { isLiveIpo } from '../../lib/ipoStatus'
 import type {
   Application,
   ApplicationCategory,
@@ -374,6 +375,9 @@ function NewApplicationForm({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // Only IPOs currently open for bidding make sense to apply for — a closed
+  // or not-yet-open one would just be a mistake waiting to happen.
+  const liveIpos = ipos.filter(isLiveIpo)
   const selectedIpo = ipos.find((i) => i.id === ipoId)
   const selectedAccount = accounts.find((a) => a.id === dematId)
   const cutoffPrice = selectedIpo?.price_high ?? 0
@@ -438,14 +442,21 @@ function NewApplicationForm({
             {selectedIpo?.company_name ?? existing.ipos?.company_name}
           </p>
         ) : (
-          <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
-            <option value="">Select IPO</option>
-            {ipos.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.company_name}
-              </option>
-            ))}
-          </select>
+          <>
+            <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
+              <option value="">{liveIpos.length === 0 ? 'No live IPOs open right now' : 'Select IPO'}</option>
+              {liveIpos.map((i) => (
+                <option key={i.id} value={i.id}>
+                  {i.company_name}
+                </option>
+              ))}
+            </select>
+            {liveIpos.length === 0 && (
+              <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                No IPOs are currently open for bidding.
+              </p>
+            )}
+          </>
         )}
       </Field>
       <Field label="Demat account">

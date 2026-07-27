@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
-import { NotificationToastHost } from '../NotificationToastHost'
+import { ToastHost } from '../ToastHost'
 
 const links = [
   { to: '/', label: 'Dashboard' },
@@ -29,7 +29,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--page)' }}>
-      <NotificationToastHost />
+      <ToastHost />
 
       {/* GitHub-style top header — always dark, in both light and dark theme */}
       <header className="glass-header sticky top-0 z-30 flex h-14 items-center gap-3 px-4 md:px-5">
