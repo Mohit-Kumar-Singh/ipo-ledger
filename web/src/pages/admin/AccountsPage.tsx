@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
+import { CopyButton } from '../../components/CopyButton'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -15,13 +17,32 @@ type EditingAccount = {
   isActive: boolean
 }
 
+// Alphabetical, case-insensitive, regardless of when an account was added —
+// a standing rule, not a one-off sort.
+function byHolderName(a: DematAccount, b: DematAccount): number {
+  return a.holder_name.localeCompare(b.holder_name, undefined, { sensitivity: 'base' })
+}
+
+const ADD_DRAFT_KEY = 'draft:add-demat'
+
+// If Chrome discards/reloads this tab mid-entry, showAddForm resets to false
+// like every other piece of React state — so the "+ Add account" form itself
+// (not just its field values, which formDraft.ts already restores once it's
+// open) needs to come back open on its own, otherwise the saved draft is
+// invisible until the user thinks to reopen it manually.
+function hasAddDraft(): boolean {
+  const draft = loadDraft<EditingAccount>(ADD_DRAFT_KEY)
+  if (!draft) return false
+  return Boolean(draft.holderName || draft.phoneDigits || draft.pan || draft.dematAccountNo)
+}
+
 export function AccountsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [accounts, setAccounts] = useState<DematAccount[]>([])
   const [unlinkedMembers, setUnlinkedMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
+  const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
@@ -32,10 +53,10 @@ export function AccountsPage() {
   async function load() {
     setLoading(true)
     const [accountsRes, membersRes] = await Promise.all([
-      supabase.from('demat_accounts').select('*').order('created_at', { ascending: false }),
+      supabase.from('demat_accounts').select('*').order('holder_name', { ascending: true }),
       supabase.from('profiles').select('*').eq('role', 'member'),
     ])
-    const loadedAccounts = (accountsRes.data ?? []) as DematAccount[]
+    const loadedAccounts = ((accountsRes.data ?? []) as DematAccount[]).sort(byHolderName)
     const linkedIds = new Set(loadedAccounts.map((a) => a.linked_user_id).filter(Boolean))
     setAccounts(loadedAccounts)
     setUnlinkedMembers(((membersRes.data ?? []) as Profile[]).filter((p) => !linkedIds.has(p.id)))
@@ -166,7 +187,7 @@ export function AccountsPage() {
             Demat accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {accounts.length} registered ·{' '}
+            {accounts.length} registered, A–Z ·{' '}
             <Link to="/bank-accounts" className="link-accent">
               Manage bank/UPI accounts →
             </Link>
@@ -359,56 +380,73 @@ function AccountSection({
             {emptyLabel}
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {accounts.map((a) => (
-              <div key={a.id} className="card stagger-item flex flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex min-w-0 items-start gap-2">
-                    <input
-                      type="checkbox"
-                      className="mt-1 shrink-0"
-                      checked={selected.has(a.id)}
-                      onChange={() => onToggleSelected(a.id)}
-                      aria-label={`Select ${a.holder_name}`}
-                    />
-                    <p className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {a.holder_name}
-                    </p>
+          <div className="flex flex-col gap-3">
+            {accounts.map((a) => {
+              const pan = revealed[a.id] ?? a.pan_masked
+              return (
+                <div key={a.id} className="card stagger-item p-4 sm:p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        className="shrink-0"
+                        checked={selected.has(a.id)}
+                        onChange={() => onToggleSelected(a.id)}
+                        aria-label={`Select ${a.holder_name}`}
+                      />
+                      <PersonIcon />
+                      <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                        {a.holder_name}
+                      </p>
+                      <CopyButton value={a.holder_name} label="name" />
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      {!a.linked_user_id && <span className="badge badge-neutral">not linked</span>}
+                      <Switch
+                        checked={a.is_active}
+                        disabled={togglingActive === a.id}
+                        onChange={() => onToggleActive(a)}
+                        label={`Mark ${a.holder_name} ${a.is_active ? 'inactive' : 'active'}`}
+                      />
+                    </div>
                   </div>
-                  <Switch
-                    checked={a.is_active}
-                    disabled={togglingActive === a.id}
-                    onChange={() => onToggleActive(a)}
-                    label={`Mark ${a.holder_name} ${a.is_active ? 'inactive' : 'active'}`}
-                  />
-                </div>
 
-                <div className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-                  <p>
-                    {a.phone_e164}
-                    {a.dp_client_id && ` · a/c ${a.dp_client_id}`}
-                  </p>
-                  <p className="mt-0.5">
-                    <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
-                      {revealed[a.id] ?? a.pan_masked}
+                  <div
+                    className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm"
+                    style={{ borderColor: 'var(--border)' }}
+                  >
+                    <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
+                      <CardIcon />
+                      <span className="font-mono">{pan}</span>
+                      {revealed[a.id] ? (
+                        <CopyButton value={pan} label="PAN" />
+                      ) : (
+                        <button
+                          onClick={() => onRevealPan(a.id)}
+                          disabled={revealing === a.id}
+                          className="link-accent text-xs font-medium disabled:opacity-50"
+                        >
+                          {revealing === a.id ? 'Revealing…' : 'Reveal'}
+                        </button>
+                      )}
                     </span>
-                    {!revealed[a.id] && (
-                      <button
-                        onClick={() => onRevealPan(a.id)}
-                        disabled={revealing === a.id}
-                        className="link-accent ml-2 text-xs font-medium disabled:opacity-50"
-                      >
-                        {revealing === a.id ? 'Revealing…' : 'Reveal PAN'}
-                      </button>
+                    {a.dp_client_id && (
+                      <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
+                        <HashIcon />
+                        Client ID: <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
+                        <CopyButton value={a.dp_client_id} label="Client ID" />
+                      </span>
                     )}
-                  </p>
-                  <p className="mt-0.5">Profit cut {a.profit_share_percent}%</p>
-                </div>
+                    <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
+                      <PhoneIcon />
+                      {a.phone_e164}
+                      <CopyButton value={a.phone_e164} label="phone number" />
+                    </span>
+                    <span style={{ color: 'var(--ink-muted)' }}>Profit cut {a.profit_share_percent}%</span>
+                  </div>
 
-                {!a.linked_user_id && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="badge badge-neutral">not linked</span>
-                    {isAdmin && unlinkedMembers.length > 0 && (
+                  {!a.linked_user_id && isAdmin && unlinkedMembers.length > 0 && (
+                    <div className="mt-3">
                       <select
                         value=""
                         disabled={linking === a.id}
@@ -423,28 +461,24 @@ function AccountSection({
                           </option>
                         ))}
                       </select>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  )}
 
-                <div className="mt-auto flex justify-end gap-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-                  <button
-                    onClick={() => onEdit(a)}
-                    disabled={revealing === a.id}
-                    className="link-accent text-xs font-medium disabled:opacity-50"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => onDelete(a.id, a.holder_name)}
-                    className="text-xs font-medium hover:underline"
-                    style={{ color: 'var(--critical)' }}
-                  >
-                    Delete
-                  </button>
+                  <div className="mt-3 flex gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                    <button
+                      onClick={() => onEdit(a)}
+                      disabled={revealing === a.id}
+                      className="btn-warning flex-1 disabled:opacity-50"
+                    >
+                      Edit
+                    </button>
+                    <button onClick={() => onDelete(a.id, a.holder_name)} className="btn-danger flex-1">
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         ))}
     </section>
@@ -481,6 +515,40 @@ function Switch({
   )
 }
 
+function PersonIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-muted)' }} className="shrink-0">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" />
+    </svg>
+  )
+}
+
+function CardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-muted)' }} className="shrink-0">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+    </svg>
+  )
+}
+
+function HashIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-muted)' }} className="shrink-0">
+      <path d="M5 9h14M5 15h14M11 4L8 20M16 4l-3 16" />
+    </svg>
+  )
+}
+
+function PhoneIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--ink-muted)' }} className="shrink-0">
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 2 .7 3a2 2 0 0 1-.4 2.1L8.1 10a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2-.4c1 .3 2 .5 3 .7a2 2 0 0 1 1.7 2z" />
+    </svg>
+  )
+}
+
 const PHONE_RE = /^[0-9]{10}$/
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
@@ -493,14 +561,31 @@ function AccountForm({
   onCancel: () => void
   onDone: () => void
 }) {
-  const [holderName, setHolderName] = useState(existing?.holderName ?? '')
-  const [phoneDigits, setPhoneDigits] = useState(existing?.phoneDigits ?? '')
-  const [pan, setPan] = useState(existing?.pan ?? '')
-  const [dematAccountNo, setDematAccountNo] = useState(existing?.dematAccountNo ?? '')
-  const [profitSharePercent, setProfitSharePercent] = useState(existing?.profitSharePercent ?? '25')
-  const [isActive, setIsActive] = useState(existing?.isActive ?? true)
+  const draftKey = existing ? `draft:edit-demat:${existing.id}` : ADD_DRAFT_KEY
+  const draft = loadDraft<EditingAccount>(draftKey)
+
+  const [holderName, setHolderName] = useState(draft?.holderName ?? existing?.holderName ?? '')
+  const [phoneDigits, setPhoneDigits] = useState(draft?.phoneDigits ?? existing?.phoneDigits ?? '')
+  const [pan, setPan] = useState(draft?.pan ?? existing?.pan ?? '')
+  const [dematAccountNo, setDematAccountNo] = useState(draft?.dematAccountNo ?? existing?.dematAccountNo ?? '')
+  const [profitSharePercent, setProfitSharePercent] = useState(
+    draft?.profitSharePercent ?? existing?.profitSharePercent ?? '25',
+  )
+  const [isActive, setIsActive] = useState(draft?.isActive ?? existing?.isActive ?? true)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Keeps the in-progress form on localStorage so it survives Chrome
+  // discarding/reloading a backgrounded tab — restored above on mount,
+  // cleared on cancel or successful save.
+  useEffect(() => {
+    saveDraft(draftKey, { holderName, phoneDigits, pan, dematAccountNo, profitSharePercent, isActive })
+  }, [draftKey, holderName, phoneDigits, pan, dematAccountNo, profitSharePercent, isActive])
+
+  function handleCancel() {
+    clearDraft(draftKey)
+    onCancel()
+  }
 
   const phoneValid = PHONE_RE.test(phoneDigits)
   const panValid = PAN_RE.test(pan)
@@ -545,6 +630,7 @@ function AccountForm({
       setError(await describeFunctionError(fnError, data))
       return
     }
+    clearDraft(draftKey)
     onDone()
   }
 
@@ -633,7 +719,7 @@ function AccountForm({
         <button type="submit" disabled={submitting} className="btn-primary flex-1 py-2.5">
           {submitting ? 'Saving…' : existing ? 'Save changes' : 'Save account'}
         </button>
-        <button type="button" onClick={onCancel} className="btn-secondary">
+        <button type="button" onClick={handleCancel} className="btn-secondary">
           Cancel
         </button>
       </div>

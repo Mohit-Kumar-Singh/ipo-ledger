@@ -54,6 +54,8 @@
   --shadow-lg: 0 16px 32px rgba(16, 24, 40, 0.12), 0 4px 10px rgba(16, 24, 40, 0.06);
   --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(9, 105, 218, 0.18);
   --shadow-glow-primary: 0 8px 20px rgba(31, 136, 61, 0.28);
+  --shadow-glow-warning: 0 8px 20px rgba(154, 103, 0, 0.28);
+  --shadow-glow-critical: 0 8px 20px rgba(209, 36, 47, 0.28);
 }
 
 :root[data-theme='dark'] {
@@ -104,6 +106,8 @@
   --shadow-lg: 0 16px 32px rgba(0, 0, 0, 0.45), 0 4px 10px rgba(0, 0, 0, 0.3);
   --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(47, 129, 247, 0.25);
   --shadow-glow-primary: 0 8px 20px rgba(46, 160, 67, 0.3);
+  --shadow-glow-warning: 0 8px 20px rgba(210, 153, 34, 0.3);
+  --shadow-glow-critical: 0 8px 20px rgba(248, 81, 73, 0.3);
 }
 
 body {
@@ -214,7 +218,9 @@ table {
   }
   .card,
   .btn-primary,
-  .btn-secondary {
+  .btn-secondary,
+  .btn-warning,
+  .btn-danger {
     transition: none !important;
   }
   .card:hover {
@@ -264,8 +270,36 @@ table {
     transform: translateY(-1px);
   }
 
+  .btn-warning {
+    @apply rounded-lg border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: linear-gradient(135deg, var(--warning), color-mix(in srgb, var(--warning) 75%, black));
+    border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
+  }
+  .btn-warning:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: var(--shadow-glow-warning);
+    transform: translateY(-1px);
+  }
+
+  .btn-danger {
+    @apply rounded-lg border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: linear-gradient(135deg, var(--critical), color-mix(in srgb, var(--critical) 75%, black));
+    border-color: rgba(0, 0, 0, 0.15);
+    box-shadow: var(--shadow-sm);
+    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+    box-shadow: var(--shadow-glow-critical);
+    transform: translateY(-1px);
+  }
+
   .btn-primary:active:not(:disabled),
-  .btn-secondary:active:not(:disabled) {
+  .btn-secondary:active:not(:disabled),
+  .btn-warning:active:not(:disabled),
+  .btn-danger:active:not(:disabled) {
     transform: translateY(0) scale(0.97);
   }
 
