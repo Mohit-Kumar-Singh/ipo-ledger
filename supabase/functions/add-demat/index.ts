@@ -41,9 +41,16 @@ Deno.serve(async (req) => {
     const isAdmin = profile?.role === 'admin'
 
     const body = await req.json().catch(() => ({}))
-    const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id } = body
+    const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id, profit_share_percent } = body
     if (!holder_name || !pan) {
       return jsonError('holder_name and pan are required', 400, cors)
+    }
+
+    const profitShare = profit_share_percent === undefined || profit_share_percent === null || profit_share_percent === ''
+      ? 25
+      : Number(profit_share_percent)
+    if (Number.isNaN(profitShare) || profitShare < 0 || profitShare > 100) {
+      return jsonError('Profit sharing cut must be a number between 0 and 100.', 400, cors)
     }
 
     if (!isAdmin && demat_id) {
@@ -88,9 +95,12 @@ Deno.serve(async (req) => {
     }
 
     const newId = demat_id ?? data
-    if (!isAdmin && !demat_id) {
-      await admin.from('demat_accounts').update({ linked_user_id: userData.user.id }).eq('id', newId)
-    }
+
+    // Neither RPC touches linked_user_id/profit_share_percent — both are set
+    // (or re-set) here as a plain follow-up update under the service role.
+    const followUp: Record<string, unknown> = { profit_share_percent: profitShare }
+    if (!isAdmin && !demat_id) followUp.linked_user_id = userData.user.id
+    await admin.from('demat_accounts').update(followUp).eq('id', newId)
 
     return jsonResponse({ id: newId }, 200, cors)
   } catch (err) {

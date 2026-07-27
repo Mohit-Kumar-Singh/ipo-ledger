@@ -5,7 +5,14 @@ import { useAuth } from '../../contexts/AuthContext'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
-type EditingAccount = { id: string; holderName: string; phoneDigits: string; pan: string; dematAccountNo: string }
+type EditingAccount = {
+  id: string
+  holderName: string
+  phoneDigits: string
+  pan: string
+  dematAccountNo: string
+  profitSharePercent: string
+}
 
 export function AccountsPage() {
   const { profile } = useAuth()
@@ -79,6 +86,7 @@ export function AccountsPage() {
       phoneDigits: a.phone_e164.replace(/^\+91/, ''),
       pan,
       dematAccountNo: a.dp_client_id ?? '',
+      profitSharePercent: String(a.profit_share_percent),
     })
   }
 
@@ -227,6 +235,8 @@ export function AccountsPage() {
                     <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
                       {revealed[a.id] ?? a.pan_masked}
                     </span>
+                    {' · '}
+                    <span>Profit cut {a.profit_share_percent}%</span>
                     {!revealed[a.id] && (
                       <button
                         onClick={() => revealPan(a.id)}
@@ -309,11 +319,14 @@ function AccountForm({
   const [phoneDigits, setPhoneDigits] = useState(existing?.phoneDigits ?? '')
   const [pan, setPan] = useState(existing?.pan ?? '')
   const [dematAccountNo, setDematAccountNo] = useState(existing?.dematAccountNo ?? '')
+  const [profitSharePercent, setProfitSharePercent] = useState(existing?.profitSharePercent ?? '25')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const phoneValid = PHONE_RE.test(phoneDigits)
   const panValid = PAN_RE.test(pan)
+  const profitShareNum = Number(profitSharePercent)
+  const profitShareValid = profitSharePercent !== '' && !Number.isNaN(profitShareNum) && profitShareNum >= 0 && profitShareNum <= 100
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -327,6 +340,10 @@ function AccountForm({
       setError('PAN must be in the format ABCPD1234E (5 letters, 4 digits, 1 letter).')
       return
     }
+    if (!profitShareValid) {
+      setError('Profit sharing cut must be a number between 0 and 100.')
+      return
+    }
 
     setSubmitting(true)
     const { data, error: fnError } = await supabase.functions.invoke<{ id?: string; error?: string }>(
@@ -338,6 +355,7 @@ function AccountForm({
           phone_digits: phoneDigits,
           pan,
           dp_client_id: dematAccountNo || null,
+          profit_share_percent: profitShareNum,
         },
       },
     )
@@ -401,6 +419,26 @@ function AccountForm({
           onChange={(e) => setDematAccountNo(e.target.value)}
           className="input"
         />
+      </Field>
+      <Field label="Profit sharing cut" hint="default 25%">
+        <div className="flex items-center gap-2">
+          <input
+            required
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            value={profitSharePercent}
+            onChange={(e) => setProfitSharePercent(e.target.value)}
+            className="input"
+          />
+          <span style={{ color: 'var(--ink-muted)' }}>%</span>
+        </div>
+        {profitSharePercent.length > 0 && !profitShareValid && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
+            Must be a number between 0 and 100.
+          </p>
+        )}
       </Field>
 
       {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2">{error}</p>}

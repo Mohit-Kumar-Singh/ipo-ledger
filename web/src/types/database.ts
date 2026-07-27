@@ -28,6 +28,7 @@ export interface DematAccount {
   dp_client_id: string | null
   linked_user_id: string | null
   notes: string | null
+  profit_share_percent: number
   created_at: string
 }
 
