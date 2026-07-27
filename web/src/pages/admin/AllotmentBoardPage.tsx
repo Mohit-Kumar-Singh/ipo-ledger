@@ -43,10 +43,13 @@ export function AllotmentBoardPage() {
   const [dispatching, setDispatching] = useState<string | null>(null)
 
   useEffect(() => {
+    const todayStr = new Date().toISOString().slice(0, 10)
     supabase
       .from('ipos')
       .select('*')
-      .order('open_date', { ascending: false })
+      .not('allotment_date', 'is', null)
+      .lte('allotment_date', todayStr)
+      .order('allotment_date', { ascending: false })
       .then(({ data }) => setIpos((data ?? []) as Ipo[]))
     supabase
       .from('registrar_links')
@@ -153,7 +156,8 @@ export function AllotmentBoardPage() {
           Allotment board
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Copy PAN, open the registrar, mark results — one row at a time.
+          Copy PAN, open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out
+          are listed below.
         </p>
       </div>
 

@@ -60,6 +60,7 @@ export interface Ipo {
   gmp_notes: string | null
   issue_size: string | null
   retail_issue_size: string | null
+  retail_subscription_rate: string | null
   created_at: string
 }
 

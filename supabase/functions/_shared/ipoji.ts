@@ -45,6 +45,7 @@ export interface Detail {
   retail_issue_size: string | null
   registrar: RegistrarCode | null
   registrar_name: string | null
+  retail_subscription_rate: string | null
 }
 
 // ipoji shows the registrar's full name (e.g. "Kfin Technologies Ltd.") —
@@ -179,6 +180,7 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
     retail_issue_size: null,
     registrar: null,
     registrar_name: null,
+    retail_subscription_rate: null,
   }
 
   // deno-lint-ignore no-explicit-any
@@ -205,6 +207,34 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       result.registrar = mapRegistrar(dd)
       break
     }
+  }
+
+  // Live/final subscription figures ("... IPO Subscription Status" table) —
+  // only present once bidding has started, so this stays null for IPOs that
+  // haven't opened yet. Matched by header text ("Retail") rather than a
+  // class name, since this table doesn't carry a distinctive selector and
+  // text-matching is more resilient to markup tweaks than chasing classes.
+  // deno-lint-ignore no-explicit-any
+  for (const table of Array.from(doc.querySelectorAll('table')) as any[]) {
+    const headerRow = table.querySelector('thead tr') ?? table.querySelector('tr')
+    if (!headerRow) continue
+    const headers = Array.from(headerRow.querySelectorAll('th,td')).map(
+      // deno-lint-ignore no-explicit-any
+      (c: any) => c.textContent?.trim().toLowerCase() ?? '',
+    )
+    const retailIdx = headers.indexOf('retail')
+    if (retailIdx === -1) continue
+
+    const bodyRows = Array.from(table.querySelectorAll('tbody tr'))
+    const dataRows = bodyRows.length > 0 ? bodyRows : Array.from(table.querySelectorAll('tr')).slice(1)
+    // deno-lint-ignore no-explicit-any
+    const lastRow = dataRows.at(-1) as any
+    if (!lastRow) continue
+    const cells = Array.from(lastRow.querySelectorAll('td,th'))
+    // deno-lint-ignore no-explicit-any
+    const value = (cells[retailIdx] as any)?.textContent?.replace(/\s+/g, '').trim()
+    if (value) result.retail_subscription_rate = value
+    break
   }
 
   // Category-wise reservation % (retail/QIB/NII/anchor/...) lives in an embedded

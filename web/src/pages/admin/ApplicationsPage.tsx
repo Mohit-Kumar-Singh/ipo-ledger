@@ -32,6 +32,7 @@ export function ApplicationsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   async function loadApplications() {
     setLoading(true)
@@ -113,6 +114,31 @@ export function ApplicationsPage() {
     loadApplications()
   }
 
+  function toggleSelected(id: string) {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelected((s) => (s.size === applications.length ? new Set() : new Set(applications.map((a) => a.id))))
+  }
+
+  async function bulkDelete() {
+    if (selected.size === 0) return
+    if (!window.confirm(`Delete ${selected.size} application(s)? This cannot be undone.`)) return
+    const { error } = await supabase.from('applications').delete().in('id', Array.from(selected))
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setSelected(new Set())
+    loadApplications()
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -124,9 +150,20 @@ export function ApplicationsPage() {
             {applications.length} total
           </p>
         </div>
-        <button onClick={() => (showForm ? setShowForm(false) : openForm())} className="btn-primary">
-          {showForm ? 'Cancel' : '+ New application'}
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          {selected.size > 0 && (
+            <button
+              onClick={bulkDelete}
+              className="text-sm font-medium hover:underline"
+              style={{ color: 'var(--critical)' }}
+            >
+              Delete {selected.size} selected
+            </button>
+          )}
+          <button onClick={() => (showForm ? setShowForm(false) : openForm())} className="btn-primary">
+            {showForm ? 'Cancel' : '+ New application'}
+          </button>
+        </div>
       </div>
 
       {(showForm || editingApplication) && formDataLoading && <InlineSpinner label="Loading form…" />}
@@ -164,6 +201,17 @@ export function ApplicationsPage() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
+                <th className="px-4 py-2.5">
+                  <input
+                    type="checkbox"
+                    checked={applications.length > 0 && selected.size === applications.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selected.size > 0 && selected.size < applications.length
+                    }}
+                    onChange={toggleSelectAll}
+                    aria-label="Select all applications"
+                  />
+                </th>
                 <th className="px-4 py-2.5 font-medium">IPO</th>
                 <th className="px-4 py-2.5 font-medium">Holder</th>
                 <th className="px-4 py-2.5 font-medium">Lots</th>
@@ -177,6 +225,14 @@ export function ApplicationsPage() {
               {applications.map((a) => {
                 return (
                 <tr key={a.id} className="hover:bg-[var(--hover-surface)]">
+                  <td className="px-4 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(a.id)}
+                      onChange={() => toggleSelected(a.id)}
+                      aria-label={`Select application for ${a.ipos?.company_name}`}
+                    />
+                  </td>
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {a.ipos?.company_name}
                   </td>
@@ -257,7 +313,7 @@ export function ApplicationsPage() {
               })}
               {applications.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={8} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications yet.
                   </td>
                 </tr>

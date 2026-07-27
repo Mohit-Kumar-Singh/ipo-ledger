@@ -19,6 +19,7 @@ export function BankAccountsPage() {
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -54,6 +55,31 @@ export function BankAccountsPage() {
       alert(error.message)
       return
     }
+    load()
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelected((s) => (s.size === banks.length ? new Set() : new Set(banks.map((b) => b.id))))
+  }
+
+  async function bulkDelete() {
+    if (selected.size === 0) return
+    if (!window.confirm(`Remove ${selected.size} bank/UPI account(s)?`)) return
+    const { error } = await supabase.from('bank_accounts').delete().in('id', Array.from(selected))
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setSelected(new Set())
     load()
   }
 
@@ -110,10 +136,39 @@ export function BankAccountsPage() {
           No bank/UPI accounts yet.
         </p>
       ) : (
-        <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+        <>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={selected.size > 0 && selected.size === banks.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selected.size > 0 && selected.size < banks.length
+                }}
+                onChange={toggleSelectAll}
+              />
+              Select all
+            </label>
+            {selected.size > 0 && (
+              <button
+                onClick={bulkDelete}
+                className="text-sm font-medium hover:underline"
+                style={{ color: 'var(--critical)' }}
+              >
+                Delete {selected.size} selected
+              </button>
+            )}
+          </div>
+          <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {banks.map((b) => (
             <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
-              <div className="text-sm">
+              <div className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selected.has(b.id)}
+                  onChange={() => toggleSelected(b.id)}
+                  aria-label={`Select ${b.account_holder_name}`}
+                />
                 <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                   {b.account_holder_name}
                 </span>
@@ -148,7 +203,8 @@ export function BankAccountsPage() {
               </div>
             </div>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

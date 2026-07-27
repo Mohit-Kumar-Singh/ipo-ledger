@@ -18,6 +18,7 @@ export function AccountsPage() {
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [linking, setLinking] = useState<string | null>(null)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -96,6 +97,40 @@ export function AccountsPage() {
     load()
   }
 
+  function toggleSelected(id: string) {
+    setSelected((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    setSelected((s) => (s.size === accounts.length ? new Set() : new Set(accounts.map((a) => a.id))))
+  }
+
+  async function bulkDelete() {
+    if (selected.size === 0) return
+    if (
+      !window.confirm(
+        `Delete ${selected.size} account(s)? This is only possible for accounts with no applications or messages on record.`,
+      )
+    )
+      return
+    const { error } = await supabase.from('demat_accounts').delete().in('id', Array.from(selected))
+    if (error) {
+      alert(
+        error.code === '23503'
+          ? "Can't delete — one or more selected accounts have applications or messages on record. Delete those first."
+          : error.message,
+      )
+      return
+    }
+    setSelected(new Set())
+    load()
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -145,11 +180,44 @@ export function AccountsPage() {
       {loading ? (
         <InlineSpinner />
       ) : (
-        <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+        <>
+          {accounts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={selected.size > 0 && selected.size === accounts.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selected.size > 0 && selected.size < accounts.length
+                  }}
+                  onChange={toggleSelectAll}
+                />
+                Select all
+              </label>
+              {selected.size > 0 && (
+                <button
+                  onClick={bulkDelete}
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  Delete {selected.size} selected
+                </button>
+              )}
+            </div>
+          )}
+          <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {accounts.map((a) => (
             <div key={a.id} className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="min-w-0">
+                <div className="flex min-w-0 items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1 shrink-0"
+                    checked={selected.has(a.id)}
+                    onChange={() => toggleSelected(a.id)}
+                    aria-label={`Select ${a.holder_name}`}
+                  />
+                  <div className="min-w-0">
                   <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {a.holder_name}
                   </p>
@@ -169,6 +237,7 @@ export function AccountsPage() {
                       </button>
                     )}
                   </p>
+                  </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-3">
                   {!a.linked_user_id && (
@@ -217,7 +286,8 @@ export function AccountsPage() {
               No accounts yet.
             </p>
           )}
-        </div>
+          </div>
+        </>
       )}
     </div>
   )

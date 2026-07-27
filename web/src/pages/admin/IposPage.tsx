@@ -36,6 +36,7 @@ interface ImportDetail {
   retail_issue_size: string | null
   registrar: Registrar | null
   registrar_name: string | null
+  retail_subscription_rate: string | null
 }
 
 function isEligible(c: ImportCandidate): boolean {
@@ -108,6 +109,8 @@ export function IposPage() {
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 })
   const [bulkResult, setBulkResult] = useState<{ saved: number; skipped: number } | null>(null)
+
+  const [selectedIpos, setSelectedIpos] = useState<Set<string>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -185,6 +188,7 @@ export function IposPage() {
         gmp_notes: c.gmp,
         issue_size: detail?.issue_size ?? c.issue_size,
         retail_issue_size: detail?.retail_issue_size ?? null,
+        retail_subscription_rate: detail?.retail_subscription_rate ?? null,
       })
 
       if (error) skipped++
@@ -195,6 +199,36 @@ export function IposPage() {
     setBulkSaving(false)
     setBulkResult({ saved, skipped })
     setSelected(new Set())
+    load()
+  }
+
+  function toggleIpoSelected(id: string) {
+    setSelectedIpos((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAllIpos() {
+    setSelectedIpos((s) => (s.size === ipos.length ? new Set() : new Set(ipos.map((i) => i.id))))
+  }
+
+  async function bulkDeleteIpos() {
+    if (selectedIpos.size === 0) return
+    if (
+      !window.confirm(
+        `Delete ${selectedIpos.size} IPO(s)? This also deletes any applications (and their notification history) for these IPOs. This cannot be undone.`,
+      )
+    )
+      return
+    const { error } = await supabase.from('ipos').delete().in('id', Array.from(selectedIpos))
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setSelectedIpos(new Set())
     load()
   }
 
@@ -345,69 +379,112 @@ export function IposPage() {
           No IPOs yet.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {ipos.map((ipo) => {
-            const status = deriveStatus(ipo)
-            return (
-              <div key={ipo.id} className="card stagger-item flex flex-col gap-3 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                    {ipo.company_name}
-                  </h3>
-                  <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
-                </div>
-
-                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  {ipo.registrar}
-                  {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
-                  {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
-                </p>
-
-                {ipo.gmp_notes && (
-                  <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
-                    {ipo.gmp_notes}
-                  </p>
-                )}
-
-                {(ipo.issue_size || ipo.retail_issue_size) && (
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
-                    <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
-                  </div>
-                )}
-
-                <IpoTimeline
-                  openDate={ipo.open_date}
-                  closeDate={ipo.close_date}
-                  allotmentDate={ipo.allotment_date}
-                  listingDate={ipo.listing_date}
+        <>
+          {isAdmin && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedIpos.size > 0 && selectedIpos.size === ipos.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < ipos.length
+                  }}
+                  onChange={toggleSelectAllIpos}
                 />
-
-                {isAdmin && (
-                  <div className="flex justify-end gap-3">
-                    <button
-                      onClick={() => {
-                        setEditingIpo(ipo)
-                        setShowAddForm(false)
-                        setShowImport(false)
-                      }}
-                      className="link-accent text-xs font-medium"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => deleteIpo(ipo)}
-                      className="text-xs font-medium hover:underline"
-                      style={{ color: 'var(--critical)' }}
-                    >
-                      Delete
-                    </button>
+                Select all
+              </label>
+              {selectedIpos.size > 0 && (
+                <button
+                  onClick={bulkDeleteIpos}
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  Delete {selectedIpos.size} selected
+                </button>
+              )}
+            </div>
+          )}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {ipos.map((ipo) => {
+              const status = deriveStatus(ipo)
+              return (
+                <div key={ipo.id} className="card stagger-item flex flex-col gap-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2">
+                      {isAdmin && (
+                        <input
+                          type="checkbox"
+                          className="mt-1"
+                          checked={selectedIpos.has(ipo.id)}
+                          onChange={() => toggleIpoSelected(ipo.id)}
+                          aria-label={`Select ${ipo.company_name}`}
+                        />
+                      )}
+                      <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                        {ipo.company_name}
+                      </h3>
+                    </div>
+                    <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {ipo.registrar}
+                    {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
+                    {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
+                  </p>
+
+                  {ipo.gmp_notes && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+                      {ipo.gmp_notes}
+                    </p>
+                  )}
+
+                  {(ipo.issue_size || ipo.retail_issue_size) && (
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
+                      <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
+                    </div>
+                  )}
+
+                  {ipo.retail_subscription_rate && (
+                    <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>
+                      Retail subscription: {ipo.retail_subscription_rate}
+                    </p>
+                  )}
+
+                  <IpoTimeline
+                    openDate={ipo.open_date}
+                    closeDate={ipo.close_date}
+                    allotmentDate={ipo.allotment_date}
+                    listingDate={ipo.listing_date}
+                  />
+
+                  {isAdmin && (
+                    <div className="flex justify-end gap-3">
+                      <button
+                        onClick={() => {
+                          setEditingIpo(ipo)
+                          setShowAddForm(false)
+                          setShowImport(false)
+                        }}
+                        className="link-accent text-xs font-medium"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteIpo(ipo)}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--critical)' }}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )
@@ -509,6 +586,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
   const [gmpNotes, setGmpNotes] = useState(existing?.gmp_notes ?? '')
   const [issueSize, setIssueSize] = useState(existing?.issue_size ?? '')
   const [retailIssueSize, setRetailIssueSize] = useState(existing?.retail_issue_size ?? '')
+  const [retailSubscriptionRate, setRetailSubscriptionRate] = useState(existing?.retail_subscription_rate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
   const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
   const [error, setError] = useState<string | null>(null)
@@ -534,6 +612,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       gmp_notes: gmpNotes || null,
       issue_size: issueSize || null,
       retail_issue_size: retailIssueSize || null,
+      retail_subscription_rate: retailSubscriptionRate || null,
     }
 
     // Editing a known row updates it directly by id; otherwise fall back to
@@ -612,6 +691,14 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
           value={retailIssueSize}
           onChange={(e) => setRetailIssueSize(e.target.value)}
           placeholder="e.g. ₹3100.87 Cr (31.66%)"
+          className="input"
+        />
+      </Field>
+      <Field label="Retail subscription rate">
+        <input
+          value={retailSubscriptionRate}
+          onChange={(e) => setRetailSubscriptionRate(e.target.value)}
+          placeholder="e.g. 2.77x (once bidding is live/closed)"
           className="input"
         />
       </Field>

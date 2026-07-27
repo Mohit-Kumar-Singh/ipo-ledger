@@ -25,6 +25,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   let listing_date: string | null = null
   let issue_size: string | null = c.issue_size
   let retail_issue_size: string | null = null
+  let retail_subscription_rate: string | null = null
   let registrar = 'OTHER'
 
   try {
@@ -33,6 +34,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     listing_date = detail.listing_date
     issue_size = detail.issue_size ?? issue_size
     retail_issue_size = detail.retail_issue_size
+    retail_subscription_rate = detail.retail_subscription_rate
     if (detail.registrar) registrar = detail.registrar
   } catch {
     // Detail fetch failing shouldn't block saving the core list-card fields.
@@ -51,6 +53,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     gmp_notes: c.gmp,
     issue_size,
     retail_issue_size,
+    retail_subscription_rate,
   }
 
   const { data: existing } = await admin
