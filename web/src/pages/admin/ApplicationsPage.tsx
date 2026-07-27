@@ -216,6 +216,7 @@ export function ApplicationsPage() {
                 <th className="px-4 py-2.5 font-medium">Holder</th>
                 <th className="px-4 py-2.5 font-medium">Lots</th>
                 <th className="px-4 py-2.5 font-medium">Bid amount</th>
+                <th className="px-4 py-2.5 font-medium">Sell price</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">Message</th>
                 <th className="px-4 py-2.5 font-medium">Actions</th>
@@ -239,6 +240,7 @@ export function ApplicationsPage() {
                   <td className="px-4 py-2.5">{a.demat_accounts?.holder_name}</td>
                   <td className="px-4 py-2.5">{a.lots}</td>
                   <td className="px-4 py-2.5">{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</td>
+                  <td className="px-4 py-2.5">{a.sell_price ? `₹${a.sell_price.toLocaleString('en-IN')}` : '—'}</td>
                   <td className="px-4 py-2.5">
                     <StatusBadge status={a.status} />
                   </td>
@@ -292,7 +294,7 @@ export function ApplicationsPage() {
                         </>
                       )}
                       {a.status === 'ALLOTTED' && (
-                        <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
+                        <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
                           Mark sold
                         </button>
                       )}
@@ -313,7 +315,7 @@ export function ApplicationsPage() {
               })}
               {applications.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={9} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications yet.
                   </td>
                 </tr>
@@ -368,6 +370,7 @@ function NewApplicationForm({
   const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
+  const [sellPrice, setSellPrice] = useState(existing?.sell_price != null ? String(existing.sell_price) : '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -392,6 +395,10 @@ function NewApplicationForm({
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
+          sell_price: sellPrice ? Number(sellPrice) : null,
+          // Entering a price is what actually marks it sold — no separate
+          // status toggle to remember to also flip.
+          status: sellPrice ? 'SOLD' : existing.status,
         })
         .eq('id', existing.id)
       setSubmitting(false)
@@ -492,6 +499,19 @@ function NewApplicationForm({
           style={{ background: 'var(--page)' }}
         />
       </Field>
+      {existing && (existing.status === 'ALLOTTED' || existing.status === 'SOLD') && (
+        <Field label="Sell price per share" hint="Setting this marks the application Sold">
+          <input
+            type="number"
+            step="0.01"
+            min={0}
+            placeholder="e.g. 105"
+            value={sellPrice}
+            onChange={(e) => setSellPrice(e.target.value)}
+            className="input"
+          />
+        </Field>
+      )}
 
       {error && (
         <p className="badge badge-critical col-span-1 w-fit sm:col-span-2 lg:col-span-3">{error}</p>
@@ -515,10 +535,17 @@ function NewApplicationForm({
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-      {label}
+      <span className="flex items-baseline justify-between gap-2">
+        {label}
+        {hint && (
+          <span className="text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
+            {hint}
+          </span>
+        )}
+      </span>
       <div className="mt-1">{children}</div>
     </label>
   )
