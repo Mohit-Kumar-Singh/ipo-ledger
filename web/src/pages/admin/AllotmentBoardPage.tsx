@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
+import { dispatchAdminWhatsapp } from '../../lib/dispatchWhatsapp'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -100,7 +101,7 @@ export function AllotmentBoardPage() {
   async function dispatchNotification(n: AllottedNotif) {
     setDispatching(n.id)
     if (isAdmin) {
-      await supabase.functions.invoke('send-whatsapp', { body: { notification_id: n.id } })
+      await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
     } else {
       const params = (n.variables as { params?: string[] } | null)?.params ?? []
       const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')

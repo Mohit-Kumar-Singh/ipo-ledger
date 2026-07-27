@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { buildWaMeLink, renderMessageBody } from '../../lib/notificationTemplates'
 import { isLiveIpo } from '../../lib/ipoStatus'
+import { dispatchAdminWhatsapp } from '../../lib/dispatchWhatsapp'
 import type {
   Application,
   ApplicationCategory,
@@ -91,7 +92,7 @@ export function ApplicationsPage() {
   async function dispatchNotification(n: ApplicationRow['notifications'][number]) {
     setDispatching(n.id)
     if (isAdmin) {
-      await supabase.functions.invoke('send-whatsapp', { body: { notification_id: n.id } })
+      await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
     } else {
       const params = (n.variables as { params?: string[] } | null)?.params ?? []
       const text = renderMessageBody(n.template_name, params, profile?.full_name ?? 'there')
