@@ -41,17 +41,8 @@ Deno.serve(async (req) => {
     const isAdmin = profile?.role === 'admin'
 
     const body = await req.json().catch(() => ({}))
-    const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id, profit_share_percent } = body
-    if (!holder_name || !pan) {
-      return jsonError('holder_name and pan are required', 400, cors)
-    }
-
-    const profitShare = profit_share_percent === undefined || profit_share_percent === null || profit_share_percent === ''
-      ? 25
-      : Number(profit_share_percent)
-    if (Number.isNaN(profitShare) || profitShare < 0 || profitShare > 100) {
-      return jsonError('Profit sharing cut must be a number between 0 and 100.', 400, cors)
-    }
+    const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id, profit_share_percent, is_active } =
+      body
 
     if (!isAdmin && demat_id) {
       const { data: existing } = await admin
@@ -62,6 +53,26 @@ Deno.serve(async (req) => {
       if (existing?.linked_user_id !== userData.user.id) {
         return new Response('forbidden', { status: 403, headers: cors })
       }
+    }
+
+    // Fast path: just flipping the active flag on an existing account — no
+    // PAN reveal/re-entry needed, so this is a plain column update, not a
+    // trip through the encryption RPCs.
+    if (demat_id && holder_name === undefined && pan === undefined && typeof is_active === 'boolean') {
+      const { error } = await admin.from('demat_accounts').update({ is_active }).eq('id', demat_id)
+      if (error) return jsonError(error.message, 500, cors)
+      return jsonResponse({ id: demat_id }, 200, cors)
+    }
+
+    if (!holder_name || !pan) {
+      return jsonError('holder_name and pan are required', 400, cors)
+    }
+
+    const profitShare = profit_share_percent === undefined || profit_share_percent === null || profit_share_percent === ''
+      ? 25
+      : Number(profit_share_percent)
+    if (Number.isNaN(profitShare) || profitShare < 0 || profitShare > 100) {
+      return jsonError('Profit sharing cut must be a number between 0 and 100.', 400, cors)
     }
 
     // Accept either a bare 10-digit number (phone_digits) or a full +91-prefixed
@@ -96,9 +107,12 @@ Deno.serve(async (req) => {
 
     const newId = demat_id ?? data
 
-    // Neither RPC touches linked_user_id/profit_share_percent — both are set
-    // (or re-set) here as a plain follow-up update under the service role.
-    const followUp: Record<string, unknown> = { profit_share_percent: profitShare }
+    // Neither RPC touches linked_user_id/profit_share_percent/is_active — all
+    // are set (or re-set) here as a plain follow-up update under the service role.
+    const followUp: Record<string, unknown> = {
+      profit_share_percent: profitShare,
+      is_active: typeof is_active === 'boolean' ? is_active : true,
+    }
     if (!isAdmin && !demat_id) followUp.linked_user_id = userData.user.id
     await admin.from('demat_accounts').update(followUp).eq('id', newId)
 

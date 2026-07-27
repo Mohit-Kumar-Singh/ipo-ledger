@@ -12,6 +12,7 @@ type EditingAccount = {
   pan: string
   dematAccountNo: string
   profitSharePercent: string
+  isActive: boolean
 }
 
 export function AccountsPage() {
@@ -25,6 +26,7 @@ export function AccountsPage() {
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [linking, setLinking] = useState<string | null>(null)
+  const [togglingActive, setTogglingActive] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
 
   async function load() {
@@ -87,7 +89,21 @@ export function AccountsPage() {
       pan,
       dematAccountNo: a.dp_client_id ?? '',
       profitSharePercent: String(a.profit_share_percent),
+      isActive: a.is_active,
     })
+  }
+
+  async function toggleActive(a: DematAccount) {
+    setTogglingActive(a.id)
+    const { error } = await supabase.functions.invoke('add-demat', {
+      body: { demat_id: a.id, is_active: !a.is_active },
+    })
+    setTogglingActive(null)
+    if (error) {
+      alert('Could not update — please try again.')
+      return
+    }
+    load()
   }
 
   async function deleteAccount(id: string, name: string) {
@@ -139,8 +155,11 @@ export function AccountsPage() {
     load()
   }
 
+  const activeAccounts = accounts.filter((a) => a.is_active)
+  const inactiveAccounts = accounts.filter((a) => !a.is_active)
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
@@ -187,101 +206,237 @@ export function AccountsPage() {
 
       {loading ? (
         <InlineSpinner />
+      ) : accounts.length === 0 ? (
+        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No accounts yet.
+        </p>
       ) : (
         <>
-          {accounts.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-                <input
-                  type="checkbox"
-                  checked={selected.size > 0 && selected.size === accounts.length}
-                  ref={(el) => {
-                    if (el) el.indeterminate = selected.size > 0 && selected.size < accounts.length
-                  }}
-                  onChange={toggleSelectAll}
-                />
-                Select all
-              </label>
-              {selected.size > 0 && (
-                <button
-                  onClick={bulkDelete}
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  Delete {selected.size} selected
-                </button>
-              )}
-            </div>
-          )}
-          <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
-          {accounts.map((a) => (
-            <div key={a.id} className="p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex min-w-0 items-start gap-2">
-                  <input
-                    type="checkbox"
-                    className="mt-1 shrink-0"
-                    checked={selected.has(a.id)}
-                    onChange={() => toggleSelected(a.id)}
-                    aria-label={`Select ${a.holder_name}`}
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={selected.size > 0 && selected.size === accounts.length}
+                ref={(el) => {
+                  if (el) el.indeterminate = selected.size > 0 && selected.size < accounts.length
+                }}
+                onChange={toggleSelectAll}
+              />
+              Select all
+            </label>
+            {selected.size > 0 && (
+              <button
+                onClick={bulkDelete}
+                className="text-sm font-medium hover:underline"
+                style={{ color: 'var(--critical)' }}
+              >
+                Delete {selected.size} selected
+              </button>
+            )}
+          </div>
+
+          <AccountSection
+            title="Active accounts"
+            subtitle="Used regularly — these are what you'll usually apply IPOs from."
+            accounts={activeAccounts}
+            emptyLabel="No active accounts."
+            isAdmin={isAdmin}
+            unlinkedMembers={unlinkedMembers}
+            linking={linking}
+            revealing={revealing}
+            revealed={revealed}
+            togglingActive={togglingActive}
+            selected={selected}
+            onToggleSelected={toggleSelected}
+            onLinkMember={linkMember}
+            onRevealPan={revealPan}
+            onToggleActive={toggleActive}
+            onEdit={startEdit}
+            onDelete={deleteAccount}
+          />
+
+          <AccountSection
+            title="Inactive accounts"
+            subtitle="Shared with other people / not used regularly. Reactivate to apply from these."
+            accounts={inactiveAccounts}
+            emptyLabel="No inactive accounts."
+            collapsedByDefault
+            isAdmin={isAdmin}
+            unlinkedMembers={unlinkedMembers}
+            linking={linking}
+            revealing={revealing}
+            revealed={revealed}
+            togglingActive={togglingActive}
+            selected={selected}
+            onToggleSelected={toggleSelected}
+            onLinkMember={linkMember}
+            onRevealPan={revealPan}
+            onToggleActive={toggleActive}
+            onEdit={startEdit}
+            onDelete={deleteAccount}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function AccountSection({
+  title,
+  subtitle,
+  accounts,
+  emptyLabel,
+  collapsedByDefault,
+  isAdmin,
+  unlinkedMembers,
+  linking,
+  revealing,
+  revealed,
+  togglingActive,
+  selected,
+  onToggleSelected,
+  onLinkMember,
+  onRevealPan,
+  onToggleActive,
+  onEdit,
+  onDelete,
+}: {
+  title: string
+  subtitle: string
+  accounts: DematAccount[]
+  emptyLabel: string
+  collapsedByDefault?: boolean
+  isAdmin: boolean
+  unlinkedMembers: Profile[]
+  linking: string | null
+  revealing: string | null
+  revealed: Record<string, string>
+  togglingActive: string | null
+  selected: Set<string>
+  onToggleSelected: (id: string) => void
+  onLinkMember: (dematId: string, userId: string) => void
+  onRevealPan: (id: string) => void
+  onToggleActive: (a: DematAccount) => void
+  onEdit: (a: DematAccount) => void
+  onDelete: (id: string, name: string) => void
+}) {
+  const [open, setOpen] = useState(!collapsedByDefault || accounts.length > 0)
+
+  if (accounts.length === 0 && collapsedByDefault) return null
+
+  return (
+    <section className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            {title} <span style={{ color: 'var(--ink-muted)', fontWeight: 400 }}>({accounts.length})</span>
+          </h2>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            {subtitle}
+          </p>
+        </div>
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          className="shrink-0 transition-transform duration-200 ease-out"
+          style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+
+      {open &&
+        (accounts.length === 0 ? (
+          <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {emptyLabel}
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {accounts.map((a) => (
+              <div key={a.id} className="card stagger-item flex flex-col gap-3 p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-1 shrink-0"
+                      checked={selected.has(a.id)}
+                      onChange={() => onToggleSelected(a.id)}
+                      aria-label={`Select ${a.holder_name}`}
+                    />
+                    <p className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {a.holder_name}
+                    </p>
+                  </div>
+                  <Switch
+                    checked={a.is_active}
+                    disabled={togglingActive === a.id}
+                    onChange={() => onToggleActive(a)}
+                    label={`Mark ${a.holder_name} ${a.is_active ? 'inactive' : 'active'}`}
                   />
-                  <div className="min-w-0">
-                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {a.holder_name}
-                  </p>
-                  <p className="break-words text-sm" style={{ color: 'var(--ink-muted)' }}>
+                </div>
+
+                <div className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  <p>
                     {a.phone_e164}
-                    {a.dp_client_id && ` · Demat a/c ${a.dp_client_id}`} ·{' '}
+                    {a.dp_client_id && ` · a/c ${a.dp_client_id}`}
+                  </p>
+                  <p className="mt-0.5">
                     <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
                       {revealed[a.id] ?? a.pan_masked}
                     </span>
-                    {' · '}
-                    <span>Profit cut {a.profit_share_percent}%</span>
                     {!revealed[a.id] && (
                       <button
-                        onClick={() => revealPan(a.id)}
+                        onClick={() => onRevealPan(a.id)}
                         disabled={revealing === a.id}
-                        className="link-accent ml-2 text-sm font-medium disabled:opacity-50"
+                        className="link-accent ml-2 text-xs font-medium disabled:opacity-50"
                       >
                         {revealing === a.id ? 'Revealing…' : 'Reveal PAN'}
                       </button>
                     )}
                   </p>
-                  </div>
+                  <p className="mt-0.5">Profit cut {a.profit_share_percent}%</p>
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-3">
-                  {!a.linked_user_id && (
-                    <>
-                      <span className="badge badge-neutral">not linked</span>
-                      {isAdmin && unlinkedMembers.length > 0 && (
-                        <select
-                          value=""
-                          disabled={linking === a.id}
-                          onChange={(e) => e.target.value && linkMember(a.id, e.target.value)}
-                          className="input w-auto py-1 text-xs"
-                          aria-label={`Link ${a.holder_name} to a registered member`}
-                        >
-                          <option value="">
-                            {linking === a.id ? 'Linking…' : 'Link to registered member…'}
+
+                {!a.linked_user_id && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="badge badge-neutral">not linked</span>
+                    {isAdmin && unlinkedMembers.length > 0 && (
+                      <select
+                        value=""
+                        disabled={linking === a.id}
+                        onChange={(e) => e.target.value && onLinkMember(a.id, e.target.value)}
+                        className="input w-auto py-1 text-xs"
+                        aria-label={`Link ${a.holder_name} to a registered member`}
+                      >
+                        <option value="">{linking === a.id ? 'Linking…' : 'Link to member…'}</option>
+                        {unlinkedMembers.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name}
                           </option>
-                          {unlinkedMembers.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.full_name}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </>
-                  )}
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-auto flex justify-end gap-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                   <button
-                    onClick={() => startEdit(a)}
+                    onClick={() => onEdit(a)}
                     disabled={revealing === a.id}
                     className="link-accent text-xs font-medium disabled:opacity-50"
                   >
                     Edit
                   </button>
                   <button
-                    onClick={() => deleteAccount(a.id, a.holder_name)}
+                    onClick={() => onDelete(a.id, a.holder_name)}
                     className="text-xs font-medium hover:underline"
                     style={{ color: 'var(--critical)' }}
                   >
@@ -289,17 +444,40 @@ export function AccountsPage() {
                   </button>
                 </div>
               </div>
-            </div>
-          ))}
-          {accounts.length === 0 && (
-            <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
-              No accounts yet.
-            </p>
-          )}
+            ))}
           </div>
-        </>
-      )}
-    </div>
+        ))}
+    </section>
+  )
+}
+
+function Switch({
+  checked,
+  onChange,
+  disabled,
+  label,
+}: {
+  checked: boolean
+  onChange: () => void
+  disabled?: boolean
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onChange}
+      className="relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors duration-200 ease-out disabled:opacity-50"
+      style={{ background: checked ? 'var(--btn-primary-bg)' : 'var(--border-strong)' }}
+    >
+      <span
+        className="inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform duration-200 ease-out"
+        style={{ transform: checked ? 'translateX(18px)' : 'translateX(2px)', boxShadow: '0 1px 2px rgba(0,0,0,0.25)' }}
+      />
+    </button>
   )
 }
 
@@ -320,6 +498,7 @@ function AccountForm({
   const [pan, setPan] = useState(existing?.pan ?? '')
   const [dematAccountNo, setDematAccountNo] = useState(existing?.dematAccountNo ?? '')
   const [profitSharePercent, setProfitSharePercent] = useState(existing?.profitSharePercent ?? '25')
+  const [isActive, setIsActive] = useState(existing?.isActive ?? true)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -356,6 +535,7 @@ function AccountForm({
           pan,
           dp_client_id: dematAccountNo || null,
           profit_share_percent: profitShareNum,
+          is_active: isActive,
         },
       },
     )
@@ -369,7 +549,7 @@ function AccountForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
       <Field label="Holder name">
         <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
@@ -439,6 +619,12 @@ function AccountForm({
             Must be a number between 0 and 100.
           </p>
         )}
+      </Field>
+      <Field label="Status">
+        <div className="flex items-center gap-2 py-2 text-sm" style={{ color: 'var(--ink-primary)' }}>
+          <Switch checked={isActive} onChange={() => setIsActive((v) => !v)} label="Active account" />
+          {isActive ? 'Active — used regularly' : 'Inactive — not used regularly'}
+        </div>
       </Field>
 
       {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2">{error}</p>}

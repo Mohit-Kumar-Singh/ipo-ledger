@@ -225,7 +225,7 @@ export function ApplicationsPage() {
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {applications.map((a) => {
                 return (
-                <tr key={a.id} className="hover:bg-[var(--hover-surface)]">
+                <tr key={a.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5">
                     <input
                       type="checkbox"
@@ -431,7 +431,7 @@ function NewApplicationForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+    <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
       <Field label="IPO">
         {existing ? (
           <p className="input" style={{ background: 'var(--page)' }}>
@@ -461,11 +461,28 @@ function NewApplicationForm({
             className="input"
           >
             <option value="">Select account</option>
-            {accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.holder_name}
-              </option>
-            ))}
+            {accounts.filter((a) => a.is_active).length > 0 && (
+              <optgroup label="Active accounts">
+                {accounts
+                  .filter((a) => a.is_active)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.holder_name}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
+            {accounts.filter((a) => !a.is_active).length > 0 && (
+              <optgroup label="Inactive accounts">
+                {accounts
+                  .filter((a) => !a.is_active)
+                  .map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.holder_name}
+                    </option>
+                  ))}
+              </optgroup>
+            )}
           </select>
         )}
       </Field>
