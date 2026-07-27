@@ -90,7 +90,17 @@ export function ToastHost() {
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'notifications' },
-        (payload) => pushNotification(payload.new as Notification),
+        (payload) => {
+          // Deleting an application nulls out notifications.application_id
+          // (ON DELETE SET NULL) — a real UPDATE on this row, but not a
+          // dispatch. Only pop the toast when status actually changed, not
+          // on every touch to the row (needs replica identity FULL on
+          // notifications for old.status to be present here).
+          const oldStatus = (payload.old as Partial<Notification> | null)?.status
+          const newNotification = payload.new as Notification
+          if (oldStatus === newNotification.status) return
+          pushNotification(newNotification)
+        },
       )
       .subscribe()
 
