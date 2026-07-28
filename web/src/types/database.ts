@@ -15,6 +15,7 @@ export type NotificationStatus = 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAI
 export interface Profile {
   id: string
   full_name: string
+  phone_e164: string | null
   role: UserRole
   created_at: string
 }

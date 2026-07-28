@@ -438,7 +438,7 @@ function NewApplicationForm({
         ) : (
           <>
             <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
-              <option value="">{liveIpos.length === 0 ? 'No live IPOs open right now' : 'Select IPO'}</option>
+              <option value="">{liveIpos.length === 0 ? 'No live IPOs right now' : 'Select IPO'}</option>
               {liveIpos.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.company_name}
@@ -447,7 +447,7 @@ function NewApplicationForm({
             </select>
             {liveIpos.length === 0 && (
               <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                No IPOs are currently open for bidding.
+                No IPOs currently between open and listing date.
               </p>
             )}
           </>
