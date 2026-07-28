@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { AlertTriangle, CheckCircle2, Clock, Landmark } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
+import { AreaChart, type AreaChartPoint } from '../../components/AreaChart'
 import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
 
 interface DashboardData {
@@ -10,6 +12,24 @@ interface DashboardData {
   pendingMandate: AllotmentBoardRow[]
   allottedNotSold: AllotmentBoardRow[]
   failedMessages: Notification[]
+  activity: AreaChartPoint[]
+}
+
+// Buckets application applied_at timestamps into the last 7 calendar days
+// (today included), so the dashboard has something real to chart instead of
+// a hand-rolled/fake series.
+function buildActivitySeries(appliedDates: string[]): AreaChartPoint[] {
+  const days: { key: string; label: string }[] = []
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000)
+    days.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-US', { weekday: 'short' }) })
+  }
+  const counts = new Map<string, number>()
+  for (const iso of appliedDates) {
+    const key = iso.slice(0, 10)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  return days.map((d) => ({ label: d.label, value: counts.get(d.key) ?? 0 }))
 }
 
 export function DashboardPage() {
@@ -24,8 +44,9 @@ export function DashboardPage() {
       setLoading(true)
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
+      const since7d = new Date(Date.now() - 6 * 86400000).toISOString()
 
-      const [closingSoon, board, failedMessages] = await Promise.all([
+      const [closingSoon, board, failedMessages, recentApplications] = await Promise.all([
         supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
         supabase.from('v_allotment_board').select('*'),
         supabase
@@ -34,6 +55,7 @@ export function DashboardPage() {
           .eq('status', 'FAILED')
           .order('created_at', { ascending: false })
           .limit(20),
+        supabase.from('applications').select('applied_at').gte('applied_at', since7d),
       ])
 
       if (cancelled) return
@@ -44,6 +66,7 @@ export function DashboardPage() {
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
+        activity: buildActivitySeries(((recentApplications.data ?? []) as { applied_at: string }[]).map((a) => a.applied_at)),
       })
       setLoading(false)
     }
@@ -67,16 +90,28 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile label="Closing within 7 days" value={data.closingSoon.length} />
-        <StatTile label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
-        <StatTile label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
-        <StatTile label="Failed messages" value={data.failedMessages.length} tone="critical" />
+        <StatTile icon={Clock} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
+        <StatTile icon={Landmark} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
+        <StatTile icon={CheckCircle2} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
+        <StatTile icon={AlertTriangle} label="Failed messages" value={data.failedMessages.length} tone="critical" />
+      </div>
+
+      <div className="card stagger-item p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Applications this week
+          </h2>
+          <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Last 7 days
+          </span>
+        </div>
+        <AreaChart data={data.activity} colorVar="--btn-primary-bg" height={180} />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
           {data.closingSoon.map((ipo) => (
-            <Row key={ipo.id}>
+            <Row key={ipo.id} initial={ipo.company_name[0]} tone="info">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {ipo.company_name}
               </span>
@@ -87,7 +122,7 @@ export function DashboardPage() {
 
         <Section title="Applications awaiting mandate approval" empty="None pending">
           {data.pendingMandate.map((r) => (
-            <Row key={r.application_id}>
+            <Row key={r.application_id} initial={r.holder_name[0]} tone="warning">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
@@ -98,7 +133,7 @@ export function DashboardPage() {
 
         <Section title="Allotted, not yet sold" empty="Nothing outstanding">
           {data.allottedNotSold.map((r) => (
-            <Row key={r.application_id}>
+            <Row key={r.application_id} initial={r.holder_name[0]} tone="good">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
@@ -111,7 +146,7 @@ export function DashboardPage() {
 
         <Section title="Failed messages" empty="No failures">
           {data.failedMessages.map((n) => (
-            <Row key={n.id}>
+            <Row key={n.id} initial={n.template_name[0]} tone="critical">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {n.template_name}
               </span>
@@ -156,10 +191,12 @@ function useCountUp(target: number, duration = 500) {
 }
 
 function StatTile({
+  icon: Icon,
   label,
   value,
   tone = 'info',
 }: {
+  icon: typeof Clock
   label: string
   value: number
   tone?: 'info' | 'warning' | 'good' | 'critical'
@@ -173,16 +210,21 @@ function StatTile({
   const animated = useCountUp(value)
 
   return (
-    <div className="card stagger-item p-4">
-      <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
-        {label}
-      </p>
-      <p
-        className="mt-2 text-3xl font-semibold"
-        style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
-      >
-        {animated}
-      </p>
+    <div className="card stagger-item flex flex-col gap-3 p-4">
+      <div className={`icon-badge icon-badge-${tone}`}>
+        <Icon size={20} strokeWidth={2} />
+      </div>
+      <div>
+        <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
+          {label}
+        </p>
+        <p
+          className="mt-1 text-3xl font-semibold"
+          style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
+        >
+          {animated}
+        </p>
+      </div>
     </div>
   )
 }
@@ -201,13 +243,24 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
   )
 }
 
-function Row({ children }: { children: ReactNode }) {
+function Row({
+  children,
+  initial,
+  tone = 'info',
+}: {
+  children: ReactNode
+  initial: string
+  tone?: 'info' | 'warning' | 'good' | 'critical'
+}) {
   return (
-    <div
-      className="stagger-item flex items-center justify-between px-4 py-2.5 text-sm"
-      style={{ borderColor: 'var(--border)' }}
-    >
-      {children}
+    <div className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+      <div
+        className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
+        style={{ width: '2rem', height: '2rem' }}
+      >
+        {initial.toUpperCase()}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-0.5">{children}</div>
     </div>
   )
 }
@@ -223,10 +276,16 @@ function DashboardSkeleton() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="card space-y-3 p-4">
+            <Skeleton className="h-11 w-11" />
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-8 w-14" />
           </div>
         ))}
+      </div>
+
+      <div className="card p-5">
+        <Skeleton className="mb-4 h-4 w-40" />
+        <Skeleton className="h-44 w-full" />
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

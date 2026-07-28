@@ -1,7 +1,15 @@
 import type { CSSProperties } from 'react'
 import { useTheme } from '../contexts/ThemeContext'
 
-export function ThemeToggle({ className = '', style }: { className?: string; style?: CSSProperties }) {
+export function ThemeToggle({
+  className = '',
+  style,
+  iconOnly = false,
+}: {
+  className?: string
+  style?: CSSProperties
+  iconOnly?: boolean
+}) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -10,7 +18,9 @@ export function ThemeToggle({ className = '', style }: { className?: string; sty
       onClick={toggleTheme}
       title={isDark ? 'Switch to light theme' : 'Switch to dark theme'}
       aria-label="Toggle theme"
-      className={`flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] ${className}`}
+      className={`flex shrink-0 items-center gap-1.5 rounded-md text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] ${
+        iconOnly ? 'p-1.5' : 'px-2 py-1.5'
+      } ${className}`}
       style={{ color: 'var(--ink-secondary)', ...style }}
     >
       {isDark ? (
@@ -23,7 +33,7 @@ export function ThemeToggle({ className = '', style }: { className?: string; sty
           <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
         </svg>
       )}
-      {isDark ? 'Light' : 'Dark'}
+      {!iconOnly && (isDark ? 'Light' : 'Dark')}
     </button>
   )
 }
