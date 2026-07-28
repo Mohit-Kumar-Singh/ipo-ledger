@@ -25,6 +25,7 @@ export interface DematAccount {
   holder_name: string
   phone_e164: string
   pan_masked: string
+  pan_hash: string
   broker: string | null
   dp_client_id: string | null
   linked_user_id: string | null

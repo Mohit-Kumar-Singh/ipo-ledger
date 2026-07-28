@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -161,7 +162,7 @@ export function ApplicationsPage() {
         </div>
       </div>
 
-      {(showForm || editingApplication) && formDataLoading && <InlineSpinner label="Loading form…" />}
+      {showForm && formDataLoading && <InlineSpinner label="Loading form…" />}
 
       {showForm && !formDataLoading && (
         <NewApplicationForm
@@ -175,78 +176,96 @@ export function ApplicationsPage() {
         />
       )}
 
-      {editingApplication && !formDataLoading && (
-        <NewApplicationForm
-          ipos={ipos}
-          accounts={accounts}
-          banks={banks}
-          existing={editingApplication}
-          onCancel={() => setEditingApplication(null)}
-          onDone={() => {
-            setEditingApplication(null)
-            loadApplications()
-          }}
-        />
-      )}
-
       {loading ? (
         <InlineSpinner />
+      ) : applications.length === 0 ? (
+        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No applications yet.
+        </p>
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
-              <tr>
-                <th className="px-4 py-2.5">
+        <>
+          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+            <input
+              type="checkbox"
+              checked={applications.length > 0 && selected.size === applications.length}
+              ref={(el) => {
+                if (el) el.indeterminate = selected.size > 0 && selected.size < applications.length
+              }}
+              onChange={toggleSelectAll}
+              aria-label="Select all applications"
+            />
+            Select all
+          </label>
+
+          <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+            {applications.map((a) => {
+              if (editingApplication?.id === a.id) {
+                return formDataLoading ? (
+                  <div key={a.id} className="p-4">
+                    <InlineSpinner label="Loading form…" />
+                  </div>
+                ) : (
+                  <div key={a.id} className="p-4">
+                    <NewApplicationForm
+                      ipos={ipos}
+                      accounts={accounts}
+                      banks={banks}
+                      existing={editingApplication}
+                      onCancel={() => setEditingApplication(null)}
+                      onDone={() => {
+                        setEditingApplication(null)
+                        loadApplications()
+                      }}
+                    />
+                  </div>
+                )
+              }
+
+              const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
+
+              return (
+                <div key={a.id} className="stagger-item flex flex-wrap items-center gap-3 p-4">
                   <input
                     type="checkbox"
-                    checked={applications.length > 0 && selected.size === applications.length}
-                    ref={(el) => {
-                      if (el) el.indeterminate = selected.size > 0 && selected.size < applications.length
-                    }}
-                    onChange={toggleSelectAll}
-                    aria-label="Select all applications"
+                    className="shrink-0"
+                    checked={selected.has(a.id)}
+                    onChange={() => toggleSelected(a.id)}
+                    aria-label={`Select application for ${a.ipos?.company_name}`}
                   />
-                </th>
-                <th className="px-4 py-2.5 font-medium">IPO</th>
-                <th className="px-4 py-2.5 font-medium">Holder</th>
-                <th className="px-4 py-2.5 font-medium">Lots</th>
-                <th className="px-4 py-2.5 font-medium">Bid amount</th>
-                <th className="px-4 py-2.5 font-medium">Sell price</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Message</th>
-                <th className="px-4 py-2.5 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {applications.map((a) => {
-                return (
-                <tr key={a.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-                  <td className="px-4 py-2.5">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(a.id)}
-                      onChange={() => toggleSelected(a.id)}
-                      aria-label={`Select application for ${a.ipos?.company_name}`}
-                    />
-                  </td>
-                  <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {a.ipos?.company_name}
-                  </td>
-                  <td className="px-4 py-2.5">{a.demat_accounts?.holder_name}</td>
-                  <td className="px-4 py-2.5">{a.lots}</td>
-                  <td className="px-4 py-2.5">{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</td>
-                  <td className="px-4 py-2.5">{a.sell_price ? `₹${a.sell_price.toLocaleString('en-IN')}` : '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={a.status} />
-                  </td>
-                  <td className="px-4 py-2.5">
+                  <div
+                    className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
+                    style={{ width: '2.25rem', height: '2.25rem' }}
+                  >
+                    {a.ipos?.company_name?.[0]?.toUpperCase()}
+                  </div>
+
+                  <div className="min-w-[9rem] flex-1">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {a.ipos?.company_name}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {a.demat_accounts?.holder_name}
+                    </p>
+                  </div>
+
+                  <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    <p>{a.lots} lot(s)</p>
+                    <p>{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</p>
+                  </div>
+
+                  {a.sell_price != null && (
+                    <div className="w-24 shrink-0 text-xs" style={{ color: 'var(--good)' }}>
+                      Sold ₹{a.sell_price.toLocaleString('en-IN')}
+                    </div>
+                  )}
+
+                  <StatusBadge status={a.status} />
+
+                  <div className="min-w-[8rem] flex-1">
                     {a.notifications && a.notifications.length > 0 ? (
-                      <div className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1">
                         {a.notifications.map((notif) => (
-                          <div key={notif.id} className="flex items-center gap-2">
-                            <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                              {notif.to_phone}
-                            </span>
+                          <div key={notif.id} className="flex items-center gap-1.5">
                             <NotifBadge status={notif.status} />
                             {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
                               <button
@@ -269,55 +288,54 @@ export function ApplicationsPage() {
                         ))}
                       </div>
                     ) : (
-                      <span style={{ color: 'var(--ink-muted)' }}>—</span>
+                      <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        —
+                      </span>
                     )}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex flex-wrap items-center gap-3">
-                      {a.status === 'APPLIED' && (
-                        <>
-                          <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
-                            Allotted
-                          </button>
-                          <button
-                            onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
-                            className="text-xs font-medium hover:underline"
-                            style={{ color: 'var(--ink-muted)' }}
-                          >
-                            Not allotted
-                          </button>
-                        </>
-                      )}
-                      {a.status === 'ALLOTTED' && (
-                        <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
-                          Mark sold
+                  </div>
+
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {a.status === 'APPLIED' && (
+                      <>
+                        <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
+                          Allotted
                         </button>
-                      )}
+                        <button
+                          onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
+                          className="text-xs font-medium hover:underline"
+                          style={{ color: 'var(--ink-muted)' }}
+                        >
+                          Not allotted
+                        </button>
+                      </>
+                    )}
+                    {a.status === 'ALLOTTED' && (
                       <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
-                        Edit
+                        Mark sold
                       </button>
-                      <button
-                        onClick={() => deleteApplication(a.id)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--critical)' }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-                )
-              })}
-              {applications.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
-                    No applications yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                    )}
+                    <button
+                      onClick={() => openEdit(a)}
+                      aria-label={`Edit application for ${a.ipos?.company_name}`}
+                      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                      style={{ color: 'var(--ink-muted)' }}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      onClick={() => deleteApplication(a.id)}
+                      aria-label={`Delete application for ${a.ipos?.company_name}`}
+                      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </>
       )}
     </div>
   )

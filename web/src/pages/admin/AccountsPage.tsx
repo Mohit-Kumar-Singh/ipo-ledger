@@ -1,6 +1,6 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { ChevronDown, CreditCard, Hash, Phone } from 'lucide-react'
+import { AlertTriangle, ChevronDown, CreditCard, Hash, Pencil, Phone, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -67,6 +67,15 @@ export function AccountsPage() {
   useEffect(() => {
     load()
   }, [])
+
+  // pan_hash is a one-way hash (safe to compare client-side without
+  // decrypting) — surfaces accounts that already collide on PAN *before*
+  // someone hits the opaque "duplicate key" error trying to edit one of them.
+  const duplicatePanIds = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const a of accounts) counts.set(a.pan_hash, (counts.get(a.pan_hash) ?? 0) + 1)
+    return new Set(accounts.filter((a) => (counts.get(a.pan_hash) ?? 0) > 1).map((a) => a.id))
+  }, [accounts])
 
   async function linkMember(dematId: string, userId: string) {
     setLinking(dematId)
@@ -215,15 +224,14 @@ export function AccountsPage() {
         />
       )}
 
-      {editingAccount && (
-        <AccountForm
-          existing={editingAccount}
-          onCancel={() => setEditingAccount(null)}
-          onDone={() => {
-            setEditingAccount(null)
-            load()
-          }}
-        />
+      {duplicatePanIds.size > 0 && (
+        <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
+            {duplicatePanIds.size} accounts share a PAN with another account (marked below) — that's why saving an
+            edit on one of them can fail with "already exists." Delete or fix the duplicate to resolve it.
+          </p>
+        </div>
       )}
 
       {loading ? (
@@ -269,11 +277,18 @@ export function AccountsPage() {
             revealed={revealed}
             togglingActive={togglingActive}
             selected={selected}
+            duplicatePanIds={duplicatePanIds}
+            editingAccount={editingAccount}
             onToggleSelected={toggleSelected}
             onLinkMember={linkMember}
             onRevealPan={revealPan}
             onToggleActive={toggleActive}
             onEdit={startEdit}
+            onCancelEdit={() => setEditingAccount(null)}
+            onSavedEdit={() => {
+              setEditingAccount(null)
+              load()
+            }}
             onDelete={deleteAccount}
           />
 
@@ -290,11 +305,18 @@ export function AccountsPage() {
             revealed={revealed}
             togglingActive={togglingActive}
             selected={selected}
+            duplicatePanIds={duplicatePanIds}
+            editingAccount={editingAccount}
             onToggleSelected={toggleSelected}
             onLinkMember={linkMember}
             onRevealPan={revealPan}
             onToggleActive={toggleActive}
             onEdit={startEdit}
+            onCancelEdit={() => setEditingAccount(null)}
+            onSavedEdit={() => {
+              setEditingAccount(null)
+              load()
+            }}
             onDelete={deleteAccount}
           />
         </>
@@ -316,11 +338,15 @@ function AccountSection({
   revealed,
   togglingActive,
   selected,
+  duplicatePanIds,
+  editingAccount,
   onToggleSelected,
   onLinkMember,
   onRevealPan,
   onToggleActive,
   onEdit,
+  onCancelEdit,
+  onSavedEdit,
   onDelete,
 }: {
   title: string
@@ -335,11 +361,15 @@ function AccountSection({
   revealed: Record<string, string>
   togglingActive: string | null
   selected: Set<string>
+  duplicatePanIds: Set<string>
+  editingAccount: EditingAccount | null
   onToggleSelected: (id: string) => void
   onLinkMember: (dematId: string, userId: string) => void
   onRevealPan: (id: string) => void
   onToggleActive: (a: DematAccount) => void
   onEdit: (a: DematAccount) => void
+  onCancelEdit: () => void
+  onSavedEdit: () => void
   onDelete: (id: string, name: string) => void
 }) {
   const [open, setOpen] = useState(!collapsedByDefault || accounts.length > 0)
@@ -377,6 +407,18 @@ function AccountSection({
           <div className="flex flex-col gap-3">
             {accounts.map((a) => {
               const pan = revealed[a.id] ?? a.pan_masked
+
+              if (editingAccount?.id === a.id) {
+                return (
+                  <AccountForm
+                    key={a.id}
+                    existing={editingAccount}
+                    onCancel={onCancelEdit}
+                    onDone={onSavedEdit}
+                  />
+                )
+              }
+
               return (
                 <div key={a.id} className="card stagger-item p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
@@ -398,15 +440,35 @@ function AccountSection({
                         {a.holder_name}
                       </p>
                       <CopyButton value={a.holder_name} label="name" />
+                      {duplicatePanIds.has(a.id) && (
+                        <span className="badge badge-critical shrink-0">duplicate PAN</span>
+                      )}
                     </div>
-                    <div className="flex shrink-0 items-center gap-3">
-                      {!a.linked_user_id && <span className="badge badge-neutral">not linked</span>}
+                    <div className="flex shrink-0 items-center gap-1">
+                      {!a.linked_user_id && <span className="badge badge-neutral mr-2">not linked</span>}
                       <Switch
                         checked={a.is_active}
                         disabled={togglingActive === a.id}
                         onChange={() => onToggleActive(a)}
                         label={`Mark ${a.holder_name} ${a.is_active ? 'inactive' : 'active'}`}
                       />
+                      <button
+                        onClick={() => onEdit(a)}
+                        disabled={revealing === a.id}
+                        aria-label={`Edit ${a.holder_name}`}
+                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                        style={{ color: 'var(--ink-muted)' }}
+                      >
+                        <Pencil size={15} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(a.id, a.holder_name)}
+                        aria-label={`Delete ${a.holder_name}`}
+                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
+                        style={{ color: 'var(--critical)' }}
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
 
@@ -462,19 +524,6 @@ function AccountSection({
                       </select>
                     </div>
                   )}
-
-                  <div className="mt-3 flex gap-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-                    <button
-                      onClick={() => onEdit(a)}
-                      disabled={revealing === a.id}
-                      className="btn-warning flex-1 disabled:opacity-50"
-                    >
-                      Edit
-                    </button>
-                    <button onClick={() => onDelete(a.id, a.holder_name)} className="btn-danger flex-1">
-                      Delete
-                    </button>
-                  </div>
                 </div>
               )
             })}
