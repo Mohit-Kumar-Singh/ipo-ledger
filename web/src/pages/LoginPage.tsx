@@ -40,7 +40,7 @@ export function LoginPage() {
         <div className="mb-6 flex items-center gap-2">
           <div
             className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold text-white"
-            style={{ background: 'var(--header-bg)' }}
+            style={{ background: 'linear-gradient(135deg, var(--btn-primary-bg), var(--accent))' }}
           >
             I
           </div>

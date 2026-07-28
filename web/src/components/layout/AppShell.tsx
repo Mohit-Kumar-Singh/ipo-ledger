@@ -82,7 +82,11 @@ export function AppShell() {
         className={`fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-0 md:z-auto md:h-screen md:w-64 md:translate-x-0 ${
           navOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
-        style={{ background: 'var(--header-bg)', boxShadow: navOpen ? 'var(--shadow-lg)' : undefined }}
+        style={{
+          background: 'var(--header-bg)',
+          borderRight: '1px solid var(--border)',
+          boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
+        }}
       >
         {/* Logo */}
         <div className="flex items-center gap-2 px-5 pt-4 pb-3">
