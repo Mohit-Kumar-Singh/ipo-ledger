@@ -85,31 +85,31 @@ export function AppShell() {
         style={{ background: 'var(--header-bg)', boxShadow: navOpen ? 'var(--shadow-lg)' : undefined }}
       >
         {/* Logo */}
-        <div className="flex items-center gap-2.5 px-6 pt-6 pb-4">
+        <div className="flex items-center gap-2 px-5 pt-4 pb-3">
           <div
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-base font-bold"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-sm font-bold"
             style={{ background: 'linear-gradient(135deg, var(--btn-primary-bg), var(--accent))', color: 'white' }}
           >
             I
           </div>
-          <span className="text-[17px] font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
+          <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
             IPO Ledger
           </span>
         </div>
 
         {/* Avatar / identity block */}
-        <div className="mx-4 mb-2 flex items-center gap-3 rounded-xl px-2.5 py-3" style={{ background: 'var(--header-hover)' }}>
+        <div className="mx-3 mb-1.5 flex items-center gap-2.5 rounded-lg px-2 py-2" style={{ background: 'var(--header-hover)' }}>
           <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
             style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
           >
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold" style={{ color: 'var(--header-fg)' }}>
+            <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
               {profile?.full_name ?? '…'}
             </p>
-            <p className="truncate text-xs capitalize" style={{ color: 'var(--header-fg-muted)' }}>
+            <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
               {profile?.role ?? '…'}
             </p>
           </div>
@@ -117,8 +117,8 @@ export function AppShell() {
         </div>
 
         {/* Nav */}
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto px-4 pt-2">
-          <p className="px-3 pb-1.5 text-[11px] font-semibold tracking-wider uppercase" style={{ color: 'var(--header-fg-muted)' }}>
+        <nav className="sidebar-scroll flex flex-1 flex-col gap-0.5 overflow-y-auto px-3 pt-1">
+          <p className="px-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase" style={{ color: 'var(--header-fg-muted)' }}>
             Menu
           </p>
           {links.map((l) => {
@@ -131,7 +131,7 @@ export function AppShell() {
                 onClick={() => setNavOpen(false)}
                 className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
               >
-                <Icon size={18} strokeWidth={2} />
+                <Icon size={16} strokeWidth={2} />
                 {l.label}
               </NavLink>
             )
@@ -139,12 +139,12 @@ export function AppShell() {
         </nav>
 
         {/* Logout + version */}
-        <div className="px-4 pt-2 pb-5">
+        <div className="px-3 pt-1 pb-3">
           <button onClick={signOut} className="sidebar-link w-full text-left">
-            <LogOut size={18} strokeWidth={2} />
+            <LogOut size={16} strokeWidth={2} />
             Sign out
           </button>
-          <p className="px-3 pt-3 text-xs" style={{ color: 'var(--header-fg-muted)' }}>
+          <p className="px-2.5 pt-2 text-[11px]" style={{ color: 'var(--header-fg-muted)' }}>
             v{__APP_VERSION__}
           </p>
         </div>

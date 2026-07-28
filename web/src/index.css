@@ -198,6 +198,21 @@ table {
 .stagger-item:nth-child(10) { animation-delay: 0.38s; }
 .stagger-item:nth-child(n + 11) { animation-delay: 0.42s; }
 
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--header-hover) transparent;
+}
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: var(--header-hover);
+  border-radius: 999px;
+}
+
 .glass-header {
   background: color-mix(in srgb, var(--header-bg) 88%, transparent);
   backdrop-filter: blur(12px) saturate(1.4);
@@ -379,7 +394,7 @@ table {
 
   /* Sidebar nav item */
   .sidebar-link {
-    @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ease-out;
+    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all duration-200 ease-out;
     color: var(--header-fg-muted);
   }
   .sidebar-link:hover {
