@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { TrendingUp } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -425,7 +426,7 @@ export function IposPage() {
               return (
                 <div key={ipo.id} className="card stagger-item flex flex-col gap-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2.5">
                       {isAdmin && (
                         <input
                           type="checkbox"
@@ -435,6 +436,12 @@ export function IposPage() {
                           aria-label={`Select ${ipo.company_name}`}
                         />
                       )}
+                      <div
+                        className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
+                        style={{ width: '2.25rem', height: '2.25rem' }}
+                      >
+                        <TrendingUp size={16} strokeWidth={2} />
+                      </div>
                       <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                         {ipo.company_name}
                       </h3>

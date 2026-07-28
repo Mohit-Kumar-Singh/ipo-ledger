@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { ChevronDown, CreditCard, Hash, Phone } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
 import { CopyButton } from '../../components/CopyButton'
-import { PersonIcon, CardIcon, HashIcon, PhoneIcon } from '../../components/icons'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -361,18 +361,11 @@ function AccountSection({
             {subtitle}
           </p>
         </div>
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
+        <ChevronDown
+          size={16}
           className="shrink-0 transition-transform duration-200 ease-out"
           style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        />
       </button>
 
       {open &&
@@ -387,7 +380,7 @@ function AccountSection({
               return (
                 <div key={a.id} className="card stagger-item p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-3">
                       <input
                         type="checkbox"
                         className="shrink-0"
@@ -395,7 +388,12 @@ function AccountSection({
                         onChange={() => onToggleSelected(a.id)}
                         aria-label={`Select ${a.holder_name}`}
                       />
-                      <PersonIcon />
+                      <div
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                        style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
+                      >
+                        {a.holder_name[0]?.toUpperCase()}
+                      </div>
                       <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
                         {a.holder_name}
                       </p>
@@ -417,7 +415,7 @@ function AccountSection({
                     style={{ borderColor: 'var(--border)' }}
                   >
                     <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <CardIcon />
+                      <CreditCard size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
                       <span className="font-mono">{pan}</span>
                       {revealed[a.id] ? (
                         <CopyButton value={pan} label="PAN" />
@@ -433,13 +431,13 @@ function AccountSection({
                     </span>
                     {a.dp_client_id && (
                       <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                        <HashIcon />
+                        <Hash size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
                         Client ID: <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
                         <CopyButton value={a.dp_client_id} label="Client ID" />
                       </span>
                     )}
                     <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <PhoneIcon />
+                      <Phone size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
                       {a.phone_e164}
                       <CopyButton value={a.phone_e164} label="phone number" />
                     </span>

@@ -196,7 +196,7 @@ export function AllotmentBoardPage() {
               {rows.map((row) => {
                 const notif = allottedNotifs[row.application_id]
                 return (
-                <tr key={row.application_id} className="hover:bg-[var(--hover-surface)]">
+                <tr key={row.application_id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5">
                     {row.status === 'APPLIED' && (
                       <input

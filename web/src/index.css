@@ -391,6 +391,10 @@ table {
     background: var(--violet-tint);
     color: var(--violet);
   }
+  .icon-badge-neutral {
+    background: var(--hover-surface);
+    color: var(--ink-secondary);
+  }
 
   /* Sidebar nav item */
   .sidebar-link {

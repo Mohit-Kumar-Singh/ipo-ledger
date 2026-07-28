@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { Mail, Phone, User } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { PersonIcon, MailIcon, ShieldIcon, PhoneIcon } from '../components/icons'
 
 const PHONE_RE = /^[0-9]{10}$/
 
@@ -62,10 +62,32 @@ export function ProfilePage() {
       </div>
 
       <form onSubmit={handleSubmit} className="card animate-page-in space-y-4 p-5">
+        <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+          <div
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold"
+            style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
+          >
+            {(fullName || '?')
+              .split(' ')
+              .map((p) => p[0])
+              .slice(0, 2)
+              .join('')
+              .toUpperCase()}
+          </div>
+          <div>
+            <p className="font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {fullName || 'Your name'}
+            </p>
+            <span className="badge badge-info mt-0.5" style={{ textTransform: 'capitalize' }}>
+              {profile?.role ?? 'member'}
+            </span>
+          </div>
+        </div>
+
         <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
           Full name
           <div className="mt-1 flex items-center gap-2">
-            <PersonIcon />
+            <User size={15} style={{ color: 'var(--ink-muted)' }} />
             <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
           </div>
           <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -81,7 +103,7 @@ export function ProfilePage() {
             </span>
           </span>
           <div className="mt-1 flex items-center gap-2">
-            <PhoneIcon />
+            <Phone size={15} style={{ color: 'var(--ink-muted)' }} />
             <span
               className="rounded-md border px-3 py-2 text-sm"
               style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
@@ -105,15 +127,8 @@ export function ProfilePage() {
         </label>
 
         <div className="flex items-center gap-2 border-t pt-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}>
-          <MailIcon />
+          <Mail size={15} style={{ color: 'var(--ink-muted)' }} />
           {session?.user.email ?? session?.user.phone ?? '—'}
-        </div>
-
-        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-          <ShieldIcon />
-          <span className="badge badge-info" style={{ textTransform: 'capitalize' }}>
-            {profile?.role ?? 'member'}
-          </span>
         </div>
 
         {error && <p className="badge badge-critical w-fit">{error}</p>}

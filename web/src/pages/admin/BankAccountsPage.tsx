@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Landmark } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { BankAccount } from '../../types/database'
@@ -161,14 +162,17 @@ export function BankAccountsPage() {
           </div>
           <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {banks.map((b) => (
-            <div key={b.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
-              <div className="flex items-center gap-2 text-sm">
+            <div key={b.id} className="stagger-item flex flex-wrap items-center justify-between gap-2 p-4">
+              <div className="flex items-center gap-3 text-sm">
                 <input
                   type="checkbox"
                   checked={selected.has(b.id)}
                   onChange={() => toggleSelected(b.id)}
                   aria-label={`Select ${b.account_holder_name}`}
                 />
+                <div className="icon-badge icon-badge-good shrink-0" style={{ width: '2.25rem', height: '2.25rem' }}>
+                  <Landmark size={16} strokeWidth={2} />
+                </div>
                 <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                   {b.account_holder_name}
                 </span>

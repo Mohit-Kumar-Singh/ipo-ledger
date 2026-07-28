@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link2, ShieldCheck } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { RegistrarLink } from '../../types/database'
@@ -67,7 +68,8 @@ function RegistrarLinksSection({ editable }: { editable: boolean }) {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <Link2 size={15} style={{ color: 'var(--accent)' }} />
         Registrar allotment-check links
       </h2>
       <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -135,7 +137,8 @@ function PanAccessLogSection() {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <ShieldCheck size={15} style={{ color: 'var(--violet)' }} />
         PAN access log
       </h2>
       <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -156,7 +159,7 @@ function PanAccessLogSection() {
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {rows.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
                     {new Date(r.accessed_at).toLocaleString()}
                   </td>

@@ -66,7 +66,7 @@ export function NotificationsPage() {
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {notifications.map((n) => (
-                <tr key={n.id} className="hover:bg-[var(--hover-surface)]">
+                <tr key={n.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
                     {new Date(n.created_at).toLocaleString()}
                   </td>
