@@ -17,6 +17,7 @@ interface EditingBank {
 export function BankAccountsPage() {
   const { session } = useAuth()
   const [banks, setBanks] = useState<BankAccount[]>([])
+  const [dematHolderNames, setDematHolderNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
@@ -35,6 +36,15 @@ export function BankAccountsPage() {
 
   useEffect(() => {
     load()
+    // So the "Account holder name" field can suggest names already used for
+    // a demat account, instead of retyping (and risking a mismatched spelling).
+    supabase
+      .from('demat_accounts')
+      .select('holder_name')
+      .order('holder_name')
+      .then(({ data }) => {
+        setDematHolderNames(Array.from(new Set((data ?? []).map((d) => d.holder_name as string))))
+      })
   }, [])
 
   function startEdit(b: BankAccount) {
@@ -110,6 +120,7 @@ export function BankAccountsPage() {
       {showForm && session && (
         <BankForm
           userId={session.user.id}
+          dematHolderNames={dematHolderNames}
           onCancel={() => setShowForm(false)}
           onDone={() => {
             setShowForm(false)
@@ -121,6 +132,7 @@ export function BankAccountsPage() {
       {editing && session && (
         <BankForm
           userId={session.user.id}
+          dematHolderNames={dematHolderNames}
           existing={editing}
           onCancel={() => setEditing(null)}
           onDone={() => {
@@ -163,7 +175,7 @@ export function BankAccountsPage() {
           <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {banks.map((b) => (
             <div key={b.id} className="stagger-item flex flex-wrap items-center justify-between gap-2 p-4">
-              <div className="flex items-center gap-3 text-sm">
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                 <input
                   type="checkbox"
                   checked={selected.has(b.id)}
@@ -177,23 +189,15 @@ export function BankAccountsPage() {
                   {b.account_holder_name}
                 </span>
                 {b.upi_id && (
-                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
+                  <span className="break-all" style={{ color: 'var(--ink-muted)' }}>
                     {b.upi_id}
                   </span>
                 )}
-                {b.bank_name && (
-                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
-                    {b.bank_name}
-                  </span>
-                )}
-                {b.phone_e164 && (
-                  <span style={{ color: 'var(--ink-muted)' }} className="ml-2">
-                    {b.phone_e164}
-                  </span>
-                )}
-                {b.is_default && <span className="badge badge-info ml-2">default</span>}
+                {b.bank_name && <span style={{ color: 'var(--ink-muted)' }}>{b.bank_name}</span>}
+                {b.phone_e164 && <span style={{ color: 'var(--ink-muted)' }}>{b.phone_e164}</span>}
+                {b.is_default && <span className="badge badge-info">default</span>}
               </div>
-              <div className="flex gap-3">
+              <div className="flex shrink-0 gap-3">
                 <button onClick={() => startEdit(b)} className="link-accent text-xs font-medium">
                   Edit
                 </button>
@@ -217,11 +221,13 @@ export function BankAccountsPage() {
 function BankForm({
   userId,
   existing,
+  dematHolderNames,
   onCancel,
   onDone,
 }: {
   userId: string
   existing?: EditingBank
+  dematHolderNames: string[]
   onCancel: () => void
   onDone: () => void
 }) {
@@ -271,8 +277,19 @@ function BankForm({
 
   return (
     <form onSubmit={handleSubmit} className="card grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
-      <Field label="Account holder name">
-        <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
+      <Field label="Account holder name" hint="pick an existing demat holder, or type a new name">
+        <input
+          required
+          list="demat-holder-names"
+          value={holderName}
+          onChange={(e) => setHolderName(e.target.value)}
+          className="input"
+        />
+        <datalist id="demat-holder-names">
+          {dematHolderNames.map((name) => (
+            <option key={name} value={name} />
+          ))}
+        </datalist>
       </Field>
       <Field label="UPI ID" hint="optional">
         <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="name@bank" className="input" />

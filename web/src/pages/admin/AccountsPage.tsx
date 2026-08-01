@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronDown, CreditCard, Hash, Pencil, Phone, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, CreditCard, Hash, Link2, Pencil, Phone, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -16,6 +16,7 @@ type EditingAccount = {
   dematAccountNo: string
   profitSharePercent: string
   isActive: boolean
+  linkedUserId: string | null
 }
 
 // Alphabetical, case-insensitive, regardless of when an account was added —
@@ -48,8 +49,6 @@ export function AccountsPage() {
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [linking, setLinking] = useState<string | null>(null)
-  const [togglingActive, setTogglingActive] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
 
   async function load() {
     setLoading(true)
@@ -121,20 +120,8 @@ export function AccountsPage() {
       dematAccountNo: a.dp_client_id ?? '',
       profitSharePercent: String(a.profit_share_percent),
       isActive: a.is_active,
+      linkedUserId: a.linked_user_id,
     })
-  }
-
-  async function toggleActive(a: DematAccount) {
-    setTogglingActive(a.id)
-    const { error } = await supabase.functions.invoke('add-demat', {
-      body: { demat_id: a.id, is_active: !a.is_active },
-    })
-    setTogglingActive(null)
-    if (error) {
-      alert('Could not update — please try again.')
-      return
-    }
-    load()
   }
 
   async function deleteAccount(id: string, name: string) {
@@ -149,40 +136,6 @@ export function AccountsPage() {
       )
       return
     }
-    load()
-  }
-
-  function toggleSelected(id: string) {
-    setSelected((s) => {
-      const next = new Set(s)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function toggleSelectAll() {
-    setSelected((s) => (s.size === accounts.length ? new Set() : new Set(accounts.map((a) => a.id))))
-  }
-
-  async function bulkDelete() {
-    if (selected.size === 0) return
-    if (
-      !window.confirm(
-        `Delete ${selected.size} account(s)? This is only possible for accounts with no applications or messages on record.`,
-      )
-    )
-      return
-    const { error } = await supabase.from('demat_accounts').delete().in('id', Array.from(selected))
-    if (error) {
-      alert(
-        error.code === '23503'
-          ? "Can't delete — one or more selected accounts have applications or messages on record. Delete those first."
-          : error.message,
-      )
-      return
-    }
-    setSelected(new Set())
     load()
   }
 
@@ -242,29 +195,6 @@ export function AccountsPage() {
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={selected.size > 0 && selected.size === accounts.length}
-                ref={(el) => {
-                  if (el) el.indeterminate = selected.size > 0 && selected.size < accounts.length
-                }}
-                onChange={toggleSelectAll}
-              />
-              Select all
-            </label>
-            {selected.size > 0 && (
-              <button
-                onClick={bulkDelete}
-                className="text-sm font-medium hover:underline"
-                style={{ color: 'var(--critical)' }}
-              >
-                Delete {selected.size} selected
-              </button>
-            )}
-          </div>
-
           <AccountSection
             title="Active accounts"
             subtitle="Used regularly — these are what you'll usually apply IPOs from."
@@ -275,14 +205,10 @@ export function AccountsPage() {
             linking={linking}
             revealing={revealing}
             revealed={revealed}
-            togglingActive={togglingActive}
-            selected={selected}
             duplicatePanIds={duplicatePanIds}
             editingAccount={editingAccount}
-            onToggleSelected={toggleSelected}
             onLinkMember={linkMember}
             onRevealPan={revealPan}
-            onToggleActive={toggleActive}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
             onSavedEdit={() => {
@@ -303,14 +229,10 @@ export function AccountsPage() {
             linking={linking}
             revealing={revealing}
             revealed={revealed}
-            togglingActive={togglingActive}
-            selected={selected}
             duplicatePanIds={duplicatePanIds}
             editingAccount={editingAccount}
-            onToggleSelected={toggleSelected}
             onLinkMember={linkMember}
             onRevealPan={revealPan}
-            onToggleActive={toggleActive}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
             onSavedEdit={() => {
@@ -336,14 +258,10 @@ function AccountSection({
   linking,
   revealing,
   revealed,
-  togglingActive,
-  selected,
   duplicatePanIds,
   editingAccount,
-  onToggleSelected,
   onLinkMember,
   onRevealPan,
-  onToggleActive,
   onEdit,
   onCancelEdit,
   onSavedEdit,
@@ -359,14 +277,10 @@ function AccountSection({
   linking: string | null
   revealing: string | null
   revealed: Record<string, string>
-  togglingActive: string | null
-  selected: Set<string>
   duplicatePanIds: Set<string>
   editingAccount: EditingAccount | null
-  onToggleSelected: (id: string) => void
   onLinkMember: (dematId: string, userId: string) => void
   onRevealPan: (id: string) => void
-  onToggleActive: (a: DematAccount) => void
   onEdit: (a: DematAccount) => void
   onCancelEdit: () => void
   onSavedEdit: () => void
@@ -413,6 +327,10 @@ function AccountSection({
                   <AccountForm
                     key={a.id}
                     existing={editingAccount}
+                    isAdmin={isAdmin}
+                    unlinkedMembers={unlinkedMembers}
+                    linking={linking === a.id}
+                    onLinkMember={onLinkMember}
                     onCancel={onCancelEdit}
                     onDone={onSavedEdit}
                   />
@@ -423,35 +341,30 @@ function AccountSection({
                 <div key={a.id} className="card stagger-item p-4 sm:p-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-3">
-                      <input
-                        type="checkbox"
-                        className="shrink-0"
-                        checked={selected.has(a.id)}
-                        onChange={() => onToggleSelected(a.id)}
-                        aria-label={`Select ${a.holder_name}`}
-                      />
                       <div
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
                         style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
                       >
                         {a.holder_name[0]?.toUpperCase()}
                       </div>
-                      <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                        {a.holder_name}
-                      </p>
-                      <CopyButton value={a.holder_name} label="name" />
-                      {duplicatePanIds.has(a.id) && (
-                        <span className="badge badge-critical shrink-0">duplicate PAN</span>
-                      )}
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                            {a.holder_name}
+                          </p>
+                          {a.linked_user_id && (
+                            <Link2 size={13} className="shrink-0" style={{ color: 'var(--good)' }} aria-label="Linked to a member" />
+                          )}
+                          {duplicatePanIds.has(a.id) && (
+                            <span className="badge badge-critical shrink-0">duplicate PAN</span>
+                          )}
+                        </div>
+                        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          Profit cut {a.profit_share_percent}%
+                        </p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      {!a.linked_user_id && <span className="badge badge-neutral mr-2">not linked</span>}
-                      <Switch
-                        checked={a.is_active}
-                        disabled={togglingActive === a.id}
-                        onChange={() => onToggleActive(a)}
-                        label={`Mark ${a.holder_name} ${a.is_active ? 'inactive' : 'active'}`}
-                      />
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
@@ -494,7 +407,7 @@ function AccountSection({
                     {a.dp_client_id && (
                       <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
                         <Hash size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
-                        Client ID: <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
+                        <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
                         <CopyButton value={a.dp_client_id} label="Client ID" />
                       </span>
                     )}
@@ -503,27 +416,7 @@ function AccountSection({
                       {a.phone_e164}
                       <CopyButton value={a.phone_e164} label="phone number" />
                     </span>
-                    <span style={{ color: 'var(--ink-muted)' }}>Profit cut {a.profit_share_percent}%</span>
                   </div>
-
-                  {!a.linked_user_id && isAdmin && unlinkedMembers.length > 0 && (
-                    <div className="mt-3">
-                      <select
-                        value=""
-                        disabled={linking === a.id}
-                        onChange={(e) => e.target.value && onLinkMember(a.id, e.target.value)}
-                        className="input w-auto py-1 text-xs"
-                        aria-label={`Link ${a.holder_name} to a registered member`}
-                      >
-                        <option value="">{linking === a.id ? 'Linking…' : 'Link to member…'}</option>
-                        {unlinkedMembers.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.full_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
                 </div>
               )
             })}
@@ -568,10 +461,18 @@ const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 
 function AccountForm({
   existing,
+  isAdmin,
+  unlinkedMembers,
+  linking,
+  onLinkMember,
   onCancel,
   onDone,
 }: {
   existing?: EditingAccount
+  isAdmin?: boolean
+  unlinkedMembers?: Profile[]
+  linking?: boolean
+  onLinkMember?: (dematId: string, userId: string) => void
   onCancel: () => void
   onDone: () => void
 }) {
@@ -726,6 +627,24 @@ function AccountForm({
           {isActive ? 'Active — used regularly' : 'Inactive — not used regularly'}
         </div>
       </Field>
+      {existing && !existing.linkedUserId && isAdmin && unlinkedMembers && unlinkedMembers.length > 0 && (
+        <Field label="Link to member">
+          <select
+            value=""
+            disabled={linking}
+            onChange={(e) => e.target.value && onLinkMember?.(existing.id, e.target.value)}
+            className="input"
+            aria-label={`Link ${existing.holderName} to a registered member`}
+          >
+            <option value="">{linking ? 'Linking…' : 'Select a member…'}</option>
+            {unlinkedMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.full_name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       {error && <p className="badge badge-critical col-span-1 w-fit sm:col-span-2">{error}</p>}
 
