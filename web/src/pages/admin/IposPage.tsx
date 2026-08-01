@@ -455,10 +455,33 @@ export function IposPage() {
                     {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
                   </p>
 
-                  {ipo.gmp_notes && (
-                    <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
-                      {ipo.gmp_notes}
-                    </p>
+                  {(ipo.gmp_notes || isAdmin) && (
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+                        {ipo.gmp_notes}
+                      </p>
+                      {isAdmin && (
+                        <div className="flex shrink-0 gap-3">
+                          <button
+                            onClick={() => {
+                              setEditingIpo(ipo)
+                              setShowAddForm(false)
+                              setShowImport(false)
+                            }}
+                            className="link-accent text-xs font-medium"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => deleteIpo(ipo)}
+                            className="text-xs font-medium hover:underline"
+                            style={{ color: 'var(--critical)' }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   )}
 
                   {(ipo.issue_size || ipo.retail_issue_size) && (
@@ -480,28 +503,6 @@ export function IposPage() {
                     allotmentDate={ipo.allotment_date}
                     listingDate={ipo.listing_date}
                   />
-
-                  {isAdmin && (
-                    <div className="flex justify-end gap-3">
-                      <button
-                        onClick={() => {
-                          setEditingIpo(ipo)
-                          setShowAddForm(false)
-                          setShowImport(false)
-                        }}
-                        className="link-accent text-xs font-medium"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => deleteIpo(ipo)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--critical)' }}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  )}
                 </div>
               )
             })}
