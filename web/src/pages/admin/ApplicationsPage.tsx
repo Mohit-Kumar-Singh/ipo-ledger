@@ -296,7 +296,7 @@ export function ApplicationsPage() {
                           </>
                         )}
                         {a.status === 'ALLOTTED' && (
-                          <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
+                          <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
                             Mark sold
                           </button>
                         )}
@@ -413,10 +413,12 @@ function NewApplicationForm({
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
+          // Optional here — marking an application Sold (the "Mark sold"
+          // button) no longer requires a price. The payment amount is
+          // normally filled in afterward on the Allotment board instead;
+          // this just lets it be recorded here too if it's already known.
           sell_price: finalSellPrice ? Math.round(finalSellPrice * 100) / 100 : null,
-          // Entering a price is what actually marks it sold — no separate
-          // status toggle to remember to also flip.
-          status: finalSellPrice ? 'SOLD' : existing.status,
+          status: existing.status,
         })
         .eq('id', existing.id)
       setSubmitting(false)
@@ -562,7 +564,8 @@ function NewApplicationForm({
             invested={Math.round(bidAmount)}
           />
           <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Setting this marks the application Sold
+            Optional — use "Mark sold" to flip status without this; the payment amount is normally filled in on the
+            Allotment board afterward.
           </p>
         </div>
       )}
