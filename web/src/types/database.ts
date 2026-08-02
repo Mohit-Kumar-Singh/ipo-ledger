@@ -84,6 +84,7 @@ export interface Application {
   changed_by: string | null
   sell_price: number | null
   is_backdated: boolean
+  created_by: string | null
 }
 
 export interface Notification {
@@ -141,6 +142,18 @@ export interface DematLinkRequest {
   requested_at: string
   decided_by: string | null
   decided_at: string | null
+}
+
+export interface ApplicationAttributionRow {
+  application_id: string
+  ipo_id: string
+  company_name: string
+  open_date: string
+  demat_id: string
+  holder_name: string
+  bank_account_id: string | null
+  funder_user_id: string | null
+  created_by: string | null
 }
 
 // Minimal Database type so supabase-js generics resolve without full codegen.

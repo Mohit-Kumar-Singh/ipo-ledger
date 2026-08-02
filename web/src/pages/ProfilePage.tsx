@@ -2,7 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { CreditCard, Mail, Phone, Search, ShieldCheck, User, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import type { DematAccount, DematLinkRequest, LinkRequestStatus } from '../types/database'
+import { AttributionChart } from '../components/AttributionChart'
+import { computeIpoAttribution, type IpoAttribution } from '../lib/applicationAttribution'
+import { resolveAttributionNames, topRecentIpoAttributionRows } from '../lib/dashboardAttribution'
+import type { ApplicationAttributionRow, DematAccount, DematLinkRequest, LinkRequestStatus } from '../types/database'
 
 const PHONE_RE = /^[0-9]{10}$/
 const PAN_RE = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/
@@ -40,6 +43,7 @@ export function ProfilePage() {
   const [myRequests, setMyRequests] = useState<MyRequestRow[]>([])
   const [loadingRequests, setLoadingRequests] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
+  const [attribution, setAttribution] = useState<IpoAttribution[] | null>(null)
 
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
@@ -58,6 +62,22 @@ export function ProfilePage() {
 
   useEffect(() => {
     loadMyRequests()
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadAttribution() {
+      const { data } = await supabase.from('v_application_attribution').select('*')
+      if (cancelled) return
+      const scopedRows = topRecentIpoAttributionRows((data ?? []) as ApplicationAttributionRow[], 4)
+      const nameById = await resolveAttributionNames(scopedRows)
+      if (cancelled) return
+      setAttribution(computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)))
+    }
+    loadAttribution()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const phoneValid = phoneDigits.length === 0 || PHONE_RE.test(phoneDigits)
@@ -386,6 +406,27 @@ export function ProfilePage() {
                   )}
                 </div>
               </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card animate-page-in space-y-4 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Recent IPOs
+        </h2>
+        {attribution == null ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : attribution.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No applications yet.
+          </p>
+        ) : (
+          <div className="space-y-4">
+            {attribution.map((a) => (
+              <AttributionChart key={a.ipoId} attribution={a} compact />
             ))}
           </div>
         )}

@@ -48,6 +48,15 @@
   --violet: #8b5cf6;
   --violet-tint: #ede4fe;
 
+  /* Chart series identity — kept separate from the status colors above (never
+     reused for series 4+); values are the dataviz skill's validated
+     categorical slots 1-3, adopted as-is. --series-other is a neutral, not a
+     4th identity color, for whatever gets folded past the top 3 contributors. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-other: var(--ink-muted);
+
   /* Layered shadow system — soft ambient layer + tighter contact layer */
   --shadow-sm: 0 1px 2px rgba(20, 21, 40, 0.06), 0 1px 1px rgba(20, 21, 40, 0.05);
   --shadow-md: 0 8px 16px rgba(20, 21, 40, 0.08), 0 2px 6px rgba(20, 21, 40, 0.06);
@@ -100,6 +109,11 @@
   --violet: #b794f6;
   --violet-tint: rgba(183, 148, 246, 0.16);
 
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-other: var(--ink-muted);
+
   /* Layered shadow system — dark surfaces need deeper, higher-contrast layers */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.28);
   --shadow-md: 0 8px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
@@ -136,6 +150,22 @@ table {
 }
 .animate-page-in {
   animation: page-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Stacked-bar chart segments grow in from zero width — the segment's own
+   width is already its final layout %, so this scales it rather than
+   animating width directly (cheaper, no layout thrash per frame). */
+@keyframes chart-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.animate-chart-grow {
+  transform-origin: left;
+  animation: chart-grow 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes shimmer {
@@ -224,6 +254,7 @@ table {
   .animate-page-in,
   .animate-toast-in,
   .animate-toast-out,
+  .animate-chart-grow,
   .skeleton {
     animation: none;
   }

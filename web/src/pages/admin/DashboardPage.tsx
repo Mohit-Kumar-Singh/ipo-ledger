@@ -4,9 +4,19 @@ import { AlertTriangle, CheckCircle2, Clock, Landmark, Link2, Wallet } from 'luc
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
-import { AreaChart, type AreaChartPoint } from '../../components/AreaChart'
+import { AttributionChart } from '../../components/AttributionChart'
 import { computeProfitSplit } from '../../lib/profitSplit'
-import type { AllotmentBoardRow, DematAccount, DematLinkRequest, Ipo, Notification, Profile } from '../../types/database'
+import { computeIpoAttribution, type IpoAttribution } from '../../lib/applicationAttribution'
+import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
+import type {
+  AllotmentBoardRow,
+  ApplicationAttributionRow,
+  DematAccount,
+  DematLinkRequest,
+  Ipo,
+  Notification,
+  Profile,
+} from '../../types/database'
 
 interface LinkRequestRow extends DematLinkRequest {
   profiles: Pick<Profile, 'full_name'> | null
@@ -31,7 +41,7 @@ interface DashboardData {
   pendingMandate: AllotmentBoardRow[]
   allottedNotSold: AllotmentBoardRow[]
   failedMessages: Notification[]
-  activity: AreaChartPoint[]
+  attribution: IpoAttribution[]
   pendingPayouts: PendingPayout[]
   linkRequests: LinkRequestRow[]
 }
@@ -81,23 +91,6 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
     .sort((a, b) => b.amount - a.amount)
 }
 
-// Buckets application applied_at timestamps into the last 7 calendar days
-// (today included), so the dashboard has something real to chart instead of
-// a hand-rolled/fake series.
-function buildActivitySeries(appliedDates: string[]): AreaChartPoint[] {
-  const days: { key: string; label: string }[] = []
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000)
-    days.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-US', { weekday: 'short' }) })
-  }
-  const counts = new Map<string, number>()
-  for (const iso of appliedDates) {
-    const key = iso.slice(0, 10)
-    counts.set(key, (counts.get(key) ?? 0) + 1)
-  }
-  return days.map((d) => ({ label: d.label, value: counts.get(d.key) ?? 0 }))
-}
-
 export function DashboardPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -140,9 +133,8 @@ export function DashboardPage() {
       setLoading(true)
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
-      const since7d = new Date(Date.now() - 6 * 86400000).toISOString()
 
-      const [closingSoon, board, failedMessages, recentApplications, linkRequests] = await Promise.all([
+      const [closingSoon, board, failedMessages, attributionRes, linkRequests] = await Promise.all([
         supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
         supabase.from('v_allotment_board').select('*'),
         supabase
@@ -151,7 +143,7 @@ export function DashboardPage() {
           .eq('status', 'FAILED')
           .order('created_at', { ascending: false })
           .limit(20),
-        supabase.from('applications').select('applied_at').gte('applied_at', since7d),
+        supabase.from('v_application_attribution').select('*'),
         supabase
           .from('demat_link_requests')
           // demat_link_requests has two FKs into profiles (member_id,
@@ -164,13 +156,20 @@ export function DashboardPage() {
 
       if (cancelled) return
 
+      // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
+      // same ordering) — resolving names is a second round trip since it
+      // depends on which ids show up in that scoped set.
+      const scopedRows = topRecentIpoAttributionRows((attributionRes.data ?? []) as ApplicationAttributionRow[], 8)
+      const nameById = await resolveAttributionNames(scopedRows)
+      if (cancelled) return
+
       const boardRows = (board.data ?? []) as AllotmentBoardRow[]
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
-        activity: buildActivitySeries(((recentApplications.data ?? []) as { applied_at: string }[]).map((a) => a.applied_at)),
+        attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
@@ -199,7 +198,7 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         <StatTile icon={Clock} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
         <StatTile icon={Landmark} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         {isAdmin && (
@@ -218,17 +217,24 @@ export function DashboardPage() {
         )}
       </div>
 
-      <div className="card stagger-item p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Applications this week
-          </h2>
-          <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Last 7 days
-          </span>
-        </div>
-        <AreaChart data={data.activity} colorVar="--btn-primary-bg" height={180} />
-      </div>
+      <section>
+        <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+          Application credit by IPO
+        </h2>
+        {data.attribution.length === 0 ? (
+          <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No applications yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            {data.attribution.map((a) => (
+              <div key={a.ipoId} className="card stagger-item p-4">
+                <AttributionChart attribution={a} />
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
@@ -497,7 +503,7 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-64" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="card space-y-3 p-4">
             <Skeleton className="h-11 w-11" />
@@ -507,9 +513,14 @@ function DashboardSkeleton() {
         ))}
       </div>
 
-      <div className="card p-5">
-        <Skeleton className="mb-4 h-4 w-40" />
-        <Skeleton className="h-44 w-full" />
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card space-y-3 p-4">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-3.5 w-full rounded-full" />
+            <Skeleton className="h-3 w-24" />
+          </div>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
