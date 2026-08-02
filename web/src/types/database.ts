@@ -107,11 +107,17 @@ export interface AllotmentBoardRow {
   holder_name: string
   pan_masked: string
   phone_e164: string
+  profit_share_percent: number
   bank_name: string | null
   last4: string | null
   lots: number
   bid_amount: number | null
   status: ApplicationStatus
+  sell_price: number | null
+  lot_size: number
+  split_profit_with_funder: boolean
+  demat_cut_paid: boolean
+  funder_share_paid: boolean
   upi_id: string | null
   bank_account_holder_name: string | null
 }

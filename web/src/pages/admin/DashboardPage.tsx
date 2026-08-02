@@ -1,11 +1,25 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, Landmark } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Landmark, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { AreaChart, type AreaChartPoint } from '../../components/AreaChart'
+import { computeProfitSplit } from '../../lib/profitSplit'
 import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
+
+interface PendingPayoutLine {
+  applicationId: string
+  field: 'demat_cut_paid' | 'funder_share_paid'
+  ipoName: string
+  amount: number
+}
+
+interface PendingPayout {
+  name: string
+  amount: number
+  lines: PendingPayoutLine[]
+}
 
 interface DashboardData {
   closingSoon: Ipo[]
@@ -13,6 +27,52 @@ interface DashboardData {
   allottedNotSold: AllotmentBoardRow[]
   failedMessages: Notification[]
   activity: AreaChartPoint[]
+  pendingPayouts: PendingPayout[]
+}
+
+// Sums, per recipient, everything you still owe out of already-sold
+// applications — the demat holder's cut when they aren't you, and the
+// funder's 50/50 share when the split is on and they aren't you either.
+function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: string): PendingPayout[] {
+  const byName = new Map<string, PendingPayoutLine[]>()
+  const add = (name: string, line: PendingPayoutLine) => {
+    const lines = byName.get(name) ?? []
+    lines.push(line)
+    byName.set(name, lines)
+  }
+  for (const r of soldRows) {
+    if (r.sell_price == null) continue
+    const result = computeProfitSplit({
+      sellPricePerShare: r.sell_price,
+      lotSize: r.lot_size,
+      lots: r.lots,
+      bidAmount: r.bid_amount ?? 0,
+      cutPercent: r.profit_share_percent,
+      dematHolderName: r.holder_name,
+      funderName: r.bank_account_holder_name,
+      profitPersonName,
+      splitWithFunder: r.split_profit_with_funder,
+    })
+    if (!result.isDematHolderSelf && result.dematCutAmount > 0 && !r.demat_cut_paid) {
+      add(r.holder_name, {
+        applicationId: r.application_id,
+        field: 'demat_cut_paid',
+        ipoName: r.company_name,
+        amount: result.dematCutAmount,
+      })
+    }
+    if (result.funderShare > 0 && !r.funder_share_paid) {
+      add(r.bank_account_holder_name ?? 'Unknown', {
+        applicationId: r.application_id,
+        field: 'funder_share_paid',
+        ipoName: r.company_name,
+        amount: result.funderShare,
+      })
+    }
+  }
+  return Array.from(byName.entries())
+    .map(([name, lines]) => ({ name, amount: lines.reduce((s, l) => s + l.amount, 0), lines }))
+    .sort((a, b) => b.amount - a.amount)
 }
 
 // Buckets application applied_at timestamps into the last 7 calendar days
@@ -37,6 +97,24 @@ export function DashboardPage() {
   const isAdmin = profile?.role === 'admin'
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [markingPaid, setMarkingPaid] = useState<string | null>(null)
+
+  async function markPayoutPaid(line: PendingPayoutLine) {
+    setMarkingPaid(line.applicationId + line.field)
+    await supabase.from('applications').update({ [line.field]: true }).eq('id', line.applicationId)
+    setMarkingPaid(null)
+    setData((d) => {
+      if (!d) return d
+      const pendingPayouts = d.pendingPayouts
+        .map((p) => ({
+          ...p,
+          lines: p.lines.filter((l) => !(l.applicationId === line.applicationId && l.field === line.field)),
+        }))
+        .map((p) => ({ ...p, amount: p.lines.reduce((s, l) => s + l.amount, 0) }))
+        .filter((p) => p.lines.length > 0)
+      return { ...d, pendingPayouts }
+    })
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -67,6 +145,9 @@ export function DashboardPage() {
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
         activity: buildActivitySeries(((recentApplications.data ?? []) as { applied_at: string }[]).map((a) => a.applied_at)),
+        pendingPayouts: isAdmin
+          ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
+          : [],
       })
       setLoading(false)
     }
@@ -94,6 +175,15 @@ export function DashboardPage() {
         <StatTile icon={Landmark} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         <StatTile icon={CheckCircle2} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
         <StatTile icon={AlertTriangle} label="Failed messages" value={data.failedMessages.length} tone="critical" />
+        {isAdmin && (
+          <StatTile
+            icon={Wallet}
+            label="Payouts pending"
+            value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
+            tone="warning"
+            format={(n) => `₹${n.toLocaleString('en-IN')}`}
+          />
+        )}
       </div>
 
       <div className="card stagger-item p-5">
@@ -143,6 +233,49 @@ export function DashboardPage() {
             </Row>
           ))}
         </Section>
+
+        {isAdmin && (
+          <Section title="Payouts pending" empty="Nothing owed right now">
+            {data.pendingPayouts.map((p) => (
+              <div key={p.name} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
+                <div
+                  className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
+                  style={{ width: '2rem', height: '2rem' }}
+                >
+                  {p.name[0]?.toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5">
+                    <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {p.name}
+                    </span>
+                    <span style={{ color: 'var(--warning)' }}>₹{Math.round(p.amount).toLocaleString('en-IN')}</span>
+                  </div>
+                  <div className="mt-1 space-y-1">
+                    {p.lines.map((l) => (
+                      <div
+                        key={l.applicationId + l.field}
+                        className="flex items-center justify-between gap-2 text-xs"
+                        style={{ color: 'var(--ink-muted)' }}
+                      >
+                        <span>
+                          {l.ipoName} · ₹{Math.round(l.amount).toLocaleString('en-IN')}
+                        </span>
+                        <button
+                          onClick={() => markPayoutPaid(l)}
+                          disabled={markingPaid === l.applicationId + l.field}
+                          className="link-accent font-medium disabled:opacity-50"
+                        >
+                          {markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </Section>
+        )}
 
         <Section title="Failed messages" empty="No failures">
           {data.failedMessages.map((n) => (
@@ -195,11 +328,13 @@ function StatTile({
   label,
   value,
   tone = 'info',
+  format,
 }: {
   icon: typeof Clock
   label: string
   value: number
   tone?: 'info' | 'warning' | 'good' | 'critical'
+  format?: (n: number) => string
 }) {
   const toneColor = {
     info: 'var(--accent)',
@@ -222,7 +357,7 @@ function StatTile({
           className="mt-1 text-3xl font-semibold"
           style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
         >
-          {animated}
+          {format ? format(animated) : animated}
         </p>
       </div>
     </div>
