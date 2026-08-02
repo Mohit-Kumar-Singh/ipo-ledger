@@ -639,10 +639,12 @@ function payoutMessage(
 
   const remaining = profit - cutAmount
   const funderShare = Math.round(remaining / 2)
+  const payout = invested + funderShare
   return (
     saleLine(`${row.holder_name}:- `) +
     `after ${row.holder_name} (${cutPct}%):${profit}-${cutPct}%=${remaining}\n\n` +
-    `Here's your share of the profit:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n\n` +
+    `Here's your share of the profit:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n` +
+    `Total = ${invested}+${funderShare}=${payout}\n\n` +
     `— ${signerName}`
   )
 }
