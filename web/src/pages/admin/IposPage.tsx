@@ -90,6 +90,25 @@ function sortIpos(ipos: Ipo[]): Ipo[] {
 
 // Upserts by company name (case-insensitive exact match) so re-importing the
 // same IPO refreshes it instead of creating a duplicate.
+// Each detail fetch is a separate round-trip through the import-ipos Edge
+// Function to ipoji.com — running the whole selection serially made a
+// several-IPO bulk import take tens of seconds. Bounded concurrency keeps it
+// fast without firing every request at once. Safe to parallelize here since
+// each candidate in one batch is a distinct company (upsertIpo's lookup is
+// per company_name, so parallel workers never touch the same row).
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
   const { data: existing } = await supabase
     .from('ipos')
@@ -176,11 +195,11 @@ export function IposPage() {
     let saved = 0
     let skipped = 0
 
-    for (const c of chosen) {
+    async function saveOne(c: ImportCandidate) {
       if (!isEligible(c)) {
         skipped++
         setBulkProgress((p) => ({ ...p, done: p.done + 1 }))
-        continue
+        return
       }
 
       const { data: detail } = await supabase.functions.invoke<ImportDetail & { error?: string }>('import-ipos', {
@@ -211,6 +230,8 @@ export function IposPage() {
       }
       setBulkProgress((p) => ({ ...p, done: p.done + 1 }))
     }
+
+    await mapWithConcurrency(chosen, 4, saveOne)
 
     setBulkSaving(false)
     setBulkResult({ saved, skipped })

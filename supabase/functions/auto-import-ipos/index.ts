@@ -20,6 +20,23 @@ function isEligible(c: Candidate): boolean {
   return c.open_date != null && c.close_date != null && c.lot_size != null
 }
 
+// Detail pages are fetched one HTTP round-trip each — running the whole list
+// serially risks the Edge Function's wall-clock timeout once there are more
+// than a handful of candidates. Bounded concurrency keeps this fast without
+// firing dozens of simultaneous requests at ipoji.com.
+async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length)
+  let next = 0
+  async function worker() {
+    while (next < items.length) {
+      const i = next++
+      results[i] = await fn(items[i])
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
+}
+
 async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   let allotment_date: string | null = null
   let listing_date: string | null = null
@@ -86,12 +103,10 @@ Deno.serve(async (req) => {
   for (const source of ['current', 'upcoming']) {
     try {
       const candidates = await fetchListCandidates(source)
-      for (const c of candidates) {
-        if (!isEligible(c)) {
-          skipped++
-          continue
-        }
-        const result = await upsertCandidate(c)
+      const eligible = candidates.filter(isEligible)
+      skipped += candidates.length - eligible.length
+      const results = await mapWithConcurrency(eligible, 4, upsertCandidate)
+      for (const result of results) {
         if (result === 'saved') saved++
         else failed++
       }
