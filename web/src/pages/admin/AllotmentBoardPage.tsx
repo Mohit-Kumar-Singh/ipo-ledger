@@ -628,16 +628,24 @@ function payoutMessage(
     `sold at Total ₹${total.toLocaleString('en-IN')},\n` +
     `${total}-${invested}= ${profit}(Profit)\n`
 
+  const remaining = profit - cutAmount
+
   if (kind === 'cut') {
+    const sendBack = invested + remaining
     return (
-      saleLine('') +
-      `Here's your ${cutPct}% profit-sharing with TAX cut:\n` +
-      `${profit}*${cutPct}%= ₹${cutAmount.toLocaleString('en-IN')}.\n\n` +
+      `*${row.company_name}* — sold ${shares.toLocaleString('en-IN')} shares at around ₹${price}/share.\n\n` +
+      `• Total sold: ₹${total.toLocaleString('en-IN')}\n` +
+      `• Invested: ₹${invested.toLocaleString('en-IN')}\n` +
+      `• Profit: ₹${total.toLocaleString('en-IN')} − ₹${invested.toLocaleString('en-IN')} = ₹${profit.toLocaleString('en-IN')}\n\n` +
+      `*Your ${cutPct}% profit-sharing (incl. TAX) cut:*\n` +
+      `₹${profit.toLocaleString('en-IN')} × ${cutPct}% = ₹${cutAmount.toLocaleString('en-IN')}\n\n` +
+      `*Total to send back:*\n` +
+      `₹${invested.toLocaleString('en-IN')} + ₹${remaining.toLocaleString('en-IN')} = ₹${sendBack.toLocaleString('en-IN')}\n\n` +
+      `I'll share UPI details for the transfer.\n\n` +
       `— ${signerName}`
     )
   }
 
-  const remaining = profit - cutAmount
   const funderShare = Math.round(remaining / 2)
   const payout = invested + funderShare
   return (
