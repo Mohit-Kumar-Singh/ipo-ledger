@@ -18,7 +18,7 @@ export function BankAccountsPage() {
   const { session, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [banks, setBanks] = useState<BankAccount[]>([])
-  const [dematHolderNames, setDematHolderNames] = useState<string[]>([])
+  const [dematPhoneByName, setDematPhoneByName] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
@@ -38,13 +38,16 @@ export function BankAccountsPage() {
   useEffect(() => {
     load()
     // So the "Account holder name" field can suggest names already used for
-    // a demat account, instead of retyping (and risking a mismatched spelling).
+    // a demat account (instead of retyping and risking a mismatched
+    // spelling), and picking one can auto-fill their phone number too.
     supabase
       .from('demat_accounts')
-      .select('holder_name')
+      .select('holder_name, phone_e164')
       .order('holder_name')
       .then(({ data }) => {
-        setDematHolderNames(Array.from(new Set((data ?? []).map((d) => d.holder_name as string))))
+        const map: Record<string, string> = {}
+        for (const d of data ?? []) map[d.holder_name as string] = (d.phone_e164 as string) ?? ''
+        setDematPhoneByName(map)
       })
   }, [])
 
@@ -122,7 +125,7 @@ export function BankAccountsPage() {
         <BankForm
           userId={session.user.id}
           isAdmin={isAdmin}
-          dematHolderNames={dematHolderNames}
+          dematPhoneByName={dematPhoneByName}
           onCancel={() => setShowForm(false)}
           onDone={() => {
             setShowForm(false)
@@ -135,7 +138,7 @@ export function BankAccountsPage() {
         <BankForm
           userId={session.user.id}
           isAdmin={isAdmin}
-          dematHolderNames={dematHolderNames}
+          dematPhoneByName={dematPhoneByName}
           existing={editing}
           onCancel={() => setEditing(null)}
           onDone={() => {
@@ -225,14 +228,14 @@ function BankForm({
   userId,
   isAdmin,
   existing,
-  dematHolderNames,
+  dematPhoneByName,
   onCancel,
   onDone,
 }: {
   userId: string
   isAdmin: boolean
   existing?: EditingBank
-  dematHolderNames: string[]
+  dematPhoneByName: Record<string, string>
   onCancel: () => void
   onDone: () => void
 }) {
@@ -243,6 +246,17 @@ function BankForm({
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  // Picking a name that already has a demat account fills in their phone
+  // too, since it's almost always the same number — never overwrites a
+  // phone the admin already typed in themselves.
+  function handleHolderNameChange(name: string) {
+    setHolderName(name)
+    const knownPhone = dematPhoneByName[name]
+    if (knownPhone && !phoneDigits) {
+      setPhoneDigits(knownPhone.replace(/^\+91/, ''))
+    }
+  }
 
   const phoneValid = phoneDigits.length === 0 || /^[0-9]{10}$/.test(phoneDigits)
 
@@ -288,11 +302,11 @@ function BankForm({
           required
           list="demat-holder-names"
           value={holderName}
-          onChange={(e) => setHolderName(e.target.value)}
+          onChange={(e) => handleHolderNameChange(e.target.value)}
           className="input"
         />
         <datalist id="demat-holder-names">
-          {dematHolderNames.map((name) => (
+          {Object.keys(dematPhoneByName).map((name) => (
             <option key={name} value={name} />
           ))}
         </datalist>
