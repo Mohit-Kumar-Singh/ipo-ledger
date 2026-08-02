@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { Pencil, Trash2 } from 'lucide-react'
+import { History, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -225,10 +225,10 @@ export function ApplicationsPage() {
                           </p>
                           {a.is_backdated && (
                             <span
-                              className="badge badge-warning shrink-0"
+                              className="shrink-0"
                               title="This application was created in backdated format."
                             >
-                              Backdated
+                              <History size={13} style={{ color: 'var(--warning)' }} aria-label="Backdated" />
                             </span>
                           )}
                         </div>
