@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -35,7 +35,6 @@ export function ApplicationsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
-  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [backdatedMode, setBackdatedMode] = useState(false)
 
   async function loadApplications() {
@@ -113,30 +112,19 @@ export function ApplicationsPage() {
     loadApplications()
   }
 
-  function toggleSelected(id: string) {
-    setSelected((s) => {
-      const next = new Set(s)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function toggleSelectAll() {
-    setSelected((s) => (s.size === applications.length ? new Set() : new Set(applications.map((a) => a.id))))
-  }
-
-  async function bulkDelete() {
-    if (selected.size === 0) return
-    if (!window.confirm(`Delete ${selected.size} application(s)? This cannot be undone.`)) return
-    const { error } = await supabase.from('applications').delete().in('id', Array.from(selected))
-    if (error) {
-      alert(error.message)
-      return
+  // applications is already fetched newest-applied-first, so grouping into a
+  // Map (which preserves insertion order) naturally puts each IPO's group at
+  // the position of its own most recent application — i.e. latest IPO on top
+  // — without needing a second sort pass.
+  const groupedApplications = useMemo(() => {
+    const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
+    for (const a of applications) {
+      const key = a.ipo_id
+      if (!groups.has(key)) groups.set(key, { ipoName: a.ipos?.company_name ?? 'Unknown IPO', items: [] })
+      groups.get(key)!.items.push(a)
     }
-    setSelected(new Set())
-    loadApplications()
-  }
+    return Array.from(groups.values())
+  }, [applications])
 
   return (
     <div className="space-y-5">
@@ -150,15 +138,6 @@ export function ApplicationsPage() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {selected.size > 0 && (
-            <button
-              onClick={bulkDelete}
-              className="text-sm font-medium hover:underline"
-              style={{ color: 'var(--critical)' }}
-            >
-              Delete {selected.size} selected
-            </button>
-          )}
           {showForm ? (
             <button onClick={() => setShowForm(false)} className="btn-primary">
               Cancel
@@ -198,162 +177,153 @@ export function ApplicationsPage() {
           No applications yet.
         </p>
       ) : (
-        <>
-          <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={applications.length > 0 && selected.size === applications.length}
-              ref={(el) => {
-                if (el) el.indeterminate = selected.size > 0 && selected.size < applications.length
-              }}
-              onChange={toggleSelectAll}
-              aria-label="Select all applications"
-            />
-            Select all
-          </label>
-
-          <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
-            {applications.map((a) => {
-              if (editingApplication?.id === a.id) {
-                return formDataLoading ? (
-                  <div key={a.id} className="p-4">
-                    <InlineSpinner label="Loading form…" />
-                  </div>
-                ) : (
-                  <div key={a.id} className="p-4">
-                    <NewApplicationForm
-                      ipos={ipos}
-                      accounts={accounts}
-                      banks={banks}
-                      existing={editingApplication}
-                      onCancel={() => setEditingApplication(null)}
-                      onDone={() => {
-                        setEditingApplication(null)
-                        loadApplications()
-                      }}
-                    />
-                  </div>
-                )
-              }
-
-              const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
-
-              return (
-                <div key={a.id} className="stagger-item flex flex-wrap items-center gap-3 p-4">
-                  <input
-                    type="checkbox"
-                    className="shrink-0"
-                    checked={selected.has(a.id)}
-                    onChange={() => toggleSelected(a.id)}
-                    aria-label={`Select application for ${a.ipos?.company_name}`}
-                  />
-                  <div
-                    className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
-                    style={{ width: '2.25rem', height: '2.25rem' }}
-                  >
-                    {a.ipos?.company_name?.[0]?.toUpperCase()}
-                  </div>
-
-                  <div className="min-w-[9rem] flex-1">
-                    <div className="flex items-center gap-1.5">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {a.ipos?.company_name}
-                      </p>
-                      {a.is_backdated && <span className="badge badge-warning shrink-0">Backdated</span>}
-                    </div>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {a.demat_accounts?.holder_name}
-                    </p>
-                  </div>
-
-                  <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    <p>{a.lots} lot(s)</p>
-                    <p>{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</p>
-                  </div>
-
-                  {a.sell_price != null && (
-                    <div className="w-24 shrink-0 text-xs" style={{ color: 'var(--good)' }}>
-                      Sold ₹{a.sell_price.toLocaleString('en-IN')}
-                    </div>
-                  )}
-
-                  <StatusBadge status={a.status} />
-
-                  <div className="min-w-[8rem] flex-1">
-                    {a.notifications && a.notifications.length > 0 ? (
-                      <div className="flex flex-col gap-1">
-                        {a.notifications.map((notif) => (
-                          <div key={notif.id} className="flex items-center gap-1.5">
-                            <NotifBadge status={notif.status} />
-                            {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
-                              <button
-                                onClick={() => dispatchNotification(notif)}
-                                disabled={dispatching === notif.id}
-                                className="link-accent text-xs font-medium disabled:opacity-50"
-                              >
-                                {dispatching === notif.id
-                                  ? isAdmin
-                                    ? 'Sending…'
-                                    : 'Opening…'
-                                  : isAdmin
-                                    ? notif.status === 'FAILED'
-                                      ? 'Retry'
-                                      : 'Send'
-                                    : 'Open WhatsApp'}
-                              </button>
-                            )}
-                          </div>
-                        ))}
+        <div className="space-y-6">
+          {groupedApplications.map(({ ipoName, items }) => (
+            <div key={items[0].ipo_id}>
+              <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                {ipoName}
+              </h2>
+              <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+                {items.map((a) => {
+                  if (editingApplication?.id === a.id) {
+                    return formDataLoading ? (
+                      <div key={a.id} className="p-4">
+                        <InlineSpinner label="Loading form…" />
                       </div>
                     ) : (
-                      <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        —
-                      </span>
-                    )}
-                  </div>
+                      <div key={a.id} className="p-4">
+                        <NewApplicationForm
+                          ipos={ipos}
+                          accounts={accounts}
+                          banks={banks}
+                          existing={editingApplication}
+                          onCancel={() => setEditingApplication(null)}
+                          onDone={() => {
+                            setEditingApplication(null)
+                            loadApplications()
+                          }}
+                        />
+                      </div>
+                    )
+                  }
 
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {a.status === 'APPLIED' && (
-                      <>
-                        <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
-                          Allotted
-                        </button>
+                  const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
+
+                  return (
+                    <div key={a.id} className="stagger-item flex flex-wrap items-center gap-3 p-4">
+                      <div
+                        className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
+                        style={{ width: '2.25rem', height: '2.25rem' }}
+                      >
+                        {a.demat_accounts?.holder_name?.[0]?.toUpperCase()}
+                      </div>
+
+                      <div className="min-w-[9rem] flex-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                            {a.demat_accounts?.holder_name}
+                          </p>
+                          {a.is_backdated && (
+                            <span
+                              className="badge badge-warning shrink-0"
+                              title="This application was created in backdated format."
+                            >
+                              Backdated
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        <p>{a.lots} lot(s)</p>
+                        <p>{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</p>
+                      </div>
+
+                      {a.sell_price != null && (
+                        <div className="w-24 shrink-0 text-xs" style={{ color: 'var(--good)' }}>
+                          Sold ₹{a.sell_price.toLocaleString('en-IN')}
+                        </div>
+                      )}
+
+                      <StatusBadge status={a.status} />
+
+                      <div className="min-w-[8rem] flex-1">
+                        {a.notifications && a.notifications.length > 0 ? (
+                          <div className="flex flex-col gap-1">
+                            {a.notifications.map((notif) => (
+                              <div key={notif.id} className="flex items-center gap-1.5">
+                                <NotifBadge status={notif.status} />
+                                {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
+                                  <button
+                                    onClick={() => dispatchNotification(notif)}
+                                    disabled={dispatching === notif.id}
+                                    className="link-accent text-xs font-medium disabled:opacity-50"
+                                  >
+                                    {dispatching === notif.id
+                                      ? isAdmin
+                                        ? 'Sending…'
+                                        : 'Opening…'
+                                      : isAdmin
+                                        ? notif.status === 'FAILED'
+                                          ? 'Retry'
+                                          : 'Send'
+                                        : 'Open WhatsApp'}
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            —
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {a.status === 'APPLIED' && (
+                          <>
+                            <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
+                              Allotted
+                            </button>
+                            <button
+                              onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
+                              className="text-xs font-medium hover:underline"
+                              style={{ color: 'var(--ink-muted)' }}
+                            >
+                              Not allotted
+                            </button>
+                          </>
+                        )}
+                        {a.status === 'ALLOTTED' && (
+                          <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
+                            Mark sold
+                          </button>
+                        )}
                         <button
-                          onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
-                          className="text-xs font-medium hover:underline"
+                          onClick={() => openEdit(a)}
+                          aria-label={`Edit application for ${a.demat_accounts?.holder_name}`}
+                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
                           style={{ color: 'var(--ink-muted)' }}
                         >
-                          Not allotted
+                          <Pencil size={15} />
                         </button>
-                      </>
-                    )}
-                    {a.status === 'ALLOTTED' && (
-                      <button onClick={() => openEdit(a)} className="link-accent text-xs font-medium">
-                        Mark sold
-                      </button>
-                    )}
-                    <button
-                      onClick={() => openEdit(a)}
-                      aria-label={`Edit application for ${a.ipos?.company_name}`}
-                      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
-                      style={{ color: 'var(--ink-muted)' }}
-                    >
-                      <Pencil size={15} />
-                    </button>
-                    <button
-                      onClick={() => deleteApplication(a.id)}
-                      aria-label={`Delete application for ${a.ipos?.company_name}`}
-                      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
-                      style={{ color: 'var(--critical)' }}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </>
+                        <button
+                          onClick={() => deleteApplication(a.id)}
+                          aria-label={`Delete application for ${a.demat_accounts?.holder_name}`}
+                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
+                          style={{ color: 'var(--critical)' }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
