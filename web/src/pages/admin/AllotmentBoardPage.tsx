@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
+import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
 import type {
   AllotmentBoardRow,
@@ -30,6 +30,23 @@ const notifBadgeClass: Record<Notification['status'], string> = {
 
 type AllottedNotif = Pick<Notification, 'id' | 'status' | 'to_phone' | 'template_name' | 'variables'>
 
+// Sale entry supports two equivalent ways in: a per-share price (with share
+// count/invested amount shown as reference) or the total payout received —
+// whichever's easier to type in from the broker's contract note. Both funnel
+// into the same stored per-share `sell_price`.
+interface SoldFormState {
+  mode: 'total' | 'perShare'
+  sellPrice: string
+  totalPayout: string
+  split: boolean
+}
+
+function sellPricePerShareFrom(form: SoldFormState, row: AllotmentBoardRow): number {
+  if (form.mode === 'perShare') return Number(form.sellPrice || 0)
+  const shares = row.lot_size * row.lots
+  return shares > 0 ? Number(form.totalPayout || 0) / shares : 0
+}
+
 export function AllotmentBoardPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -42,7 +59,7 @@ export function AllotmentBoardPage() {
   const [loading, setLoading] = useState(false)
   const [allottedNotifs, setAllottedNotifs] = useState<Record<string, AllottedNotif>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
-  const [soldForms, setSoldForms] = useState<Record<string, { sellPrice: string; split: boolean }>>({})
+  const [soldForms, setSoldForms] = useState<Record<string, SoldFormState>>({})
   const [savingSold, setSavingSold] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
 
@@ -152,10 +169,13 @@ export function AllotmentBoardPage() {
     // doing the accounting — admin can still flip it either way.
     const autoSplit =
       !!row.bank_account_holder_name && !namesMatch(row.bank_account_holder_name, profile?.full_name ?? '')
+    const shares = row.lot_size * row.lots
     setSoldForms((f) => ({
       ...f,
       [row.application_id]: {
+        mode: 'total',
         sellPrice: row.sell_price != null ? String(row.sell_price) : '',
+        totalPayout: row.sell_price != null ? String(Math.round(row.sell_price * shares)) : '',
         split: row.status === 'SOLD' ? row.split_profit_with_funder : autoSplit,
       },
     }))
@@ -171,12 +191,13 @@ export function AllotmentBoardPage() {
 
   async function saveSold(row: AllotmentBoardRow) {
     const form = soldForms[row.application_id]
-    if (!form || !form.sellPrice) return
+    const perShare = form ? sellPricePerShareFrom(form, row) : 0
+    if (!form || !perShare) return
     setSavingSold(row.application_id)
     await supabase
       .from('applications')
       .update({
-        sell_price: Number(form.sellPrice),
+        sell_price: Math.round(perShare * 100) / 100,
         status: 'SOLD',
         split_profit_with_funder: form.split,
       })
@@ -369,10 +390,10 @@ function SoldPayoutsSection({
   profitPersonName,
 }: {
   rows: AllotmentBoardRow[]
-  soldForms: Record<string, { sellPrice: string; split: boolean }>
+  soldForms: Record<string, SoldFormState>
   onOpenForm: (row: AllotmentBoardRow) => void
   onCloseForm: (id: string) => void
-  onChangeForm: (id: string, next: { sellPrice: string; split: boolean }) => void
+  onChangeForm: (id: string, next: SoldFormState) => void
   onSave: (row: AllotmentBoardRow) => void
   savingSold: string | null
   onMarkPaid: (applicationId: string, field: 'demat_cut_paid' | 'funder_share_paid') => void
@@ -405,7 +426,10 @@ function SoldPayoutsSection({
                     <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {row.holder_name}
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>{row.lots} lot(s)</p>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {row.lots} lot(s)
+                      {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
+                    </p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
@@ -456,15 +480,16 @@ function SoldForm({
   profitPersonName,
 }: {
   row: AllotmentBoardRow
-  form: { sellPrice: string; split: boolean }
-  onChange: (next: { sellPrice: string; split: boolean }) => void
+  form: SoldFormState
+  onChange: (next: SoldFormState) => void
   onCancel: () => void
   onSave: () => void
   saving: boolean
   profitPersonName: string
 }) {
+  const shares = row.lot_size * row.lots
   const preview = computeProfitSplit({
-    sellPricePerShare: Number(form.sellPrice || 0),
+    sellPricePerShare: sellPricePerShareFrom(form, row),
     lotSize: row.lot_size,
     lots: row.lots,
     bidAmount: row.bid_amount ?? 0,
@@ -474,22 +499,72 @@ function SoldForm({
     profitPersonName,
     splitWithFunder: form.split,
   })
+  const hasEntry = form.mode === 'total' ? Number(form.totalPayout) > 0 : Number(form.sellPrice) > 0
 
   return (
     <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+      <div className="inline-flex rounded-lg p-0.5 text-xs font-medium" style={{ background: 'var(--page)' }}>
+        {(['total', 'perShare'] as const).map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => {
+              if (m === form.mode) return
+              // Carry the equivalent value across so switching modes never
+              // presents a blank field the admin has to refill from memory.
+              const perShare = sellPricePerShareFrom(form, row)
+              if (m === 'perShare') {
+                onChange({ ...form, mode: m, sellPrice: perShare > 0 ? String(Math.round(perShare * 100) / 100) : '' })
+              } else {
+                const total = perShare * shares
+                onChange({ ...form, mode: m, totalPayout: total > 0 ? String(Math.round(total)) : '' })
+              }
+            }}
+            className="rounded-md px-3 py-1.5 transition-colors"
+            style={
+              form.mode === m
+                ? { background: 'var(--surface)', color: 'var(--ink-primary)', boxShadow: 'var(--shadow-sm)' }
+                : { color: 'var(--ink-muted)' }
+            }
+          >
+            {m === 'total' ? 'Total payout' : 'Sell price per share'}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-end gap-4">
-        <label className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-          Sell price per share
-          <input
-            type="number"
-            min={0}
-            step="0.01"
-            value={form.sellPrice}
-            onChange={(e) => onChange({ ...form, sellPrice: e.target.value })}
-            className="input mt-1 block w-36"
-            autoFocus
-          />
-        </label>
+        {form.mode === 'total' ? (
+          <label className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Total payout received
+            <input
+              type="number"
+              min={0}
+              step="1"
+              value={form.totalPayout}
+              onChange={(e) => onChange({ ...form, totalPayout: e.target.value })}
+              className="input mt-1 block w-40"
+              autoFocus
+            />
+          </label>
+        ) : (
+          <div>
+            <label className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Sell price per share
+              <input
+                type="number"
+                min={0}
+                step="1"
+                value={form.sellPrice}
+                onChange={(e) => onChange({ ...form, sellPrice: e.target.value })}
+                className="input mt-1 block w-36"
+                autoFocus
+              />
+            </label>
+            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {shares.toLocaleString('en-IN')} shares · ₹{(row.bid_amount ?? 0).toLocaleString('en-IN')} invested
+            </p>
+          </div>
+        )}
         {preview.hasFunder && !preview.isFunderSelf && (
           <label className="flex items-center gap-2 pb-2 text-xs" style={{ color: 'var(--ink-secondary)' }}>
             <input
@@ -502,7 +577,7 @@ function SoldForm({
         )}
       </div>
 
-      {Number(form.sellPrice) > 0 && (
+      {hasEntry && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>
           <Stat label="Total sold" value={preview.totalSoldAmount} />
           <Stat label="Gross profit" value={preview.grossProfit} />
@@ -518,7 +593,7 @@ function SoldForm({
       <div className="flex gap-3">
         <button
           onClick={onSave}
-          disabled={saving || !form.sellPrice}
+          disabled={saving || !hasEntry}
           className="btn-primary px-3 py-1.5 text-xs disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save'}
@@ -528,6 +603,21 @@ function SoldForm({
         </button>
       </div>
     </div>
+  )
+}
+
+function payoutMessage(
+  row: AllotmentBoardRow,
+  result: ReturnType<typeof computeProfitSplit>,
+  kind: 'cut' | 'share',
+  signerName: string,
+): string {
+  const amount = kind === 'cut' ? result.dematCutAmount : result.funderShare
+  const label = kind === 'cut' ? `your ${row.profit_share_percent}% profit-sharing cut` : 'your share of the profit'
+  return (
+    `${row.company_name} — sold ${row.lot_size * row.lots} shares at ₹${row.sell_price}/share.\n` +
+    `Total ₹${Math.round(result.totalSoldAmount).toLocaleString('en-IN')}, profit ₹${Math.round(result.grossProfit).toLocaleString('en-IN')}.\n` +
+    `Here's ${label}: ₹${Math.round(amount).toLocaleString('en-IN')}.\n\n— ${signerName}`
   )
 }
 
@@ -570,6 +660,8 @@ function SoldBreakdown({
               paid={row.demat_cut_paid}
               onMarkPaid={() => onMarkPaid('demat_cut_paid')}
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
+              phone={row.phone_e164}
+              onMessage={() => sendCustomWhatsapp(row.phone_e164, payoutMessage(row, result, 'cut', profitPersonName))}
             />
           )}
           {result.funderShare > 0 && (
@@ -578,6 +670,12 @@ function SoldBreakdown({
               paid={row.funder_share_paid}
               onMarkPaid={() => onMarkPaid('funder_share_paid')}
               marking={markingPaid === row.application_id + 'funder_share_paid'}
+              phone={row.bank_account_phone}
+              onMessage={
+                row.bank_account_phone
+                  ? () => sendCustomWhatsapp(row.bank_account_phone!, payoutMessage(row, result, 'share', profitPersonName))
+                  : undefined
+              }
             />
           )}
         </div>
@@ -593,15 +691,24 @@ function PayoutLine({
   paid,
   onMarkPaid,
   marking,
+  phone,
+  onMessage,
 }: {
   label: string
   paid: boolean
   onMarkPaid: () => void
   marking: boolean
+  phone?: string | null
+  onMessage?: () => void
 }) {
   return (
     <div className="flex items-center gap-2">
       <span style={{ color: paid ? 'var(--good)' : 'var(--ink-primary)' }}>{label}</span>
+      {onMessage && phone && (
+        <button onClick={onMessage} className="link-accent font-medium">
+          Message
+        </button>
+      )}
       {paid ? (
         <span className="badge badge-good">Paid</span>
       ) : (

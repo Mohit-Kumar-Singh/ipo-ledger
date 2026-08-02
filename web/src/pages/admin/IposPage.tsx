@@ -665,10 +665,10 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
         <input required type="number" min={1} value={lotSize} onChange={(e) => setLotSize(e.target.value)} className="input" />
       </Field>
       <Field label="Price band low">
-        <input type="number" step="0.01" value={priceLow} onChange={(e) => setPriceLow(e.target.value)} className="input" />
+        <input type="number" step="1" value={priceLow} onChange={(e) => setPriceLow(e.target.value)} className="input" />
       </Field>
       <Field label="Price band high">
-        <input type="number" step="0.01" value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} className="input" />
+        <input type="number" step="1" value={priceHigh} onChange={(e) => setPriceHigh(e.target.value)} className="input" />
       </Field>
       <Field label="Registrar">
         <select value={registrar} onChange={(e) => setRegistrar(e.target.value as Registrar)} className="input">

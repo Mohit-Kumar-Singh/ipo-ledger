@@ -35,6 +35,7 @@ export function ApplicationsPage() {
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [backdatedMode, setBackdatedMode] = useState(false)
 
   async function loadApplications() {
     setLoading(true)
@@ -72,8 +73,9 @@ export function ApplicationsPage() {
     loadApplications()
   }, [])
 
-  function openForm() {
+  function openForm(backdated = false) {
     setShowForm(true)
+    setBackdatedMode(backdated)
     setEditingApplication(null)
     loadFormData()
   }
@@ -156,9 +158,20 @@ export function ApplicationsPage() {
               Delete {selected.size} selected
             </button>
           )}
-          <button onClick={() => (showForm ? setShowForm(false) : openForm())} className="btn-primary">
-            {showForm ? 'Cancel' : '+ New application'}
-          </button>
+          {showForm ? (
+            <button onClick={() => setShowForm(false)} className="btn-primary">
+              Cancel
+            </button>
+          ) : (
+            <>
+              <button onClick={() => openForm(true)} className="btn-secondary">
+                + Backdated application
+              </button>
+              <button onClick={() => openForm(false)} className="btn-primary">
+                + New application
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -169,6 +182,7 @@ export function ApplicationsPage() {
           ipos={ipos}
           accounts={accounts}
           banks={banks}
+          backdated={backdatedMode}
           onDone={() => {
             setShowForm(false)
             loadApplications()
@@ -240,9 +254,12 @@ export function ApplicationsPage() {
                   </div>
 
                   <div className="min-w-[9rem] flex-1">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {a.ipos?.company_name}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {a.ipos?.company_name}
+                      </p>
+                      {a.is_backdated && <span className="badge badge-warning shrink-0">Backdated</span>}
+                    </div>
                     <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                       {a.demat_accounts?.holder_name}
                     </p>
@@ -368,6 +385,7 @@ function NewApplicationForm({
   accounts,
   banks,
   existing,
+  backdated = false,
   onCancel,
   onDone,
 }: {
@@ -375,6 +393,7 @@ function NewApplicationForm({
   accounts: DematAccount[]
   banks: BankAccount[]
   existing?: ApplicationRow
+  backdated?: boolean
   onCancel?: () => void
   onDone: () => void
 }) {
@@ -388,8 +407,11 @@ function NewApplicationForm({
   const [submitting, setSubmitting] = useState(false)
 
   // Only IPOs currently open for bidding make sense to apply for — a closed
-  // or not-yet-open one would just be a mistake waiting to happen.
+  // or not-yet-open one would just be a mistake waiting to happen. Backdated
+  // mode is the deliberate escape hatch for catching up a record after the
+  // fact, so it lists every IPO instead.
   const liveIpos = ipos.filter(isLiveIpo)
+  const selectableIpos = backdated ? ipos : liveIpos
   const selectedIpo = ipos.find((i) => i.id === ipoId)
   const selectedAccount = accounts.find((a) => a.id === dematId)
   const cutoffPrice = selectedIpo?.price_high ?? 0
@@ -433,6 +455,7 @@ function NewApplicationForm({
       category,
       lots: Number(lots),
       bid_amount: bidAmount || null,
+      is_backdated: backdated,
     })
     setSubmitting(false)
     if (error) {
@@ -448,6 +471,11 @@ function NewApplicationForm({
 
   return (
     <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+      {!existing && backdated && (
+        <p className="col-span-full text-xs font-medium" style={{ color: 'var(--warning)' }}>
+          Backdated application — any past IPO can be selected, and it'll be flagged as backdated once saved.
+        </p>
+      )}
       <Field label="IPO">
         {existing ? (
           <p className="input" style={{ background: 'var(--page)' }}>
@@ -456,14 +484,16 @@ function NewApplicationForm({
         ) : (
           <>
             <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
-              <option value="">{liveIpos.length === 0 ? 'No live IPOs right now' : 'Select IPO'}</option>
-              {liveIpos.map((i) => (
+              <option value="">
+                {selectableIpos.length === 0 ? (backdated ? 'No IPOs yet' : 'No live IPOs right now') : 'Select IPO'}
+              </option>
+              {selectableIpos.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.company_name}
                 </option>
               ))}
             </select>
-            {liveIpos.length === 0 && (
+            {selectableIpos.length === 0 && !backdated && (
               <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
                 No IPOs currently between open and listing date.
               </p>
@@ -543,7 +573,7 @@ function NewApplicationForm({
         <Field label="Sell price per share" hint="Setting this marks the application Sold">
           <input
             type="number"
-            step="0.01"
+            step="1"
             min={0}
             placeholder="e.g. 105"
             value={sellPrice}

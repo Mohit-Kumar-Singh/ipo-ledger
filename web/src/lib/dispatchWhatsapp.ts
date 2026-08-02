@@ -43,6 +43,13 @@ export async function openWhatsAppForNotification(
   }
 }
 
+// Ad-hoc sends that aren't tied to a tracked `notifications` row (e.g. a
+// one-off payout calculation) — just open WhatsApp with the given text,
+// device-aware, no DB write to mark sent.
+export function sendCustomWhatsapp(phone: string, text: string): void {
+  openWhatsApp(buildWaMeLink(phone, text))
+}
+
 // Admin dispatch: try the real Cloud API first, same as always. If Meta
 // isn't configured yet (the function reports back SIMULATED) and this is a
 // phone, fall back to the same manual-send flow members already use. This

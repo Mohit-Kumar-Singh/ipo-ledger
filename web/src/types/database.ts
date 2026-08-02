@@ -81,6 +81,7 @@ export interface Application {
   status_changed_at: string
   changed_by: string | null
   sell_price: number | null
+  is_backdated: boolean
 }
 
 export interface Notification {
@@ -120,6 +121,7 @@ export interface AllotmentBoardRow {
   funder_share_paid: boolean
   upi_id: string | null
   bank_account_holder_name: string | null
+  bank_account_phone: string | null
 }
 
 export interface RegistrarLink {
