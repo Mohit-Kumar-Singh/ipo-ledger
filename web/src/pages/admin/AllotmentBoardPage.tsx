@@ -54,7 +54,6 @@ export function AllotmentBoardPage() {
   const [rows, setRows] = useState<AllotmentBoardRow[]>([])
   const [registrarLinks, setRegistrarLinks] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const [allottedNotifs, setAllottedNotifs] = useState<Record<string, AllottedNotif>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
@@ -142,18 +141,6 @@ export function AllotmentBoardPage() {
     loadBoard(selectedIpoId)
   }
 
-  async function revealPan(row: AllotmentBoardRow) {
-    const { data, error } = await supabase.functions.invoke<{ pan: string }>('reveal-pan', {
-      body: { demat_id: row.demat_id },
-    })
-    if (!error && data) setRevealed((r) => ({ ...r, [row.application_id]: data.pan }))
-  }
-
-  function copyPan(row: AllotmentBoardRow) {
-    const pan = revealed[row.application_id] ?? row.pan_masked
-    navigator.clipboard.writeText(pan)
-  }
-
   function toggle(id: string) {
     setSelected((s) => {
       const next = new Set(s)
@@ -220,8 +207,8 @@ export function AllotmentBoardPage() {
           Allotment board
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Copy PAN, open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out
-          are listed below.
+          Open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out are
+          listed below.
         </p>
       </div>
 
@@ -255,7 +242,6 @@ export function AllotmentBoardPage() {
               <tr>
                 <th className="px-4 py-2.5"></th>
                 <th className="px-4 py-2.5 font-medium">Holder</th>
-                <th className="px-4 py-2.5 font-medium">PAN</th>
                 <th className="px-4 py-2.5 font-medium">Bank</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">Message</th>
@@ -278,17 +264,6 @@ export function AllotmentBoardPage() {
                   </td>
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {row.holder_name}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="font-mono" style={{ color: 'var(--ink-secondary)' }}>
-                      {revealed[row.application_id] ?? row.pan_masked}
-                    </span>
-                    <button onClick={() => revealPan(row)} className="link-accent ml-2 text-xs font-medium">
-                      Reveal
-                    </button>
-                    <button onClick={() => copyPan(row)} className="link-accent ml-2 text-xs font-medium">
-                      Copy
-                    </button>
                   </td>
                   <td className="px-4 py-2.5">
                     {[
@@ -348,7 +323,7 @@ export function AllotmentBoardPage() {
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications for this IPO.
                   </td>
                 </tr>
