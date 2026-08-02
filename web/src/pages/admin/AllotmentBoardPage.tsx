@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
+import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -42,9 +43,7 @@ interface SoldFormState {
 }
 
 function sellPricePerShareFrom(form: SoldFormState, row: AllotmentBoardRow): number {
-  if (form.mode === 'perShare') return Number(form.sellPrice || 0)
-  const shares = row.lot_size * row.lots
-  return shares > 0 ? Number(form.totalPayout || 0) / shares : 0
+  return sellPricePerShareFromEntry(form.mode, form.sellPrice, form.totalPayout, row.lot_size * row.lots)
 }
 
 export function AllotmentBoardPage() {
@@ -503,79 +502,29 @@ function SoldForm({
 
   return (
     <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-      <div className="inline-flex rounded-lg p-0.5 text-xs font-medium" style={{ background: 'var(--page)' }}>
-        {(['total', 'perShare'] as const).map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => {
-              if (m === form.mode) return
-              // Carry the equivalent value across so switching modes never
-              // presents a blank field the admin has to refill from memory.
-              const perShare = sellPricePerShareFrom(form, row)
-              if (m === 'perShare') {
-                onChange({ ...form, mode: m, sellPrice: perShare > 0 ? String(Math.round(perShare * 100) / 100) : '' })
-              } else {
-                const total = perShare * shares
-                onChange({ ...form, mode: m, totalPayout: total > 0 ? String(Math.round(total)) : '' })
-              }
-            }}
-            className="rounded-md px-3 py-1.5 transition-colors"
-            style={
-              form.mode === m
-                ? { background: 'var(--surface)', color: 'var(--ink-primary)', boxShadow: 'var(--shadow-sm)' }
-                : { color: 'var(--ink-muted)' }
-            }
-          >
-            {m === 'total' ? 'Total payout' : 'Sell price per share'}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-4">
-        {form.mode === 'total' ? (
-          <label className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Total payout received
-            <input
-              type="number"
-              min={0}
-              step="1"
-              value={form.totalPayout}
-              onChange={(e) => onChange({ ...form, totalPayout: e.target.value })}
-              className="input mt-1 block w-40"
-              autoFocus
-            />
-          </label>
-        ) : (
-          <div>
-            <label className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Sell price per share
+      <SaleAmountField
+        mode={form.mode}
+        onModeChange={(mode) => onChange({ ...form, mode })}
+        sellPrice={form.sellPrice}
+        onSellPriceChange={(sellPrice) => onChange({ ...form, sellPrice })}
+        totalPayout={form.totalPayout}
+        onTotalPayoutChange={(totalPayout) => onChange({ ...form, totalPayout })}
+        shares={shares}
+        invested={Math.round(row.bid_amount ?? 0)}
+        extra={
+          preview.hasFunder &&
+          !preview.isFunderSelf && (
+            <label className="flex items-center gap-2 pb-2 text-xs" style={{ color: 'var(--ink-secondary)' }}>
               <input
-                type="number"
-                min={0}
-                step="1"
-                value={form.sellPrice}
-                onChange={(e) => onChange({ ...form, sellPrice: e.target.value })}
-                className="input mt-1 block w-36"
-                autoFocus
+                type="checkbox"
+                checked={form.split}
+                onChange={(e) => onChange({ ...form, split: e.target.checked })}
               />
+              Split remaining 50/50 with {row.bank_account_holder_name}
             </label>
-            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              {shares.toLocaleString('en-IN')} shares · ₹{(row.bid_amount ?? 0).toLocaleString('en-IN')} invested
-            </p>
-          </div>
-        )}
-        {preview.hasFunder && !preview.isFunderSelf && (
-          <label className="flex items-center gap-2 pb-2 text-xs" style={{ color: 'var(--ink-secondary)' }}>
-            <input
-              type="checkbox"
-              checked={form.split}
-              onChange={(e) => onChange({ ...form, split: e.target.checked })}
-            />
-            Split remaining 50/50 with {row.bank_account_holder_name}
-          </label>
-        )}
-      </div>
+          )
+        }
+      />
 
       {hasEntry && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>

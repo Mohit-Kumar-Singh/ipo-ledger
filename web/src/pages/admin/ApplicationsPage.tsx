@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
+import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import type {
   Application,
   ApplicationCategory,
@@ -397,12 +398,19 @@ function NewApplicationForm({
   onCancel?: () => void
   onDone: () => void
 }) {
+  const existingIpo = existing ? ipos.find((i) => i.id === existing.ipo_id) : undefined
   const [ipoId, setIpoId] = useState(existing?.ipo_id ?? '')
   const [dematId, setDematId] = useState(existing?.demat_id ?? '')
   const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
+  const [saleMode, setSaleMode] = useState<SaleEntryMode>('total')
   const [sellPrice, setSellPrice] = useState(existing?.sell_price != null ? String(existing.sell_price) : '')
+  const [totalPayout, setTotalPayout] = useState(
+    existing?.sell_price != null && existingIpo
+      ? String(Math.round(existing.sell_price * existingIpo.lot_size * existing.lots))
+      : '',
+  )
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -416,6 +424,8 @@ function NewApplicationForm({
   const selectedAccount = accounts.find((a) => a.id === dematId)
   const cutoffPrice = selectedIpo?.price_high ?? 0
   const bidAmount = selectedIpo ? Number(lots || 0) * selectedIpo.lot_size * cutoffPrice : 0
+  const soldShares = selectedIpo ? selectedIpo.lot_size * Number(lots || 0) : 0
+  const finalSellPrice = sellPricePerShareFromEntry(saleMode, sellPrice, totalPayout, soldShares)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -433,10 +443,10 @@ function NewApplicationForm({
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
-          sell_price: sellPrice ? Number(sellPrice) : null,
+          sell_price: finalSellPrice ? Math.round(finalSellPrice * 100) / 100 : null,
           // Entering a price is what actually marks it sold — no separate
           // status toggle to remember to also flip.
-          status: sellPrice ? 'SOLD' : existing.status,
+          status: finalSellPrice ? 'SOLD' : existing.status,
         })
         .eq('id', existing.id)
       setSubmitting(false)
@@ -570,17 +580,21 @@ function NewApplicationForm({
         />
       </Field>
       {existing && (existing.status === 'ALLOTTED' || existing.status === 'SOLD') && (
-        <Field label="Sell price per share" hint="Setting this marks the application Sold">
-          <input
-            type="number"
-            step="1"
-            min={0}
-            placeholder="e.g. 105"
-            value={sellPrice}
-            onChange={(e) => setSellPrice(e.target.value)}
-            className="input"
+        <div className="col-span-1 sm:col-span-2 lg:col-span-3">
+          <SaleAmountField
+            mode={saleMode}
+            onModeChange={setSaleMode}
+            sellPrice={sellPrice}
+            onSellPriceChange={setSellPrice}
+            totalPayout={totalPayout}
+            onTotalPayoutChange={setTotalPayout}
+            shares={soldShares}
+            invested={Math.round(bidAmount)}
           />
-        </Field>
+          <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Setting this marks the application Sold
+          </p>
+        </div>
       )}
 
       {error && (
