@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../../contexts/AuthContext'
 import { ThemeToggle } from '../ThemeToggle'
 import { ToastHost } from '../ToastHost'
+import { OnboardingTour } from '../OnboardingTour'
 
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -32,6 +33,7 @@ const links = [
 export function AppShell() {
   const { profile, signOut } = useAuth()
   const [navOpen, setNavOpen] = useState(false)
+  const [tourActive, setTourActive] = useState(false)
   const location = useLocation()
 
   const initials = (profile?.full_name ?? '?')
@@ -44,6 +46,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen md:flex" style={{ background: 'var(--page)' }}>
       <ToastHost />
+      <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
       {/* Mobile-only slim top bar — the sidebar below is off-canvas until opened */}
       <div
@@ -72,7 +75,7 @@ export function AppShell() {
       {/* Backdrop for mobile drawer */}
       {navOpen && (
         <div
-          onClick={() => setNavOpen(false)}
+          onClick={() => !tourActive && setNavOpen(false)}
           className="fixed inset-0 z-40 animate-page-in md:hidden"
           style={{ background: 'rgba(0,0,0,0.5)' }}
         />
@@ -132,6 +135,7 @@ export function AppShell() {
                 key={l.to}
                 to={l.to}
                 end={l.to === '/'}
+                data-tour={l.to}
                 onClick={() => setNavOpen(false)}
                 className={({ isActive }) => `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`}
               >

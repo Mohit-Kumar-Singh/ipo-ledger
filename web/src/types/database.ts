@@ -18,6 +18,7 @@ export interface Profile {
   phone_e164: string | null
   role: UserRole
   created_at: string
+  has_seen_tour: boolean
 }
 
 export interface DematAccount {
