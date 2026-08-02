@@ -1,9 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Mail, Phone, User } from 'lucide-react'
+import { CreditCard, Mail, Phone, ShieldCheck, User } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 
 const PHONE_RE = /^[0-9]{10}$/
+const PAN_RE = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/
 
 export function ProfilePage() {
   const { session, profile, refreshProfile } = useAuth()
@@ -12,6 +13,9 @@ export function ProfilePage() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
+  const [pan, setPan] = useState('')
+  const [panSubmitting, setPanSubmitting] = useState(false)
+  const [panResult, setPanResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
 
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
@@ -48,6 +52,42 @@ export function ProfilePage() {
     await refreshProfile()
     setJustSaved(true)
     setTimeout(() => setJustSaved(false), 2000)
+  }
+
+  async function handleVerifyPan(e: FormEvent) {
+    e.preventDefault()
+    setPanResult(null)
+
+    const normalized = pan.trim().toUpperCase()
+    if (!PAN_RE.test(normalized)) {
+      setPanResult({ tone: 'critical', message: 'PAN must be in the format ABCPD1234E (5 letters, 4 digits, 1 letter).' })
+      return
+    }
+
+    setPanSubmitting(true)
+    const { data, error } = await supabase.rpc('link_self_by_pan', { p_pan: normalized })
+    setPanSubmitting(false)
+    if (error) {
+      setPanResult({ tone: 'critical', message: error.message })
+      return
+    }
+
+    const status = (data as { status: string; holder_name?: string } | null)?.status
+    if (status === 'linked') {
+      setPanResult({
+        tone: 'good',
+        message: `Verified — linked to ${(data as { holder_name: string }).holder_name}'s account. It'll show up under Accounts now.`,
+      })
+      setPan('')
+    } else if (status === 'linked_elsewhere') {
+      setPanResult({ tone: 'warning', message: 'This PAN is already linked to another account. Contact the admin if that looks wrong.' })
+    } else {
+      setPanResult({
+        tone: 'warning',
+        message: "No matching account found yet. Once the admin adds it, come back and try again.",
+      })
+    }
+    await refreshProfile()
   }
 
   return (
@@ -135,6 +175,45 @@ export function ProfilePage() {
 
         <button type="submit" disabled={submitting} className="btn-primary py-2.5">
           {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
+        </button>
+      </form>
+
+      <form onSubmit={handleVerifyPan} className="card animate-page-in space-y-3 p-5">
+        <div className="flex items-center gap-2">
+          <ShieldCheck size={16} style={{ color: 'var(--accent)' }} />
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Link your account
+          </h2>
+        </div>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Want to link your account? Enter your PAN below and get verified — if it matches a demat account already
+          on file, it's linked to you immediately.
+        </p>
+
+        <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+          PAN
+          <div className="mt-1 flex items-center gap-2">
+            <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+            <input
+              value={pan}
+              onChange={(e) => setPan(e.target.value.toUpperCase())}
+              maxLength={10}
+              placeholder="ABCPD1234E"
+              className="input font-mono uppercase"
+            />
+          </div>
+        </label>
+
+        {profile?.self_pan_hash && (
+          <p className="text-xs" style={{ color: 'var(--good)' }}>
+            A PAN is on file for you — verify again anytime, e.g. after the admin adds your account.
+          </p>
+        )}
+
+        {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+
+        <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
+          {panSubmitting ? 'Verifying…' : 'Verify'}
         </button>
       </form>
     </div>

@@ -19,6 +19,7 @@ export interface Profile {
   role: UserRole
   created_at: string
   has_seen_tour: boolean
+  self_pan_hash: string | null
 }
 
 export interface DematAccount {

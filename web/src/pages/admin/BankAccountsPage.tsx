@@ -258,14 +258,14 @@ function BankForm({
     }
   }
 
-  const phoneValid = phoneDigits.length === 0 || /^[0-9]{10}$/.test(phoneDigits)
+  const phoneValid = /^[0-9]{10}$/.test(phoneDigits)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
 
     if (!phoneValid) {
-      setError('Phone number must be exactly 10 digits, or left blank.')
+      setError('Phone number is required and must be exactly 10 digits.')
       return
     }
 
@@ -317,7 +317,7 @@ function BankForm({
       <Field label="Bank" hint="optional">
         <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input" />
       </Field>
-      <Field label="Phone number" hint="optional — sends the applied message to this holder too">
+      <Field label="Phone number" hint="sends the applied message to this holder too">
         <div className="flex items-center gap-2">
           <span
             className="rounded-md border px-3 py-2 text-sm"
@@ -326,6 +326,7 @@ function BankForm({
             +91
           </span>
           <input
+            required
             inputMode="numeric"
             maxLength={10}
             value={phoneDigits}
@@ -334,7 +335,7 @@ function BankForm({
             placeholder="9876543210"
           />
         </div>
-        {!phoneValid && (
+        {!phoneValid && phoneDigits.length > 0 && (
           <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
             Must be exactly 10 digits.
           </p>
