@@ -612,12 +612,38 @@ function payoutMessage(
   kind: 'cut' | 'share',
   signerName: string,
 ): string {
-  const amount = kind === 'cut' ? result.dematCutAmount : result.funderShare
-  const label = kind === 'cut' ? `your ${row.profit_share_percent}% profit-sharing cut` : 'your share of the profit'
+  const shares = row.lot_size * row.lots
+  const price = (row.sell_price ?? 0).toFixed(2)
+  const total = Math.round(result.totalSoldAmount)
+  const invested = Math.round(row.bid_amount ?? 0)
+  const profit = total - invested
+  const cutPct = row.profit_share_percent
+  // Each line's number feeds the next (cut, then remainder, then the 50/50
+  // split) using values already rounded to whole rupees — so the equations
+  // in the message add up cleanly instead of showing paise-level fractions.
+  const cutAmount = Math.round((profit * cutPct) / 100)
+
+  const saleLine = (prefix: string) =>
+    `${prefix}${row.company_name} — sold ${shares.toLocaleString('en-IN')} shares at around  ₹${price}/share.\n` +
+    `sold at Total ₹${total.toLocaleString('en-IN')},\n` +
+    `${total}-${invested}= ${profit}(Profit)\n`
+
+  if (kind === 'cut') {
+    return (
+      saleLine('') +
+      `Here's your ${cutPct}% profit-sharing with TAX cut:\n` +
+      `${profit}*${cutPct}%= ₹${cutAmount.toLocaleString('en-IN')}.\n\n` +
+      `— ${signerName}`
+    )
+  }
+
+  const remaining = profit - cutAmount
+  const funderShare = Math.round(remaining / 2)
   return (
-    `${row.company_name} — sold ${row.lot_size * row.lots} shares at ₹${row.sell_price}/share.\n` +
-    `Total ₹${Math.round(result.totalSoldAmount).toLocaleString('en-IN')}, profit ₹${Math.round(result.grossProfit).toLocaleString('en-IN')}.\n` +
-    `Here's ${label}: ₹${Math.round(amount).toLocaleString('en-IN')}.\n\n— ${signerName}`
+    saleLine(`${row.holder_name}:- `) +
+    `after ${row.holder_name} (${cutPct}%):${profit}-${cutPct}%=${remaining}\n\n` +
+    `Here's your share of the profit:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n\n` +
+    `— ${signerName}`
   )
 }
 

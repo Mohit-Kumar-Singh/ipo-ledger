@@ -42,7 +42,7 @@ export function AccountsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [accounts, setAccounts] = useState<DematAccount[]>([])
-  const [unlinkedMembers, setUnlinkedMembers] = useState<Profile[]>([])
+  const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
@@ -57,9 +57,11 @@ export function AccountsPage() {
       supabase.from('profiles').select('*').eq('role', 'member'),
     ])
     const loadedAccounts = ((accountsRes.data ?? []) as DematAccount[]).sort(byHolderName)
-    const linkedIds = new Set(loadedAccounts.map((a) => a.linked_user_id).filter(Boolean))
     setAccounts(loadedAccounts)
-    setUnlinkedMembers(((membersRes.data ?? []) as Profile[]).filter((p) => !linkedIds.has(p.id)))
+    // Every member is a valid link target here, even one already linked to
+    // another account — a person can hold more than one demat account, and
+    // excluding them made the dropdown empty for their other account(s).
+    setLinkableMembers((membersRes.data ?? []) as Profile[])
     setLoading(false)
   }
 
@@ -201,7 +203,7 @@ export function AccountsPage() {
             accounts={activeAccounts}
             emptyLabel="No active accounts."
             isAdmin={isAdmin}
-            unlinkedMembers={unlinkedMembers}
+            linkableMembers={linkableMembers}
             linking={linking}
             revealing={revealing}
             revealed={revealed}
@@ -225,7 +227,7 @@ export function AccountsPage() {
             emptyLabel="No inactive accounts."
             collapsedByDefault
             isAdmin={isAdmin}
-            unlinkedMembers={unlinkedMembers}
+            linkableMembers={linkableMembers}
             linking={linking}
             revealing={revealing}
             revealed={revealed}
@@ -254,7 +256,7 @@ function AccountSection({
   emptyLabel,
   collapsedByDefault,
   isAdmin,
-  unlinkedMembers,
+  linkableMembers,
   linking,
   revealing,
   revealed,
@@ -273,7 +275,7 @@ function AccountSection({
   emptyLabel: string
   collapsedByDefault?: boolean
   isAdmin: boolean
-  unlinkedMembers: Profile[]
+  linkableMembers: Profile[]
   linking: string | null
   revealing: string | null
   revealed: Record<string, string>
@@ -328,7 +330,7 @@ function AccountSection({
                     key={a.id}
                     existing={editingAccount}
                     isAdmin={isAdmin}
-                    unlinkedMembers={unlinkedMembers}
+                    linkableMembers={linkableMembers}
                     linking={linking === a.id}
                     onLinkMember={onLinkMember}
                     onCancel={onCancelEdit}
@@ -462,7 +464,7 @@ const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/
 function AccountForm({
   existing,
   isAdmin,
-  unlinkedMembers,
+  linkableMembers,
   linking,
   onLinkMember,
   onCancel,
@@ -470,7 +472,7 @@ function AccountForm({
 }: {
   existing?: EditingAccount
   isAdmin?: boolean
-  unlinkedMembers?: Profile[]
+  linkableMembers?: Profile[]
   linking?: boolean
   onLinkMember?: (dematId: string, userId: string) => void
   onCancel: () => void
@@ -627,7 +629,7 @@ function AccountForm({
           {isActive ? 'Active — used regularly' : 'Inactive — not used regularly'}
         </div>
       </Field>
-      {existing && !existing.linkedUserId && isAdmin && unlinkedMembers && unlinkedMembers.length > 0 && (
+      {existing && !existing.linkedUserId && isAdmin && linkableMembers && linkableMembers.length > 0 && (
         <Field label="Link to member">
           <select
             value=""
@@ -637,7 +639,7 @@ function AccountForm({
             aria-label={`Link ${existing.holderName} to a registered member`}
           >
             <option value="">{linking ? 'Linking…' : 'Select a member…'}</option>
-            {unlinkedMembers.map((m) => (
+            {linkableMembers.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.full_name}
               </option>

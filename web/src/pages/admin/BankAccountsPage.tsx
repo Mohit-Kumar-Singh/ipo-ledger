@@ -15,7 +15,8 @@ interface EditingBank {
 }
 
 export function BankAccountsPage() {
-  const { session } = useAuth()
+  const { session, profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [dematHolderNames, setDematHolderNames] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -120,6 +121,7 @@ export function BankAccountsPage() {
       {showForm && session && (
         <BankForm
           userId={session.user.id}
+          isAdmin={isAdmin}
           dematHolderNames={dematHolderNames}
           onCancel={() => setShowForm(false)}
           onDone={() => {
@@ -132,6 +134,7 @@ export function BankAccountsPage() {
       {editing && session && (
         <BankForm
           userId={session.user.id}
+          isAdmin={isAdmin}
           dematHolderNames={dematHolderNames}
           existing={editing}
           onCancel={() => setEditing(null)}
@@ -220,12 +223,14 @@ export function BankAccountsPage() {
 
 function BankForm({
   userId,
+  isAdmin,
   existing,
   dematHolderNames,
   onCancel,
   onDone,
 }: {
   userId: string
+  isAdmin: boolean
   existing?: EditingBank
   dematHolderNames: string[]
   onCancel: () => void
@@ -260,12 +265,13 @@ function BankForm({
       is_default: isDefault,
     }
 
-    // linked_user_id is only set on creation (the creator becomes the owner
-    // for RLS purposes) — never reassigned on edit, so an admin editing
-    // someone else's entry doesn't change who owns it.
+    // linked_user_id is only set on creation, and only for a member adding
+    // their own bank/UPI account (self-service ownership for RLS purposes).
+    // When admin adds one, it's on someone else's behalf, not a claim of
+    // ownership — so it's left unlinked rather than defaulting to admin.
     const { error } = existing
       ? await supabase.from('bank_accounts').update(payload).eq('id', existing.id)
-      : await supabase.from('bank_accounts').insert({ ...payload, linked_user_id: userId })
+      : await supabase.from('bank_accounts').insert({ ...payload, linked_user_id: isAdmin ? null : userId })
 
     setSubmitting(false)
     if (error) {
