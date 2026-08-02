@@ -10,6 +10,7 @@ interface PanAccessLogRow {
   demat_id: string
   accessed_by: string
   accessed_at: string
+  is_self_reveal: boolean
   demat_accounts: { holder_name: string } | null
   profiles: { full_name: string } | null
 }
@@ -166,7 +167,14 @@ function PanAccessLogSection() {
                   <td className="px-4 py-2.5" style={{ color: 'var(--ink-primary)' }}>
                     {r.demat_accounts?.holder_name ?? '—'}
                   </td>
-                  <td className="px-4 py-2.5">{r.profiles?.full_name ?? '—'}</td>
+                  <td className="px-4 py-2.5">
+                    {r.profiles?.full_name ?? '—'}
+                    {r.is_self_reveal && (
+                      <span className="ml-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        (self)
+                      </span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {rows.length === 0 && (

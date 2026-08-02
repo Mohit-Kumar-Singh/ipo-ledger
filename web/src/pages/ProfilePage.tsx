@@ -1,10 +1,25 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CreditCard, Mail, Phone, ShieldCheck, User } from 'lucide-react'
+import { CreditCard, Mail, Phone, Search, ShieldCheck, User, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import type { DematAccount, DematLinkRequest, LinkRequestStatus } from '../types/database'
 
 const PHONE_RE = /^[0-9]{10}$/
 const PAN_RE = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/
+
+interface SearchResult {
+  id: string
+  holder_name: string
+  phone_masked: string
+}
+
+type MyRequestRow = DematLinkRequest & { demat_accounts: Pick<DematAccount, 'holder_name'> | null }
+
+const requestStatusBadge: Record<LinkRequestStatus, string> = {
+  PENDING: 'badge-warning',
+  APPROVED: 'badge-good',
+  REJECTED: 'badge-critical',
+}
 
 export function ProfilePage() {
   const { session, profile, refreshProfile } = useAuth()
@@ -16,11 +31,34 @@ export function ProfilePage() {
   const [pan, setPan] = useState('')
   const [panSubmitting, setPanSubmitting] = useState(false)
   const [panResult, setPanResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchedOnce, setSearchedOnce] = useState(false)
+  const [requestingId, setRequestingId] = useState<string | null>(null)
+  const [requestResult, setRequestResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
+  const [myRequests, setMyRequests] = useState<MyRequestRow[]>([])
+  const [loadingRequests, setLoadingRequests] = useState(true)
+  const [cancellingId, setCancellingId] = useState<string | null>(null)
 
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
     setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
   }, [profile?.full_name, profile?.phone_e164])
+
+  async function loadMyRequests() {
+    setLoadingRequests(true)
+    const { data } = await supabase
+      .from('demat_link_requests')
+      .select('*, demat_accounts(holder_name)')
+      .order('requested_at', { ascending: false })
+    setMyRequests((data ?? []) as MyRequestRow[])
+    setLoadingRequests(false)
+  }
+
+  useEffect(() => {
+    loadMyRequests()
+  }, [])
 
   const phoneValid = phoneDigits.length === 0 || PHONE_RE.test(phoneDigits)
 
@@ -54,7 +92,7 @@ export function ProfilePage() {
     setTimeout(() => setJustSaved(false), 2000)
   }
 
-  async function handleVerifyPan(e: FormEvent) {
+  async function handleSavePan(e: FormEvent) {
     e.preventDefault()
     setPanResult(null)
 
@@ -65,29 +103,67 @@ export function ProfilePage() {
     }
 
     setPanSubmitting(true)
-    const { data, error } = await supabase.rpc('link_self_by_pan', { p_pan: normalized })
+    const { error } = await supabase.rpc('set_self_pan_hash', { p_pan: normalized })
     setPanSubmitting(false)
     if (error) {
       setPanResult({ tone: 'critical', message: error.message })
       return
     }
-
-    const status = (data as { status: string; holder_name?: string } | null)?.status
-    if (status === 'linked') {
-      setPanResult({
-        tone: 'good',
-        message: `Verified — linked to ${(data as { holder_name: string }).holder_name}'s account. It'll show up under Accounts now.`,
-      })
-      setPan('')
-    } else if (status === 'linked_elsewhere') {
-      setPanResult({ tone: 'warning', message: 'This PAN is already linked to another account. Contact the admin if that looks wrong.' })
-    } else {
-      setPanResult({
-        tone: 'warning',
-        message: "No matching account found yet. Once the admin adds it, come back and try again.",
-      })
-    }
+    setPanResult({ tone: 'good', message: 'PAN saved — you can now request to link a matching account below.' })
+    setPan('')
     await refreshProfile()
+  }
+
+  async function handleSearch(e: FormEvent) {
+    e.preventDefault()
+    setSearching(true)
+    setRequestResult(null)
+    const { data, error } = await supabase.rpc('search_unlinked_demat_accounts', { p_query: searchQuery.trim() })
+    setSearching(false)
+    setSearchedOnce(true)
+    if (error) {
+      setRequestResult({ tone: 'critical', message: error.message })
+      setSearchResults([])
+      return
+    }
+    setSearchResults((data ?? []) as SearchResult[])
+  }
+
+  async function handleRequestLink(dematId: string) {
+    setRequestingId(dematId)
+    setRequestResult(null)
+    const { data, error } = await supabase.rpc('request_demat_link', { p_demat_id: dematId })
+    setRequestingId(null)
+    if (error) {
+      setRequestResult({ tone: 'critical', message: error.message })
+      return
+    }
+
+    const status = (data as { status: string } | null)?.status
+    const outcomes: Record<string, { tone: 'good' | 'warning' | 'critical'; message: string }> = {
+      requested: { tone: 'good', message: 'Requested — the admin will review it.' },
+      no_pan_on_file: { tone: 'warning', message: 'Save your PAN above first.' },
+      pan_mismatch: { tone: 'warning', message: "That account's PAN doesn't match yours on file." },
+      already_pending: { tone: 'warning', message: 'You already have a pending request for this account.' },
+      already_linked: { tone: 'warning', message: 'Someone already linked to this account.' },
+      not_found: { tone: 'critical', message: 'Account not found.' },
+    }
+    setRequestResult(outcomes[status ?? ''] ?? { tone: 'critical', message: 'Something went wrong.' })
+    if (status === 'requested') {
+      setSearchResults((r) => r.filter((x) => x.id !== dematId))
+      await loadMyRequests()
+    }
+  }
+
+  async function cancelRequest(id: string) {
+    setCancellingId(id)
+    const { error } = await supabase.from('demat_link_requests').delete().eq('id', id)
+    setCancellingId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    loadMyRequests()
   }
 
   return (
@@ -178,16 +254,16 @@ export function ProfilePage() {
         </button>
       </form>
 
-      <form onSubmit={handleVerifyPan} className="card animate-page-in space-y-3 p-5">
+      <form onSubmit={handleSavePan} className="card animate-page-in space-y-3 p-5">
         <div className="flex items-center gap-2">
           <ShieldCheck size={16} style={{ color: 'var(--accent)' }} />
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Link your account
+            Your PAN
           </h2>
         </div>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Want to link your account? Enter your PAN below and get verified — if it matches a demat account already
-          on file, it's linked to you immediately.
+          Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the
+          admin still approves each link.
         </p>
 
         <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
@@ -206,16 +282,114 @@ export function ProfilePage() {
 
         {profile?.self_pan_hash && (
           <p className="text-xs" style={{ color: 'var(--good)' }}>
-            A PAN is on file for you — verify again anytime, e.g. after the admin adds your account.
+            A PAN is on file for you — save again anytime to replace it.
           </p>
         )}
 
         {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
 
         <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
-          {panSubmitting ? 'Verifying…' : 'Verify'}
+          {panSubmitting ? 'Saving…' : 'Save PAN'}
         </button>
       </form>
+
+      <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Request to link a demat account
+        </h2>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
+          here, and only the name and a masked phone number.
+        </p>
+        <div className="flex items-center gap-2">
+          <Search size={15} style={{ color: 'var(--ink-muted)' }} />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Name or last 4 digits"
+            className="input"
+          />
+          <button type="submit" disabled={searching || !searchQuery.trim()} className="btn-secondary shrink-0 disabled:opacity-50">
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+
+        {requestResult && <p className={`badge w-fit badge-${requestResult.tone}`}>{requestResult.message}</p>}
+
+        {searchedOnce && searchResults.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No matching unlinked accounts.
+          </p>
+        )}
+
+        {searchResults.length > 0 && (
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {searchResults.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div>
+                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.holder_name}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {r.phone_masked}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRequestLink(r.id)}
+                  disabled={requestingId === r.id}
+                  className="link-accent shrink-0 text-xs font-medium disabled:opacity-50"
+                >
+                  {requestingId === r.id ? 'Requesting…' : 'Request link'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </form>
+
+      <div className="card animate-page-in space-y-3 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Your requests
+        </h2>
+        {loadingRequests ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : myRequests.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No link requests yet.
+          </p>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {myRequests.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div>
+                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.demat_accounts?.holder_name ?? '—'}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    Requested {new Date(r.requested_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`badge ${requestStatusBadge[r.status]}`}>{r.status}</span>
+                  {r.status === 'PENDING' && (
+                    <button
+                      onClick={() => cancelRequest(r.id)}
+                      disabled={cancellingId === r.id}
+                      aria-label="Cancel request"
+                      className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -203,17 +203,27 @@ export function BankAccountsPage() {
                 {b.phone_e164 && <span style={{ color: 'var(--ink-muted)' }}>{b.phone_e164}</span>}
                 {b.is_default && <span className="badge badge-info">default</span>}
               </div>
-              <div className="flex shrink-0 gap-3">
-                <button onClick={() => startEdit(b)} className="link-accent text-xs font-medium">
-                  Edit
-                </button>
-                <button
-                  onClick={() => deleteBank(b.id)}
-                  className="text-xs font-medium hover:underline"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  Delete
-                </button>
+              <div className="flex shrink-0 items-center gap-3">
+                {isAdmin || b.linked_user_id === session?.user.id ? (
+                  <>
+                    <button onClick={() => startEdit(b)} className="link-accent text-xs font-medium">
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteBank(b.id)}
+                      className="text-xs font-medium hover:underline"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      Delete
+                    </button>
+                  </>
+                ) : (
+                  // Not one this member created themselves — reachable only via
+                  // their own linked demat account, i.e. admin added it on their
+                  // behalf. They get narrow edit rights (UPI ID only), not the
+                  // full form, and no delete.
+                  <UpiOnlyEdit bank={b} onSaved={load} />
+                )}
               </div>
             </div>
           ))}
@@ -357,6 +367,59 @@ function BankForm({
         </button>
       </div>
     </form>
+  )
+}
+
+function UpiOnlyEdit({ bank, onSaved }: { bank: BankAccount; onSaved: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [upi, setUpi] = useState(bank.upi_id ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function save() {
+    setSaving(true)
+    setError(null)
+    const { error } = await supabase.rpc('update_own_bank_upi', {
+      p_bank_account_id: bank.id,
+      p_upi_id: upi.trim() || null,
+    })
+    setSaving(false)
+    if (error) {
+      setError(error.message)
+      return
+    }
+    setEditing(false)
+    onSaved()
+  }
+
+  if (!editing) {
+    return (
+      <button onClick={() => setEditing(true)} className="link-accent text-xs font-medium">
+        Edit UPI
+      </button>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <input
+        value={upi}
+        onChange={(e) => setUpi(e.target.value)}
+        placeholder="name@bank"
+        className="input h-8 w-36 text-xs"
+      />
+      <button onClick={save} disabled={saving} className="link-accent text-xs font-medium disabled:opacity-50">
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)} className="text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+        Cancel
+      </button>
+      {error && (
+        <span className="text-xs" style={{ color: 'var(--critical)' }}>
+          {error}
+        </span>
+      )}
+    </div>
   )
 }
 

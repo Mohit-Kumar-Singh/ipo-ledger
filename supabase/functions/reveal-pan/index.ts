@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     const { data: pan, error } = await admin.rpc('decrypt_pan', { p_demat_id: demat_id, p_key: PAN_KEY })
     if (error || !pan) return jsonError(error?.message ?? 'not found', 404, cors)
 
-    await admin.from('pan_access_log').insert({ demat_id, accessed_by: userData.user.id })
+    await admin.from('pan_access_log').insert({ demat_id, accessed_by: userData.user.id, is_self_reveal: !isAdmin })
 
     return jsonResponse({ pan }, 200, cors)
   } catch (err) {

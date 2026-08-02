@@ -131,6 +131,18 @@ export interface RegistrarLink {
   check_url: string
 }
 
+export type LinkRequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED'
+
+export interface DematLinkRequest {
+  id: string
+  member_id: string
+  demat_id: string
+  status: LinkRequestStatus
+  requested_at: string
+  decided_by: string | null
+  decided_at: string | null
+}
+
 // Minimal Database type so supabase-js generics resolve without full codegen.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Database = any

@@ -1,12 +1,17 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, Landmark, Wallet } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock, Landmark, Link2, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { AreaChart, type AreaChartPoint } from '../../components/AreaChart'
 import { computeProfitSplit } from '../../lib/profitSplit'
-import type { AllotmentBoardRow, Ipo, Notification } from '../../types/database'
+import type { AllotmentBoardRow, DematAccount, DematLinkRequest, Ipo, Notification, Profile } from '../../types/database'
+
+interface LinkRequestRow extends DematLinkRequest {
+  profiles: Pick<Profile, 'full_name'> | null
+  demat_accounts: Pick<DematAccount, 'holder_name'> | null
+}
 
 interface PendingPayoutLine {
   applicationId: string
@@ -28,6 +33,7 @@ interface DashboardData {
   failedMessages: Notification[]
   activity: AreaChartPoint[]
   pendingPayouts: PendingPayout[]
+  linkRequests: LinkRequestRow[]
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -98,6 +104,18 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
+  const [decidingId, setDecidingId] = useState<string | null>(null)
+
+  async function decideLinkRequest(id: string, approve: boolean) {
+    setDecidingId(id)
+    const { error } = await supabase.rpc('decide_demat_link_request', { p_request_id: id, p_approve: approve })
+    setDecidingId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setData((d) => (d ? { ...d, linkRequests: d.linkRequests.filter((r) => r.id !== id) } : d))
+  }
 
   async function markPayoutPaid(line: PendingPayoutLine) {
     setMarkingPaid(line.applicationId + line.field)
@@ -124,7 +142,7 @@ export function DashboardPage() {
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
       const since7d = new Date(Date.now() - 6 * 86400000).toISOString()
 
-      const [closingSoon, board, failedMessages, recentApplications] = await Promise.all([
+      const [closingSoon, board, failedMessages, recentApplications, linkRequests] = await Promise.all([
         supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
         supabase.from('v_allotment_board').select('*'),
         supabase
@@ -134,6 +152,14 @@ export function DashboardPage() {
           .order('created_at', { ascending: false })
           .limit(20),
         supabase.from('applications').select('applied_at').gte('applied_at', since7d),
+        supabase
+          .from('demat_link_requests')
+          // demat_link_requests has two FKs into profiles (member_id,
+          // decided_by) — the embed must be disambiguated with !member_id,
+          // or PostgREST can't tell which relationship to follow and the
+          // whole query errors out.
+          .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
+          .order('requested_at', { ascending: false }),
       ])
 
       if (cancelled) return
@@ -148,6 +174,7 @@ export function DashboardPage() {
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
+        linkRequests: (linkRequests.data ?? []) as LinkRequestRow[],
       })
       setLoading(false)
     }
@@ -158,6 +185,8 @@ export function DashboardPage() {
   }, [])
 
   if (loading || !data) return <DashboardSkeleton />
+
+  const pendingLinkRequests = data.linkRequests.filter((r) => r.status === 'PENDING')
 
   return (
     <div className="space-y-8">
@@ -173,6 +202,9 @@ export function DashboardPage() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile icon={Clock} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
         <StatTile icon={Landmark} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
+        {isAdmin && (
+          <StatTile icon={Link2} label="Pending link requests" value={pendingLinkRequests.length} tone="warning" />
+        )}
         <StatTile icon={CheckCircle2} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
         <StatTile icon={AlertTriangle} label="Failed messages" value={data.failedMessages.length} tone="critical" />
         {isAdmin && (
@@ -233,6 +265,63 @@ export function DashboardPage() {
             </Row>
           ))}
         </Section>
+
+        {isAdmin && (
+          <Section title="Pending link requests" empty="None pending">
+            {pendingLinkRequests.map((r) => (
+              <div key={r.id} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
+                <div
+                  className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
+                  style={{ width: '2rem', height: '2rem' }}
+                >
+                  {(r.profiles?.full_name ?? '?')[0]?.toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.profiles?.full_name ?? 'Unknown'}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    wants to link {r.demat_accounts?.holder_name ?? 'an account'}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-3">
+                  <button
+                    onClick={() => decideLinkRequest(r.id, true)}
+                    disabled={decidingId === r.id}
+                    className="link-accent text-xs font-medium disabled:opacity-50"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => decideLinkRequest(r.id, false)}
+                    disabled={decidingId === r.id}
+                    className="text-xs font-medium hover:underline disabled:opacity-50"
+                    style={{ color: 'var(--critical)' }}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </Section>
+        )}
+
+        {!isAdmin && (
+          <Section title="Your link requests" empty="No link requests yet">
+            {data.linkRequests.map((r) => (
+              <Row
+                key={r.id}
+                initial={(r.demat_accounts?.holder_name ?? '?')[0]}
+                tone={r.status === 'APPROVED' ? 'good' : r.status === 'REJECTED' ? 'critical' : 'warning'}
+              >
+                <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {r.demat_accounts?.holder_name ?? '—'}
+                </span>
+                <span style={{ color: 'var(--ink-muted)' }}>{r.status}</span>
+              </Row>
+            ))}
+          </Section>
+        )}
 
         {isAdmin && (
           <Section title="Payouts pending" empty="Nothing owed right now">
