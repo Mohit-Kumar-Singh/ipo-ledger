@@ -152,22 +152,6 @@ table {
   animation: page-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* Stacked-bar chart segments grow in from zero width — the segment's own
-   width is already its final layout %, so this scales it rather than
-   animating width directly (cheaper, no layout thrash per frame). */
-@keyframes chart-grow {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-.animate-chart-grow {
-  transform-origin: left;
-  animation: chart-grow 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
@@ -254,7 +238,6 @@ table {
   .animate-page-in,
   .animate-toast-in,
   .animate-toast-out,
-  .animate-chart-grow,
   .skeleton {
     animation: none;
   }
