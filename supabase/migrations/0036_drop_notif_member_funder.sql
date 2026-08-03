@@ -1,0 +1,17 @@
+-- ============================================================
+-- Same class of bug as 0034, on notifications instead of demat_accounts:
+-- p_notif_member_funder (0032) gave a funder full-row SELECT on every
+-- notification tied to an application their bank/UPI account funded —
+-- including to_phone (the demat holder's real WhatsApp number) and
+-- variables. ApplicationsPage embeds notifications directly and its
+-- "Send/Open WhatsApp" button uses to_phone, so a funder could see a
+-- stranger's phone number and open a prefilled WhatsApp chat to them.
+--
+-- Drop the grant. notifications is a to-many embed in ApplicationsPage
+-- (array, not a single object), so unlike the demat_accounts case there is
+-- no join-collapse risk — a funder-only application just shows an empty
+-- notifications list instead of leaking someone else's contact details.
+-- Funder-side attribution/pie-chart credit and application visibility are
+-- untouched; this only removes visibility into the notification rows.
+-- ============================================================
+drop policy if exists p_notif_member_funder on notifications;
