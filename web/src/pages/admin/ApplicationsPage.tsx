@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
+import { Combobox } from '../../components/Combobox'
 import type {
   Application,
   ApplicationCategory,
@@ -532,47 +533,35 @@ function NewApplicationForm({
             {selectedAccount?.holder_name ?? existing.demat_accounts?.holder_name}
           </p>
         ) : (
-          <select
-            required
+          <Combobox
+            aria-label="Demat account"
+            placeholder="Select account"
+            searchPlaceholder="Search accounts…"
             value={dematId}
-            onChange={(e) => setDematId(e.target.value)}
-            className="input"
-          >
-            <option value="">Select account</option>
-            {accounts.filter((a) => a.is_active).length > 0 && (
-              <optgroup label="Active accounts">
-                {accounts
-                  .filter((a) => a.is_active)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.holder_name}
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-            {accounts.filter((a) => !a.is_active).length > 0 && (
-              <optgroup label="Inactive accounts">
-                {accounts
-                  .filter((a) => !a.is_active)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.holder_name}
-                    </option>
-                  ))}
-              </optgroup>
-            )}
-          </select>
+            onChange={setDematId}
+            options={accounts.map((a) => ({
+              value: a.id,
+              label: a.holder_name,
+              group: a.is_active ? 'Active accounts' : 'Inactive accounts',
+            }))}
+          />
         )}
       </Field>
       <Field label="Bank account used">
-        <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="input">
-          <option value="">Select bank/UPI</option>
-          {banks.map((b) => (
-            <option key={b.id} value={b.id}>
-              {[b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account'}
-            </option>
-          ))}
-        </select>
+        <Combobox
+          aria-label="Bank account used"
+          placeholder="Select bank/UPI"
+          searchPlaceholder="Search bank/UPI accounts…"
+          value={bankAccountId}
+          onChange={setBankAccountId}
+          options={[
+            { value: '', label: 'None' },
+            ...banks.map((b) => ({
+              value: b.id,
+              label: [b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account',
+            })),
+          ]}
+        />
       </Field>
       <Field label="Category">
         <select value={category} onChange={(e) => setCategory(e.target.value as ApplicationCategory)} className="input">
