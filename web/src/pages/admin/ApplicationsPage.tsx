@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { History, Pencil, Trash2 } from 'lucide-react'
+import { AlertTriangle, History, Pencil, Trash2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -32,6 +32,7 @@ export function ApplicationsPage() {
   const [accounts, setAccounts] = useState<DematAccount[]>([])
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
@@ -40,12 +41,18 @@ export function ApplicationsPage() {
 
   async function loadApplications() {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('applications')
       .select(
         '*, ipos(company_name), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
+    if (error) {
+      setLoadError(error.message)
+      setLoading(false)
+      return
+    }
+    setLoadError(null)
     setApplications((data ?? []) as ApplicationRow[])
     setLoading(false)
   }
@@ -182,9 +189,18 @@ export function ApplicationsPage() {
         />
       )}
 
+      {loadError && (
+        <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
+            Couldn't load applications: {loadError}
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <InlineSpinner />
-      ) : applications.length === 0 ? (
+      ) : loadError ? null : applications.length === 0 ? (
         <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           No applications yet.
         </p>

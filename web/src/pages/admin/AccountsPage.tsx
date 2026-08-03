@@ -44,6 +44,7 @@ export function AccountsPage() {
   const [accounts, setAccounts] = useState<DematAccount[]>([])
   const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
@@ -52,10 +53,16 @@ export function AccountsPage() {
 
   async function load() {
     setLoading(true)
+    setLoadError(null)
     const [accountsRes, membersRes] = await Promise.all([
       supabase.from('demat_accounts').select('*').order('holder_name', { ascending: true }),
       supabase.from('profiles').select('*').eq('role', 'member'),
     ])
+    if (accountsRes.error || membersRes.error) {
+      setLoadError((accountsRes.error ?? membersRes.error)?.message ?? 'Failed to load accounts.')
+      setLoading(false)
+      return
+    }
     const loadedAccounts = ((accountsRes.data ?? []) as DematAccount[]).sort(byHolderName)
     setAccounts(loadedAccounts)
     // Every member is a valid link target here, even one already linked to
@@ -200,9 +207,18 @@ export function AccountsPage() {
         </div>
       )}
 
+      {loadError && (
+        <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
+            Couldn't load accounts: {loadError}
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <InlineSpinner />
-      ) : accounts.length === 0 ? (
+      ) : loadError ? null : accounts.length === 0 ? (
         <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           No accounts yet.
         </p>
