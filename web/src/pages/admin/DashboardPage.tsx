@@ -5,6 +5,8 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { AttributionChart } from '../../components/AttributionChart'
+import { IpoProgressGauge } from '../../components/IpoProgressGauge'
+import { isLiveIpo } from '../../lib/ipoStatus'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { computeIpoAttribution, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
@@ -55,12 +57,23 @@ interface PendingPayout {
   lines: PendingPayoutLine[]
 }
 
+interface IpoProgress {
+  ipoId: string
+  companyName: string
+  openDate: string
+  endDate: string
+  applied: number
+  totalActive: number
+  gmpNotes: string | null
+}
+
 interface DashboardData {
   closingSoon: Ipo[]
   pendingMandate: AllotmentBoardRow[]
   allottedNotSold: AllotmentBoardRow[]
   failedMessages: Notification[]
   attribution: IpoAttribution[]
+  ipoProgress: IpoProgress[]
   pendingPayouts: PendingPayout[]
   linkRequests: LinkRequestRow[]
   bankLinkRequests: BankLinkRequestRow[]
@@ -163,29 +176,32 @@ export function DashboardPage() {
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
 
-      const [closingSoon, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] = await Promise.all([
-        supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
-        supabase.from('v_allotment_board').select('*'),
-        supabase
-          .from('notifications')
-          .select('*')
-          .eq('status', 'FAILED')
-          .order('created_at', { ascending: false })
-          .limit(20),
-        supabase.from('v_application_attribution').select('*'),
-        supabase
-          .from('demat_link_requests')
-          // demat_link_requests has two FKs into profiles (member_id,
-          // decided_by) — the embed must be disambiguated with !member_id,
-          // or PostgREST can't tell which relationship to follow and the
-          // whole query errors out.
-          .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
-          .order('requested_at', { ascending: false }),
-        supabase
-          .from('bank_link_requests')
-          .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
-          .order('requested_at', { ascending: false }),
-      ])
+      const [closingSoon, allIpos, activeAccountsCount, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] =
+        await Promise.all([
+          supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
+          supabase.from('ipos').select('*'),
+          supabase.from('demat_accounts').select('id', { count: 'exact', head: true }).eq('is_active', true),
+          supabase.from('v_allotment_board').select('*'),
+          supabase
+            .from('notifications')
+            .select('*')
+            .eq('status', 'FAILED')
+            .order('created_at', { ascending: false })
+            .limit(20),
+          supabase.from('v_application_attribution').select('*'),
+          supabase
+            .from('demat_link_requests')
+            // demat_link_requests has two FKs into profiles (member_id,
+            // decided_by) — the embed must be disambiguated with !member_id,
+            // or PostgREST can't tell which relationship to follow and the
+            // whole query errors out.
+            .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
+            .order('requested_at', { ascending: false }),
+          supabase
+            .from('bank_link_requests')
+            .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
+            .order('requested_at', { ascending: false }),
+        ])
 
       if (cancelled) return
 
@@ -197,12 +213,33 @@ export function DashboardPage() {
       if (cancelled) return
 
       const boardRows = (board.data ?? []) as AllotmentBoardRow[]
+
+      // Applied-per-IPO counts come from the board rows already fetched above
+      // (one row per application) rather than a separate query — v_allotment_board
+      // already covers every IPO, not just the top-8-by-open-date attribution set.
+      const appliedByIpo = new Map<string, number>()
+      for (const r of boardRows) appliedByIpo.set(r.ipo_id, (appliedByIpo.get(r.ipo_id) ?? 0) + 1)
+      const totalActive = activeAccountsCount.count ?? 0
+      const ipoProgress: IpoProgress[] = ((allIpos.data ?? []) as Ipo[])
+        .filter(isLiveIpo)
+        .map((ipo) => ({
+          ipoId: ipo.id,
+          companyName: ipo.company_name,
+          openDate: ipo.open_date,
+          endDate: ipo.listing_date ?? ipo.close_date,
+          applied: appliedByIpo.get(ipo.id) ?? 0,
+          totalActive,
+          gmpNotes: ipo.gmp_notes,
+        }))
+        .sort((a, b) => a.endDate.localeCompare(b.endDate))
+
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
+        ipoProgress,
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
@@ -282,6 +319,27 @@ export function DashboardPage() {
           />
         )}
       </div>
+
+      {data.ipoProgress.length > 0 && (
+        <section>
+          <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            IPO progress
+          </h2>
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+            {data.ipoProgress.map((p) => (
+              <IpoProgressGauge
+                key={p.ipoId}
+                companyName={p.companyName}
+                startDate={p.openDate}
+                endDate={p.endDate}
+                applied={p.applied}
+                total={p.totalActive}
+                gmpNotes={p.gmpNotes}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section>
         <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
