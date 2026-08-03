@@ -20,7 +20,10 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
-  demat_accounts: Pick<DematAccount, 'holder_name' | 'linked_user_id'>
+  // null when the viewer is only the funder, not the demat owner or admin —
+  // RLS blocks the full row (phone, DP client ID, profit share, PAN mask),
+  // backfilled with just holder_name below via resolve_demat_holder_names.
+  demat_accounts: Pick<DematAccount, 'holder_name' | 'linked_user_id'> | null
   bank_accounts: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
   notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
 }
@@ -54,7 +57,25 @@ export function ApplicationsPage() {
       return
     }
     setLoadError(null)
-    setApplications((data ?? []) as ApplicationRow[])
+    const rows = (data ?? []) as ApplicationRow[]
+
+    // Funder-only rows (viewer paid via a linked bank/UPI account but isn't
+    // the demat owner or admin) come back with demat_accounts = null — RLS
+    // deliberately withholds the full row. Backfill just the holder_name so
+    // the list still shows whose application this was, nothing more.
+    const missingIds = Array.from(new Set(rows.filter((r) => !r.demat_accounts).map((r) => r.demat_id)))
+    if (missingIds.length > 0) {
+      const { data: names } = await supabase.rpc('resolve_demat_holder_names', { p_ids: missingIds })
+      const nameById = new Map(((names ?? []) as { id: string; holder_name: string }[]).map((n) => [n.id, n.holder_name]))
+      for (const r of rows) {
+        if (!r.demat_accounts) {
+          const holderName = nameById.get(r.demat_id)
+          if (holderName) r.demat_accounts = { holder_name: holderName, linked_user_id: null }
+        }
+      }
+    }
+
+    setApplications(rows)
     setLoading(false)
   }
 
