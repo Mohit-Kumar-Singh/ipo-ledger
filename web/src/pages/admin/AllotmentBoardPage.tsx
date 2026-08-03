@@ -265,14 +265,7 @@ export function AllotmentBoardPage() {
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {row.holder_name}
                   </td>
-                  <td className="px-4 py-2.5">
-                    {[
-                      row.bank_name && row.last4 ? `${row.bank_name} ••${row.last4}` : row.bank_name,
-                      row.upi_id,
-                    ]
-                      .filter(Boolean)
-                      .join(' / ') || '—'}
-                  </td>
+                  <td className="px-4 py-2.5">{row.bank_account_holder_name ?? '—'}</td>
                   <td className="px-4 py-2.5">
                     <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
                   </td>

@@ -89,6 +89,17 @@ export function AccountsPage() {
     load()
   }
 
+  async function unlinkMember(dematId: string) {
+    setLinking(dematId)
+    const { error } = await supabase.from('demat_accounts').update({ linked_user_id: null }).eq('id', dematId)
+    setLinking(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
+
   async function fetchPan(id: string): Promise<string | null> {
     if (revealed[id]) return revealed[id]
     const { data, error } = await supabase.functions.invoke<{ pan: string }>('reveal-pan', {
@@ -210,6 +221,7 @@ export function AccountsPage() {
             duplicatePanIds={duplicatePanIds}
             editingAccount={editingAccount}
             onLinkMember={linkMember}
+            onUnlinkMember={unlinkMember}
             onRevealPan={revealPan}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
@@ -234,6 +246,7 @@ export function AccountsPage() {
             duplicatePanIds={duplicatePanIds}
             editingAccount={editingAccount}
             onLinkMember={linkMember}
+            onUnlinkMember={unlinkMember}
             onRevealPan={revealPan}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
@@ -263,6 +276,7 @@ function AccountSection({
   duplicatePanIds,
   editingAccount,
   onLinkMember,
+  onUnlinkMember,
   onRevealPan,
   onEdit,
   onCancelEdit,
@@ -282,6 +296,7 @@ function AccountSection({
   duplicatePanIds: Set<string>
   editingAccount: EditingAccount | null
   onLinkMember: (dematId: string, userId: string) => void
+  onUnlinkMember: (dematId: string) => void
   onRevealPan: (id: string) => void
   onEdit: (a: DematAccount) => void
   onCancelEdit: () => void
@@ -333,6 +348,7 @@ function AccountSection({
                     linkableMembers={linkableMembers}
                     linking={linking === a.id}
                     onLinkMember={onLinkMember}
+                    onUnlinkMember={onUnlinkMember}
                     onCancel={onCancelEdit}
                     onDone={onSavedEdit}
                   />
@@ -467,6 +483,7 @@ function AccountForm({
   linkableMembers,
   linking,
   onLinkMember,
+  onUnlinkMember,
   onCancel,
   onDone,
 }: {
@@ -475,6 +492,7 @@ function AccountForm({
   linkableMembers?: Profile[]
   linking?: boolean
   onLinkMember?: (dematId: string, userId: string) => void
+  onUnlinkMember?: (dematId: string) => void
   onCancel: () => void
   onDone: () => void
 }) {
@@ -629,6 +647,26 @@ function AccountForm({
           {isActive ? 'Active — used regularly' : 'Inactive — not used regularly'}
         </div>
       </Field>
+      {existing && existing.linkedUserId && isAdmin && (
+        <Field label="Linked member">
+          <div className="flex items-center gap-2 py-2">
+            <span className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--ink-primary)' }}>
+              <Link2 size={14} style={{ color: 'var(--good)' }} />
+              {linkableMembers?.find((m) => m.id === existing.linkedUserId)?.full_name ?? existing.linkedUserId}
+            </span>
+            <button
+              type="button"
+              disabled={linking}
+              onClick={() => onUnlinkMember?.(existing.id)}
+              className="link-accent text-xs font-medium disabled:opacity-50"
+              style={{ color: 'var(--critical)' }}
+            >
+              {linking ? 'Unlinking…' : 'Unlink'}
+            </button>
+          </div>
+        </Field>
+      )}
+
       {existing && !existing.linkedUserId && isAdmin && linkableMembers && linkableMembers.length > 0 && (
         <Field label="Link to member">
           <select
