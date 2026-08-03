@@ -32,6 +32,7 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [justSaved, setJustSaved] = useState(false)
   const [pan, setPan] = useState('')
+  const [editingPan, setEditingPan] = useState(false)
   const [panSubmitting, setPanSubmitting] = useState(false)
   const [panResult, setPanResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -131,6 +132,7 @@ export function ProfilePage() {
     }
     setPanResult({ tone: 'good', message: 'PAN saved — you can now request to link a matching account below.' })
     setPan('')
+    setEditingPan(false)
     await refreshProfile()
   }
 
@@ -286,31 +288,71 @@ export function ProfilePage() {
           admin still approves each link.
         </p>
 
-        <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-          PAN
-          <div className="mt-1 flex items-center gap-2">
-            <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
-            <input
-              value={pan}
-              onChange={(e) => setPan(e.target.value.toUpperCase())}
-              maxLength={10}
-              placeholder="ABCPD1234E"
-              className="input font-mono uppercase"
-            />
-          </div>
-        </label>
+        {editingPan || !profile?.self_pan_masked ? (
+          <>
+            <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+              PAN
+              <div className="mt-1 flex items-center gap-2">
+                <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                <input
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  maxLength={10}
+                  placeholder="ABCPD1234E"
+                  className="input font-mono uppercase"
+                />
+              </div>
+            </label>
 
-        {profile?.self_pan_hash && (
-          <p className="text-xs" style={{ color: 'var(--good)' }}>
-            A PAN is on file for you — save again anytime to replace it.
-          </p>
+            {profile?.self_pan_hash && !profile?.self_pan_masked && (
+              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                A PAN is already on file from before this showed a preview — save it again to see it below.
+              </p>
+            )}
+
+            {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+
+            <div className="flex gap-2">
+              <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
+                {panSubmitting ? 'Saving…' : 'Save PAN'}
+              </button>
+              {profile?.self_pan_masked && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingPan(false)
+                    setPan('')
+                    setPanResult(null)
+                  }}
+                  className="text-sm font-medium"
+                  style={{ color: 'var(--ink-muted)' }}
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+              style={{ borderColor: 'var(--border-strong)' }}
+            >
+              <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
+                <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                {profile.self_pan_masked}
+              </span>
+              <button
+                type="button"
+                onClick={() => setEditingPan(true)}
+                className="link-accent shrink-0 text-xs font-medium"
+              >
+                Change
+              </button>
+            </div>
+            {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+          </>
         )}
-
-        {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
-
-        <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
-          {panSubmitting ? 'Saving…' : 'Save PAN'}
-        </button>
       </form>
 
       <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">

@@ -20,6 +20,7 @@ export interface Profile {
   created_at: string
   has_seen_tour: boolean
   self_pan_hash: string | null
+  self_pan_masked: string | null
 }
 
 export interface DematAccount {
