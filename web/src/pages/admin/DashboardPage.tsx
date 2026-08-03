@@ -11,6 +11,8 @@ import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
+  BankAccount,
+  BankLinkRequest,
   DematAccount,
   DematLinkRequest,
   Ipo,
@@ -21,6 +23,23 @@ import type {
 interface LinkRequestRow extends DematLinkRequest {
   profiles: Pick<Profile, 'full_name'> | null
   demat_accounts: Pick<DematAccount, 'holder_name'> | null
+}
+
+interface BankLinkRequestRow extends BankLinkRequest {
+  profiles: Pick<Profile, 'full_name'> | null
+  bank_accounts: Pick<BankAccount, 'account_holder_name'> | null
+}
+
+// Unifies demat and bank/UPI link requests into one list for the admin
+// "Pending link requests" panel — same review action either way, just a
+// different target account and decision RPC.
+interface UnifiedLinkRequest {
+  id: string
+  kind: 'demat' | 'bank'
+  status: LinkRequestRow['status']
+  requestedAt: string
+  requesterName: string
+  targetName: string
 }
 
 interface PendingPayoutLine {
@@ -44,6 +63,7 @@ interface DashboardData {
   attribution: IpoAttribution[]
   pendingPayouts: PendingPayout[]
   linkRequests: LinkRequestRow[]
+  bankLinkRequests: BankLinkRequestRow[]
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -99,15 +119,24 @@ export function DashboardPage() {
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
 
-  async function decideLinkRequest(id: string, approve: boolean) {
+  async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
     setDecidingId(id)
-    const { error } = await supabase.rpc('decide_demat_link_request', { p_request_id: id, p_approve: approve })
+    const rpcName = kind === 'demat' ? 'decide_demat_link_request' : 'decide_bank_link_request'
+    const { error } = await supabase.rpc(rpcName, { p_request_id: id, p_approve: approve })
     setDecidingId(null)
     if (error) {
       alert(error.message)
       return
     }
-    setData((d) => (d ? { ...d, linkRequests: d.linkRequests.filter((r) => r.id !== id) } : d))
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            linkRequests: kind === 'demat' ? d.linkRequests.filter((r) => r.id !== id) : d.linkRequests,
+            bankLinkRequests: kind === 'bank' ? d.bankLinkRequests.filter((r) => r.id !== id) : d.bankLinkRequests,
+          }
+        : d,
+    )
   }
 
   async function markPayoutPaid(line: PendingPayoutLine) {
@@ -134,7 +163,7 @@ export function DashboardPage() {
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
 
-      const [closingSoon, board, failedMessages, attributionRes, linkRequests] = await Promise.all([
+      const [closingSoon, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] = await Promise.all([
         supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
         supabase.from('v_allotment_board').select('*'),
         supabase
@@ -151,6 +180,10 @@ export function DashboardPage() {
           // or PostgREST can't tell which relationship to follow and the
           // whole query errors out.
           .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
+          .order('requested_at', { ascending: false }),
+        supabase
+          .from('bank_link_requests')
+          .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
           .order('requested_at', { ascending: false }),
       ])
 
@@ -174,18 +207,51 @@ export function DashboardPage() {
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
         linkRequests: (linkRequests.data ?? []) as LinkRequestRow[],
+        bankLinkRequests: (bankLinkRequests.data ?? []) as BankLinkRequestRow[],
       })
       setLoading(false)
     }
     load()
+
+    // Live-refresh whenever an application changes — e.g. a member's
+    // dashboard should reflect the instant an admin creates/edits an
+    // application funded by that member's linked bank/UPI account, with no
+    // manual refresh.
+    const channel = supabase
+      .channel('dashboard-applications')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
+        if (!cancelled) load()
+      })
+      .subscribe()
+
     return () => {
       cancelled = true
+      supabase.removeChannel(channel)
     }
   }, [])
 
   if (loading || !data) return <DashboardSkeleton />
 
-  const pendingLinkRequests = data.linkRequests.filter((r) => r.status === 'PENDING')
+  const unifiedLinkRequests: UnifiedLinkRequest[] = [
+    ...data.linkRequests.map((r) => ({
+      id: r.id,
+      kind: 'demat' as const,
+      status: r.status,
+      requestedAt: r.requested_at,
+      requesterName: r.profiles?.full_name ?? 'Unknown',
+      targetName: r.demat_accounts?.holder_name ?? 'an account',
+    })),
+    ...data.bankLinkRequests.map((r) => ({
+      id: r.id,
+      kind: 'bank' as const,
+      status: r.status,
+      requestedAt: r.requested_at,
+      requesterName: r.profiles?.full_name ?? 'Unknown',
+      targetName: r.bank_accounts?.account_holder_name ?? 'a bank/UPI account',
+    })),
+  ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+
+  const pendingLinkRequests = unifiedLinkRequests.filter((r) => r.status === 'PENDING')
 
   return (
     <div className="space-y-8">
@@ -275,31 +341,31 @@ export function DashboardPage() {
         {isAdmin && (
           <Section title="Pending link requests" empty="None pending">
             {pendingLinkRequests.map((r) => (
-              <div key={r.id} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
+              <div key={`${r.kind}-${r.id}`} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
                 <div
                   className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
                   style={{ width: '2rem', height: '2rem' }}
                 >
-                  {(r.profiles?.full_name ?? '?')[0]?.toUpperCase()}
+                  {r.requesterName[0]?.toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.profiles?.full_name ?? 'Unknown'}
+                    {r.requesterName}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    wants to link {r.demat_accounts?.holder_name ?? 'an account'}
+                    wants to link {r.targetName} <span className="badge badge-neutral ml-1">{r.kind}</span>
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-3">
                   <button
-                    onClick={() => decideLinkRequest(r.id, true)}
+                    onClick={() => decideLinkRequest(r.kind, r.id, true)}
                     disabled={decidingId === r.id}
                     className="link-accent text-xs font-medium disabled:opacity-50"
                   >
                     Approve
                   </button>
                   <button
-                    onClick={() => decideLinkRequest(r.id, false)}
+                    onClick={() => decideLinkRequest(r.kind, r.id, false)}
                     disabled={decidingId === r.id}
                     className="text-xs font-medium hover:underline disabled:opacity-50"
                     style={{ color: 'var(--critical)' }}
@@ -314,14 +380,14 @@ export function DashboardPage() {
 
         {!isAdmin && (
           <Section title="Your link requests" empty="No link requests yet">
-            {data.linkRequests.map((r) => (
+            {unifiedLinkRequests.map((r) => (
               <Row
-                key={r.id}
-                initial={(r.demat_accounts?.holder_name ?? '?')[0]}
+                key={`${r.kind}-${r.id}`}
+                initial={r.targetName[0]}
                 tone={r.status === 'APPROVED' ? 'good' : r.status === 'REJECTED' ? 'critical' : 'warning'}
               >
                 <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {r.demat_accounts?.holder_name ?? '—'}
+                  {r.targetName} <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>({r.kind})</span>
                 </span>
                 <span style={{ color: 'var(--ink-muted)' }}>{r.status}</span>
               </Row>

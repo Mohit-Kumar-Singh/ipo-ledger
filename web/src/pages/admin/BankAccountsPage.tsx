@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Landmark } from 'lucide-react'
+import { Landmark, Link2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import type { BankAccount } from '../../types/database'
+import type { BankAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
 interface EditingBank {
@@ -19,20 +19,44 @@ export function BankAccountsPage() {
   const isAdmin = profile?.role === 'admin'
   const [banks, setBanks] = useState<BankAccount[]>([])
   const [dematPhoneByName, setDematPhoneByName] = useState<Record<string, string>>({})
+  const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [linking, setLinking] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('bank_accounts')
-      .select('*')
-      .order('is_default', { ascending: false })
-      .order('account_holder_name')
-    setBanks((data ?? []) as BankAccount[])
+    const [banksRes, membersRes] = await Promise.all([
+      supabase.from('bank_accounts').select('*').order('is_default', { ascending: false }).order('account_holder_name'),
+      supabase.from('profiles').select('*').eq('role', 'member'),
+    ])
+    setBanks((banksRes.data ?? []) as BankAccount[])
+    setLinkableMembers((membersRes.data ?? []) as Profile[])
     setLoading(false)
+  }
+
+  async function linkMember(bankAccountId: string, userId: string) {
+    setLinking(bankAccountId)
+    const { error } = await supabase.from('bank_accounts').update({ linked_user_id: userId }).eq('id', bankAccountId)
+    setLinking(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
+
+  async function unlinkMember(bankAccountId: string) {
+    setLinking(bankAccountId)
+    const { error } = await supabase.from('bank_accounts').update({ linked_user_id: null }).eq('id', bankAccountId)
+    setLinking(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
   }
 
   useEffect(() => {
@@ -202,6 +226,36 @@ export function BankAccountsPage() {
                 {b.bank_name && <span style={{ color: 'var(--ink-muted)' }}>{b.bank_name}</span>}
                 {b.phone_e164 && <span style={{ color: 'var(--ink-muted)' }}>{b.phone_e164}</span>}
                 {b.is_default && <span className="badge badge-info">default</span>}
+                {isAdmin && b.linked_user_id && (
+                  <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--good)' }}>
+                    <Link2 size={12} />
+                    {linkableMembers.find((m) => m.id === b.linked_user_id)?.full_name ?? 'linked'}
+                    <button
+                      onClick={() => unlinkMember(b.id)}
+                      disabled={linking === b.id}
+                      className="link-accent font-medium disabled:opacity-50"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      {linking === b.id ? 'Unlinking…' : 'Unlink'}
+                    </button>
+                  </span>
+                )}
+                {isAdmin && !b.linked_user_id && linkableMembers.length > 0 && (
+                  <select
+                    value=""
+                    disabled={linking === b.id}
+                    onChange={(e) => e.target.value && linkMember(b.id, e.target.value)}
+                    className="input h-7 w-auto text-xs"
+                    aria-label={`Link ${b.account_holder_name} to a member`}
+                  >
+                    <option value="">{linking === b.id ? 'Linking…' : 'Link to member…'}</option>
+                    {linkableMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.full_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-3">
                 {isAdmin || b.linked_user_id === session?.user.id ? (

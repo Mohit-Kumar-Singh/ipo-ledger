@@ -1,11 +1,18 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CreditCard, Mail, Phone, Search, ShieldCheck, User, X } from 'lucide-react'
+import { CreditCard, Landmark, Mail, Phone, Search, ShieldCheck, User, X } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AttributionChart } from '../components/AttributionChart'
 import { computeIpoAttribution, type IpoAttribution } from '../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../lib/dashboardAttribution'
-import type { ApplicationAttributionRow, DematAccount, DematLinkRequest, LinkRequestStatus } from '../types/database'
+import type {
+  ApplicationAttributionRow,
+  BankAccount,
+  BankLinkRequest,
+  DematAccount,
+  DematLinkRequest,
+  LinkRequestStatus,
+} from '../types/database'
 
 const PHONE_RE = /^[0-9]{10}$/
 const PAN_RE = /^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/
@@ -16,7 +23,16 @@ interface SearchResult {
   phone_masked: string
 }
 
+interface BankSearchResult {
+  id: string
+  account_holder_name: string | null
+  bank_name: string | null
+  last4_masked: string | null
+  upi_domain_masked: string | null
+}
+
 type MyRequestRow = DematLinkRequest & { demat_accounts: Pick<DematAccount, 'holder_name'> | null }
+type MyBankRequestRow = BankLinkRequest & { bank_accounts: Pick<BankAccount, 'account_holder_name'> | null }
 
 const requestStatusBadge: Record<LinkRequestStatus, string> = {
   PENDING: 'badge-warning',
@@ -46,6 +62,22 @@ export function ProfilePage() {
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [attribution, setAttribution] = useState<IpoAttribution[] | null>(null)
 
+  const [linkedDemat, setLinkedDemat] = useState<Pick<DematAccount, 'id' | 'holder_name'>[]>([])
+  const [linkedBank, setLinkedBank] = useState<Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[]>([])
+  const [unlinkingDematId, setUnlinkingDematId] = useState<string | null>(null)
+  const [unlinkingBankId, setUnlinkingBankId] = useState<string | null>(null)
+
+  const [bankSearchQuery, setBankSearchQuery] = useState('')
+  const [bankSecret, setBankSecret] = useState('')
+  const [searchingBank, setSearchingBank] = useState(false)
+  const [bankSearchResults, setBankSearchResults] = useState<BankSearchResult[]>([])
+  const [bankSearchedOnce, setBankSearchedOnce] = useState(false)
+  const [requestingBankId, setRequestingBankId] = useState<string | null>(null)
+  const [bankRequestResult, setBankRequestResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
+  const [myBankRequests, setMyBankRequests] = useState<MyBankRequestRow[]>([])
+  const [loadingBankRequests, setLoadingBankRequests] = useState(true)
+  const [cancellingBankId, setCancellingBankId] = useState<string | null>(null)
+
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
     setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
@@ -61,9 +93,32 @@ export function ProfilePage() {
     setLoadingRequests(false)
   }
 
+  async function loadMyBankRequests() {
+    setLoadingBankRequests(true)
+    const { data } = await supabase
+      .from('bank_link_requests')
+      .select('*, bank_accounts(account_holder_name)')
+      .order('requested_at', { ascending: false })
+    setMyBankRequests((data ?? []) as MyBankRequestRow[])
+    setLoadingBankRequests(false)
+  }
+
+  async function loadLinkedAccounts() {
+    if (!session) return
+    const [dematRes, bankRes] = await Promise.all([
+      supabase.from('demat_accounts').select('id, holder_name').eq('linked_user_id', session.user.id),
+      supabase.from('bank_accounts').select('id, account_holder_name, upi_id').eq('linked_user_id', session.user.id),
+    ])
+    setLinkedDemat((dematRes.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[])
+    setLinkedBank((bankRes.data ?? []) as Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[])
+  }
+
   useEffect(() => {
     loadMyRequests()
-  }, [])
+    loadMyBankRequests()
+    loadLinkedAccounts()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user.id])
 
   useEffect(() => {
     let cancelled = false
@@ -186,6 +241,90 @@ export function ProfilePage() {
       return
     }
     loadMyRequests()
+  }
+
+  async function unlinkDemat(id: string) {
+    if (!window.confirm('Unlink this account? You can request to re-link it later.')) return
+    setUnlinkingDematId(id)
+    const { error } = await supabase.rpc('unlink_demat_account', { p_demat_id: id })
+    setUnlinkingDematId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    loadLinkedAccounts()
+  }
+
+  async function unlinkBank(id: string) {
+    if (!window.confirm('Unlink this bank/UPI account? You can request to re-link it later.')) return
+    setUnlinkingBankId(id)
+    const { error } = await supabase.rpc('unlink_bank_account', { p_bank_account_id: id })
+    setUnlinkingBankId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    loadLinkedAccounts()
+  }
+
+  async function handleSearchBank(e: FormEvent) {
+    e.preventDefault()
+    setSearchingBank(true)
+    setBankRequestResult(null)
+    const { data, error } = await supabase.rpc('search_unlinked_bank_accounts', { p_query: bankSearchQuery.trim() })
+    setSearchingBank(false)
+    setBankSearchedOnce(true)
+    if (error) {
+      setBankRequestResult({ tone: 'critical', message: error.message })
+      setBankSearchResults([])
+      return
+    }
+    setBankSearchResults((data ?? []) as BankSearchResult[])
+  }
+
+  async function handleRequestBankLink(bankAccountId: string) {
+    if (!bankSecret.trim()) {
+      setBankRequestResult({ tone: 'warning', message: 'Enter the UPI ID (or last 4 digits) to prove it’s yours.' })
+      return
+    }
+    setRequestingBankId(bankAccountId)
+    setBankRequestResult(null)
+    const { data, error } = await supabase.rpc('request_bank_link', {
+      p_bank_account_id: bankAccountId,
+      p_secret: bankSecret.trim(),
+    })
+    setRequestingBankId(null)
+    if (error) {
+      setBankRequestResult({ tone: 'critical', message: error.message })
+      return
+    }
+
+    const status = (data as { status: string } | null)?.status
+    const outcomes: Record<string, { tone: 'good' | 'warning' | 'critical'; message: string }> = {
+      requested: { tone: 'good', message: 'Requested — the admin will review it.' },
+      no_secret: { tone: 'warning', message: 'Enter the UPI ID or last 4 digits first.' },
+      secret_mismatch: { tone: 'warning', message: "That doesn't match this account's UPI ID or last 4 digits." },
+      already_pending: { tone: 'warning', message: 'You already have a pending request for this account.' },
+      already_linked: { tone: 'warning', message: 'Someone already linked to this account.' },
+      not_found: { tone: 'critical', message: 'Account not found.' },
+    }
+    setBankRequestResult(outcomes[status ?? ''] ?? { tone: 'critical', message: 'Something went wrong.' })
+    if (status === 'requested') {
+      setBankSearchResults((r) => r.filter((x) => x.id !== bankAccountId))
+      setBankSecret('')
+      await loadMyBankRequests()
+    }
+  }
+
+  async function cancelBankRequest(id: string) {
+    setCancellingBankId(id)
+    const { error } = await supabase.from('bank_link_requests').delete().eq('id', id)
+    setCancellingBankId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    loadMyBankRequests()
   }
 
   return (
@@ -439,6 +578,171 @@ export function ProfilePage() {
                     <button
                       onClick={() => cancelRequest(r.id)}
                       disabled={cancellingId === r.id}
+                      aria-label="Cancel request"
+                      className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
+        <div className="card animate-page-in space-y-3 p-5">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Your linked accounts
+          </h2>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Unlinking is immediate and keeps all history — you can request to re-link later.
+          </p>
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {linkedDemat.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div className="flex items-center gap-2">
+                  <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {d.holder_name}
+                  </span>
+                  <span className="badge badge-info">demat</span>
+                </div>
+                <button
+                  onClick={() => unlinkDemat(d.id)}
+                  disabled={unlinkingDematId === d.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
+            ))}
+            {linkedBank.map((b) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div className="flex items-center gap-2">
+                  <Landmark size={15} style={{ color: 'var(--ink-muted)' }} />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
+                  </span>
+                  <span className="badge badge-good">bank/UPI</span>
+                </div>
+                <button
+                  onClick={() => unlinkBank(b.id)}
+                  disabled={unlinkingBankId === b.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Request to link a bank/UPI account
+        </h2>
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4
+          digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new
+          bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead.
+        </p>
+        <div className="flex items-center gap-2">
+          <Search size={15} style={{ color: 'var(--ink-muted)' }} />
+          <input
+            value={bankSearchQuery}
+            onChange={(e) => setBankSearchQuery(e.target.value)}
+            placeholder="Name or last 4 digits"
+            className="input"
+          />
+          <button
+            type="submit"
+            disabled={searchingBank || !bankSearchQuery.trim()}
+            className="btn-secondary shrink-0 disabled:opacity-50"
+          >
+            {searchingBank ? 'Searching…' : 'Search'}
+          </button>
+        </div>
+
+        {bankRequestResult && <p className={`badge w-fit badge-${bankRequestResult.tone}`}>{bankRequestResult.message}</p>}
+
+        {bankSearchedOnce && bankSearchResults.length === 0 && (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No matching unlinked bank/UPI accounts.
+          </p>
+        )}
+
+        {bankSearchResults.length > 0 && (
+          <>
+            <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+              UPI ID or last 4 digits
+              <input
+                value={bankSecret}
+                onChange={(e) => setBankSecret(e.target.value)}
+                placeholder="name@bank or 1234"
+                className="input mt-1"
+              />
+            </label>
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {bankSearchResults.map((r) => (
+                <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <div>
+                    <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {r.account_holder_name ?? 'Bank/UPI account'}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {[r.bank_name, r.last4_masked, r.upi_domain_masked].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleRequestBankLink(r.id)}
+                    disabled={requestingBankId === r.id}
+                    className="link-accent shrink-0 text-xs font-medium disabled:opacity-50"
+                  >
+                    {requestingBankId === r.id ? 'Requesting…' : 'Request link'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </form>
+
+      <div className="card animate-page-in space-y-3 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Your bank/UPI link requests
+        </h2>
+        {loadingBankRequests ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : myBankRequests.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No link requests yet.
+          </p>
+        ) : (
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {myBankRequests.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div>
+                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.bank_accounts?.account_holder_name ?? '—'}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    Requested {new Date(r.requested_at).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className={`badge ${requestStatusBadge[r.status]}`}>{r.status}</span>
+                  {r.status === 'PENDING' && (
+                    <button
+                      onClick={() => cancelBankRequest(r.id)}
+                      disabled={cancellingBankId === r.id}
                       aria-label="Cancel request"
                       className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
                       style={{ color: 'var(--critical)' }}

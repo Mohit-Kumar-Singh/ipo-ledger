@@ -145,6 +145,16 @@ export interface DematLinkRequest {
   decided_at: string | null
 }
 
+export interface BankLinkRequest {
+  id: string
+  member_id: string
+  bank_account_id: string
+  status: LinkRequestStatus
+  requested_at: string
+  decided_by: string | null
+  decided_at: string | null
+}
+
 export interface ApplicationAttributionRow {
   application_id: string
   ipo_id: string

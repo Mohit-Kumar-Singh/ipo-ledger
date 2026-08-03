@@ -19,7 +19,8 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
-  demat_accounts: Pick<DematAccount, 'holder_name'>
+  demat_accounts: Pick<DematAccount, 'holder_name' | 'linked_user_id'>
+  bank_accounts: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
   notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
 }
 
@@ -42,7 +43,7 @@ export function ApplicationsPage() {
     const { data } = await supabase
       .from('applications')
       .select(
-        '*, ipos(company_name), demat_accounts(holder_name), notifications(id, type, status, to_phone, template_name, variables)',
+        '*, ipos(company_name), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
     setApplications((data ?? []) as ApplicationRow[])
@@ -71,6 +72,17 @@ export function ApplicationsPage() {
 
   useEffect(() => {
     loadApplications()
+
+    // Live-refresh on any application change — covers e.g. an admin
+    // creating/editing an application funded by a member's linked bank/UPI
+    // account, so that member's list updates without a manual refresh.
+    const channel = supabase
+      .channel('applications-page')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => loadApplications())
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   function openForm(backdated = false) {
@@ -208,6 +220,12 @@ export function ApplicationsPage() {
                   }
 
                   const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
+                  // Owner = admin, or the member whose linked demat this application is
+                  // on. A funder-only viewer (their linked bank/UPI paid for someone
+                  // else's demat) gets full read visibility (granted by RLS) but no
+                  // write actions — those stay owner-only.
+                  const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profile?.id
+                  const isFunderOnly = !isOwner && a.bank_accounts?.linked_user_id === profile?.id
 
                   return (
                     <div key={a.id} className="stagger-item flex flex-wrap items-center gap-3 p-4">
@@ -229,6 +247,11 @@ export function ApplicationsPage() {
                               title="This application was created in backdated format."
                             >
                               <History size={13} style={{ color: 'var(--warning)' }} aria-label="Backdated" />
+                            </span>
+                          )}
+                          {isFunderOnly && (
+                            <span className="badge badge-info shrink-0" title="Paid via your linked bank/UPI account">
+                              funded by you
                             </span>
                           )}
                         </div>
@@ -281,7 +304,7 @@ export function ApplicationsPage() {
                       </div>
 
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
-                        {a.status === 'APPLIED' && (
+                        {isOwner && a.status === 'APPLIED' && (
                           <>
                             <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                               Allotted
@@ -295,11 +318,12 @@ export function ApplicationsPage() {
                             </button>
                           </>
                         )}
-                        {a.status === 'ALLOTTED' && (
+                        {isOwner && a.status === 'ALLOTTED' && (
                           <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
                             Mark sold
                           </button>
                         )}
+                        {isOwner && (
                         <button
                           onClick={() => openEdit(a)}
                           aria-label={`Edit application for ${a.demat_accounts?.holder_name}`}
@@ -308,6 +332,8 @@ export function ApplicationsPage() {
                         >
                           <Pencil size={15} />
                         </button>
+                        )}
+                        {isOwner && (
                         <button
                           onClick={() => deleteApplication(a.id)}
                           aria-label={`Delete application for ${a.demat_accounts?.holder_name}`}
@@ -316,6 +342,7 @@ export function ApplicationsPage() {
                         >
                           <Trash2 size={15} />
                         </button>
+                        )}
                       </div>
                     </div>
                   )
