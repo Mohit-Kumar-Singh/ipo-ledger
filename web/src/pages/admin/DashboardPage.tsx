@@ -265,7 +265,13 @@ export function DashboardPage() {
       cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [])
+    // isAdmin is captured by load() for pendingPayouts — now that
+    // ProtectedRoute no longer blocks rendering until the profile row has
+    // loaded (see AuthContext), isAdmin can still be false on the very
+    // first run of this effect for an actual admin whose profile hasn't
+    // arrived yet. Re-running once it flips to true avoids Payouts pending
+    // getting stuck empty until a manual refresh.
+  }, [isAdmin])
 
   if (loading || !data) return <DashboardSkeleton />
 

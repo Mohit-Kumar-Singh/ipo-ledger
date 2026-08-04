@@ -16,20 +16,28 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  // Only reflects session resolution (fast — supabase-js reads this from
+  // local storage, no network round trip) so ProtectedRoute can mount the
+  // actual page as soon as we know the user is signed in, instead of also
+  // blocking on the profile row. Page components already treat `profile`
+  // as possibly-null via optional chaining (isAdmin = profile?.role ===
+  // 'admin', etc.), so their own data fetches — which only need
+  // session.user.id, not the profile object — now run concurrently with
+  // the profile fetch instead of waiting behind it. Previously this was a
+  // strict 3-step serial waterfall (session -> profile -> page data) on
+  // every fresh load; profile now loads in parallel with page data.
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
-      if (!data.session) setLoading(false)
+      setLoading(false)
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession)
-      if (!newSession) {
-        setProfile(null)
-        setLoading(false)
-      }
+      setLoading(false)
+      if (!newSession) setProfile(null)
     })
 
     return () => sub.subscription.unsubscribe()
@@ -38,17 +46,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) return
     let cancelled = false
-    setLoading(true)
     supabase
       .from('profiles')
       .select('*')
       .eq('id', session.user.id)
       .single()
       .then(({ data }) => {
-        if (!cancelled) {
-          setProfile(data as Profile | null)
-          setLoading(false)
-        }
+        if (!cancelled) setProfile(data as Profile | null)
       })
     return () => {
       cancelled = true
