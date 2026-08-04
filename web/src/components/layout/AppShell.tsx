@@ -134,7 +134,7 @@ export function AppShell() {
                   data-tour={l.to}
                   onClick={() => setNavOpen(false)}
                   aria-current={isActive ? 'page' : undefined}
-                  style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}
+                  style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)', marginBottom: 4 }}
                 >
                   <NavList.LeadingVisual>
                     <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
