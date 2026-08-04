@@ -287,7 +287,22 @@ export function IposPage() {
     load()
   }
 
+  // Archiving never deletes the row — applications on it (and everything
+  // that joins to it) keep working exactly as before, forever. A cron job
+  // (0038) does this automatically 7 days after listing_date; this lets
+  // admin do it sooner, or bring one back, without waiting.
+  async function setArchived(ipo: Ipo, archived: boolean) {
+    const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    load()
+  }
+
   const existingNames = new Set(ipos.map((i) => i.company_name.toLowerCase()))
+  const visibleIpos = ipos.filter((i) => !i.is_archived)
+  const archivedIpos = ipos.filter((i) => i.is_archived)
 
   return (
     <div className="space-y-5">
@@ -297,7 +312,8 @@ export function IposPage() {
             IPOs
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {ipos.length} tracked
+            {visibleIpos.length} tracked
+            {archivedIpos.length > 0 ? ` · ${archivedIpos.length} archived` : ''}
           </p>
         </div>
         {isAdmin && (
@@ -420,14 +436,14 @@ export function IposPage() {
         </p>
       ) : (
         <>
-          {isAdmin && (
+          {isAdmin && visibleIpos.length > 0 && (
             <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
                 <input
                   type="checkbox"
-                  checked={selectedIpos.size > 0 && selectedIpos.size === ipos.length}
+                  checked={selectedIpos.size > 0 && selectedIpos.size === visibleIpos.length}
                   ref={(el) => {
-                    if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < ipos.length
+                    if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < visibleIpos.length
                   }}
                   onChange={toggleSelectAllIpos}
                 />
@@ -444,95 +460,183 @@ export function IposPage() {
               )}
             </div>
           )}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {ipos.map((ipo) => {
-              const status = deriveStatus(ipo)
-              return (
-                <div key={ipo.id} className="card stagger-item flex flex-col gap-3 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2.5">
-                      {isAdmin && (
-                        <input
-                          type="checkbox"
-                          className="mt-1"
-                          checked={selectedIpos.has(ipo.id)}
-                          onChange={() => toggleIpoSelected(ipo.id)}
-                          aria-label={`Select ${ipo.company_name}`}
-                        />
-                      )}
-                      <div
-                        className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
-                        style={{ width: '2.25rem', height: '2.25rem' }}
-                      >
-                        <GraphIcon size={16} />
-                      </div>
-                      <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                        {ipo.company_name}
-                      </h3>
-                    </div>
-                    <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
-                  </div>
+          {visibleIpos.length === 0 ? (
+            <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+              Everything's archived — see below.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {visibleIpos.map((ipo) => (
+                <IpoCard
+                  key={ipo.id}
+                  ipo={ipo}
+                  isAdmin={isAdmin}
+                  selected={selectedIpos.has(ipo.id)}
+                  onToggleSelected={() => toggleIpoSelected(ipo.id)}
+                  onEdit={() => {
+                    setEditingIpo(ipo)
+                    setShowAddForm(false)
+                    setShowImport(false)
+                  }}
+                  onDelete={() => deleteIpo(ipo)}
+                  onArchive={() => setArchived(ipo, true)}
+                />
+              ))}
+            </div>
+          )}
 
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    {ipo.registrar}
-                    {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
-                    {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
-                  </p>
-
-                  {(ipo.gmp_notes || isAdmin) && (
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
-                        {ipo.gmp_notes}
-                      </p>
-                      {isAdmin && (
-                        <div className="flex shrink-0 gap-3">
-                          <button
-                            onClick={() => {
-                              setEditingIpo(ipo)
-                              setShowAddForm(false)
-                              setShowImport(false)
-                            }}
-                            className="link-accent text-xs font-medium"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => deleteIpo(ipo)}
-                            className="text-xs font-medium hover:underline"
-                            style={{ color: 'var(--critical)' }}
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {(ipo.issue_size || ipo.retail_issue_size) && (
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
-                      <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
-                    </div>
-                  )}
-
-                  {ipo.retail_subscription_rate && (
-                    <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>
-                      Retail subscription: {ipo.retail_subscription_rate}
-                    </p>
-                  )}
-
-                  <IpoTimeline
-                    openDate={ipo.open_date}
-                    closeDate={ipo.close_date}
-                    allotmentDate={ipo.allotment_date}
-                    listingDate={ipo.listing_date}
+          {archivedIpos.length > 0 && (
+            <ArchivedSection>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {archivedIpos.map((ipo) => (
+                  <IpoCard
+                    key={ipo.id}
+                    ipo={ipo}
+                    isAdmin={isAdmin}
+                    onEdit={() => {
+                      setEditingIpo(ipo)
+                      setShowAddForm(false)
+                      setShowImport(false)
+                    }}
+                    onDelete={() => deleteIpo(ipo)}
+                    onUnarchive={() => setArchived(ipo, false)}
                   />
-                </div>
-              )
-            })}
-          </div>
+                ))}
+              </div>
+            </ArchivedSection>
+          )}
         </>
       )}
+    </div>
+  )
+}
+
+// Collapsed by default — archived IPOs are still fully real (applications on
+// them keep working exactly as before), just out of the way of the main list.
+function ArchivedSection({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="text-sm font-medium hover:underline"
+        style={{ color: 'var(--ink-muted)' }}
+      >
+        {open ? '▾' : '▸'} Archived
+      </button>
+      {open && children}
+    </section>
+  )
+}
+
+function IpoCard({
+  ipo,
+  isAdmin,
+  selected,
+  onToggleSelected,
+  onEdit,
+  onDelete,
+  onArchive,
+  onUnarchive,
+}: {
+  ipo: Ipo
+  isAdmin: boolean
+  selected?: boolean
+  onToggleSelected?: () => void
+  onEdit: () => void
+  onDelete: () => void
+  onArchive?: () => void
+  onUnarchive?: () => void
+}) {
+  const status = deriveStatus(ipo)
+  return (
+    <div className="card stagger-item flex flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start gap-2.5">
+          {isAdmin && onToggleSelected && (
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={selected ?? false}
+              onChange={onToggleSelected}
+              aria-label={`Select ${ipo.company_name}`}
+            />
+          )}
+          <div
+            className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
+            style={{ width: '2.25rem', height: '2.25rem' }}
+          >
+            <GraphIcon size={16} />
+          </div>
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            {ipo.company_name}
+          </h3>
+        </div>
+        <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
+      </div>
+
+      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+        {ipo.registrar}
+        {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
+        {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
+      </p>
+
+      {(ipo.gmp_notes || isAdmin) && (
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+            {ipo.gmp_notes}
+          </p>
+          {isAdmin && (
+            <div className="flex shrink-0 gap-3">
+              <button onClick={onEdit} className="link-accent text-xs font-medium">
+                Edit
+              </button>
+              {onArchive && (
+                <button
+                  onClick={onArchive}
+                  className="text-xs font-medium hover:underline"
+                  style={{ color: 'var(--ink-muted)' }}
+                >
+                  Archive
+                </button>
+              )}
+              {onUnarchive && (
+                <button onClick={onUnarchive} className="link-accent text-xs font-medium">
+                  Unarchive
+                </button>
+              )}
+              <button
+                onClick={onDelete}
+                className="text-xs font-medium hover:underline"
+                style={{ color: 'var(--critical)' }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {(ipo.issue_size || ipo.retail_issue_size) && (
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
+          <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
+        </div>
+      )}
+
+      {ipo.retail_subscription_rate && (
+        <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>
+          Retail subscription: {ipo.retail_subscription_rate}
+        </p>
+      )}
+
+      <IpoTimeline
+        openDate={ipo.open_date}
+        closeDate={ipo.close_date}
+        allotmentDate={ipo.allotment_date}
+        listingDate={ipo.listing_date}
+      />
     </div>
   )
 }

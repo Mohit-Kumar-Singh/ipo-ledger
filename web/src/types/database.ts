@@ -69,6 +69,7 @@ export interface Ipo {
   retail_issue_size: string | null
   retail_subscription_rate: string | null
   created_at: string
+  is_archived: boolean
 }
 
 export interface Application {
