@@ -254,15 +254,14 @@ export function IposPage() {
 
   async function bulkDeleteIpos() {
     if (selectedIpos.size === 0) return
-    if (
-      !window.confirm(
-        `Delete ${selectedIpos.size} IPO(s)? This also deletes any applications (and their notification history) for these IPOs. This cannot be undone.`,
-      )
-    )
-      return
+    if (!window.confirm(`Delete ${selectedIpos.size} IPO(s)? This cannot be undone.`)) return
     const { error } = await supabase.from('ipos').delete().in('id', Array.from(selectedIpos))
     if (error) {
-      alert(error.message)
+      alert(
+        error.code === '23503'
+          ? "Can't delete one or more of these — they still have applications on record. Delete those applications first, or delete IPOs one at a time to see which."
+          : error.message,
+      )
       return
     }
     setSelectedIpos(new Set())
@@ -270,15 +269,14 @@ export function IposPage() {
   }
 
   async function deleteIpo(ipo: Ipo) {
-    if (
-      !window.confirm(
-        `Delete ${ipo.company_name}? This also deletes any applications (and their notification history reference) for this IPO. This cannot be undone.`,
-      )
-    )
-      return
+    if (!window.confirm(`Delete ${ipo.company_name}? This cannot be undone.`)) return
     const { error } = await supabase.from('ipos').delete().eq('id', ipo.id)
     if (error) {
-      alert(error.message)
+      alert(
+        error.code === '23503'
+          ? `Can't delete ${ipo.company_name} — it still has applications on record. Delete those applications first.`
+          : error.message,
+      )
       return
     }
     load()
