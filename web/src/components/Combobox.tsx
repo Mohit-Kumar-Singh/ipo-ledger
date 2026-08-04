@@ -18,7 +18,7 @@ export function Combobox({
   value,
   onChange,
   placeholder = 'Select…',
-  searchPlaceholder = 'SearchIcon…',
+  searchPlaceholder = 'Search…',
   emptyLabel = 'No matches.',
   disabled,
   'aria-label': ariaLabel,

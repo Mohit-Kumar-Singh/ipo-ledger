@@ -159,7 +159,7 @@ export function ProfilePage() {
       return
     }
     if (!phoneValid) {
-      setError('DeviceMobileIcon number must be exactly 10 digits, or left blank.')
+      setError('Phone number must be exactly 10 digits, or left blank.')
       return
     }
 
@@ -384,7 +384,7 @@ export function ProfilePage() {
 
         <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
           <span className="flex items-baseline justify-between gap-2">
-            DeviceMobileIcon number
+            Phone number
             <span className="text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
               optional, 10 digits
             </span>
@@ -509,7 +509,7 @@ export function ProfilePage() {
           Request to link a demat account
         </h2>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          SearchIcon by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
+          Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
           here, and only the name and a masked phone number.
         </p>
         <div className="flex items-center gap-2">
@@ -521,7 +521,7 @@ export function ProfilePage() {
             className="input"
           />
           <button type="submit" disabled={searching || !searchQuery.trim()} className="btn-secondary shrink-0 disabled:opacity-50">
-            {searching ? 'Searching…' : 'SearchIcon'}
+            {searching ? 'Searching…' : 'Search'}
           </button>
         </div>
 
@@ -675,7 +675,7 @@ export function ProfilePage() {
             disabled={searchingBank || !bankSearchQuery.trim()}
             className="btn-secondary shrink-0 disabled:opacity-50"
           >
-            {searchingBank ? 'Searching…' : 'SearchIcon'}
+            {searchingBank ? 'Searching…' : 'Search'}
           </button>
         </div>
 

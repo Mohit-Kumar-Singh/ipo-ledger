@@ -557,7 +557,7 @@ function NewApplicationForm({
           <Combobox
             aria-label="Demat account"
             placeholder="Select account"
-            searchPlaceholder="SearchIcon accounts…"
+            searchPlaceholder="Search accounts…"
             value={dematId}
             onChange={setDematId}
             options={accounts.map((a) => ({
@@ -572,7 +572,7 @@ function NewApplicationForm({
         <Combobox
           aria-label="Bank account used"
           placeholder="Select bank/UPI"
-          searchPlaceholder="SearchIcon bank/UPI accounts…"
+          searchPlaceholder="Search bank/UPI accounts…"
           value={bankAccountId}
           onChange={setBankAccountId}
           options={[

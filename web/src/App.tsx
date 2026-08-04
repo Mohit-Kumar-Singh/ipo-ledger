@@ -36,7 +36,12 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ defa
 function PrimerThemeBridge({ children }: { children: ReactNode }) {
   const { theme } = useTheme()
   return (
-    <PrimerThemeProvider colorMode={theme === 'dark' ? 'night' : 'day'}>
+    // key={theme} forces a full remount on toggle — Primer's ThemeProvider
+    // doesn't reliably recompute its injected styles from a changed
+    // colorMode prop alone (components like TextInput stayed light-styled
+    // after toggling), so this sidesteps whatever internal memoization is
+    // at play rather than fighting it.
+    <PrimerThemeProvider key={theme} colorMode={theme === 'dark' ? 'night' : 'day'}>
       <BaseStyles>{children}</BaseStyles>
     </PrimerThemeProvider>
   )

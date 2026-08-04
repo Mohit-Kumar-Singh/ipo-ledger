@@ -549,7 +549,7 @@ function AccountForm({
     setError(null)
 
     if (!phoneValid) {
-      setError('DeviceMobileIcon number must be exactly 10 digits.')
+      setError('Phone number must be exactly 10 digits.')
       return
     }
     if (!panValid) {
@@ -591,7 +591,7 @@ function AccountForm({
       <Field label="Holder name">
         <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
-      <Field label="DeviceMobileIcon number" hint="10 digits, no country code">
+      <Field label="Phone number" hint="10 digits, no country code">
         <div className="flex items-center gap-2">
           <span
             className="rounded-md border px-3 py-2 text-sm"

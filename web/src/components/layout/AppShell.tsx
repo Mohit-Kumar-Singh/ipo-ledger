@@ -45,23 +45,23 @@ export function AppShell() {
     .toUpperCase()
 
   return (
-    <div className="min-h-screen md:flex" style={{ background: 'var(--bgColor-default)' }}>
+    <div className="min-h-screen md:flex" style={{ background: 'var(--surface)' }}>
       <ToastHost />
       <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
       {/* Mobile-only slim top bar — the sidebar below is off-canvas until opened */}
       <div
         className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 md:hidden"
-        style={{ background: 'var(--bgColor-muted)', borderColor: 'var(--borderColor-default)' }}
+        style={{ background: 'var(--header-bg)', borderColor: 'var(--border)' }}
       >
         <IconButton onClick={() => setNavOpen(true)} aria-label="Open menu" icon={ThreeBarsIcon} variant="invisible" />
         <div
           className="flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold"
-          style={{ background: 'var(--bgColor-accent-emphasis)', color: 'var(--fgColor-onEmphasis)' }}
+          style={{ background: 'var(--accent)', color: '#ffffff' }}
         >
           I
         </div>
-        <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--fgColor-default)' }}>
+        <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
           IPO Ledger
         </span>
       </div>
@@ -80,8 +80,8 @@ export function AppShell() {
           navOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{
-          background: 'var(--bgColor-muted)',
-          borderRight: '1px solid var(--borderColor-default)',
+          background: 'var(--header-bg)',
+          borderRight: '1px solid var(--border)',
           boxShadow: navOpen ? 'var(--shadow-floating-large)' : undefined,
         }}
       >
@@ -89,11 +89,11 @@ export function AppShell() {
         <div className="flex items-center gap-2 px-5 pt-4 pb-3">
           <div
             className="flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold"
-            style={{ background: 'var(--bgColor-accent-emphasis)', color: 'var(--fgColor-onEmphasis)' }}
+            style={{ background: 'var(--accent)', color: '#ffffff' }}
           >
             I
           </div>
-          <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--fgColor-default)' }}>
+          <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
             IPO Ledger
           </span>
         </div>
@@ -101,19 +101,19 @@ export function AppShell() {
         {/* Identity block */}
         <div
           className="mx-3 mb-1.5 flex items-center gap-2.5 rounded-md px-2 py-2"
-          style={{ background: 'var(--bgColor-neutral-muted)' }}
+          style={{ background: 'var(--hover-surface)' }}
         >
           <div
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-            style={{ background: 'var(--bgColor-accent-emphasis)', color: 'var(--fgColor-onEmphasis)' }}
+            style={{ background: 'var(--accent)', color: '#ffffff' }}
           >
             {initials}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold" style={{ color: 'var(--fgColor-default)' }}>
+            <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
               {profile?.full_name ?? '…'}
             </p>
-            <p className="truncate text-[11px] capitalize" style={{ color: 'var(--fgColor-muted)' }}>
+            <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
               {profile?.role ?? '…'}
             </p>
           </div>
@@ -134,11 +134,12 @@ export function AppShell() {
                   data-tour={l.to}
                   onClick={() => setNavOpen(false)}
                   aria-current={isActive ? 'page' : undefined}
+                  style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}
                 >
                   <NavList.LeadingVisual>
-                    <Icon size={16} />
+                    <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
                   </NavList.LeadingVisual>
-                  {l.label}
+                  <span style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}>{l.label}</span>
                 </NavList.Item>
               )
             })}
@@ -148,14 +149,14 @@ export function AppShell() {
         {/* Logout + version */}
         <div className="px-2 pt-1 pb-3">
           <NavList>
-            <NavList.Item as="button" onClick={signOut}>
+            <NavList.Item as="button" onClick={signOut} style={{ color: 'var(--header-fg)' }}>
               <NavList.LeadingVisual>
-                <SignOutIcon size={16} />
+                <SignOutIcon size={16} fill="var(--header-fg-muted)" />
               </NavList.LeadingVisual>
-              Sign out
+              <span style={{ color: 'var(--header-fg)' }}>Sign out</span>
             </NavList.Item>
           </NavList>
-          <p className="px-3 pt-2 text-[11px]" style={{ color: 'var(--fgColor-muted)' }}>
+          <p className="px-3 pt-2 text-[11px]" style={{ color: 'var(--header-fg-muted)' }}>
             v{__APP_VERSION__}
           </p>
         </div>

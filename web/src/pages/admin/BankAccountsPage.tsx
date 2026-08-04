@@ -329,7 +329,7 @@ function BankForm({
     setError(null)
 
     if (!phoneValid) {
-      setError('DeviceMobileIcon number is required and must be exactly 10 digits.')
+      setError('Phone number is required and must be exactly 10 digits.')
       return
     }
 
@@ -381,7 +381,7 @@ function BankForm({
       <Field label="Bank" hint="optional">
         <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input" />
       </Field>
-      <Field label="DeviceMobileIcon number" hint="sends the applied message to this holder too">
+      <Field label="Phone number" hint="sends the applied message to this holder too">
         <div className="flex items-center gap-2">
           <span
             className="rounded-md border px-3 py-2 text-sm"

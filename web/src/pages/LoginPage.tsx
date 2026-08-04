@@ -24,7 +24,7 @@ export function LoginPage() {
   return (
     <div
       className="relative flex min-h-screen items-center justify-center px-4 py-8"
-      style={{ background: 'var(--bgColor-inset)' }}
+      style={{ background: 'var(--page)' }}
     >
       <div className="absolute top-4 right-4">
         <ThemeToggle />
@@ -33,14 +33,14 @@ export function LoginPage() {
       <div
         className="animate-page-in relative w-full max-w-sm rounded-md p-7"
         style={{
-          background: 'var(--bgColor-default)',
-          border: '1px solid var(--borderColor-default)',
-          boxShadow: 'var(--shadow-resting-medium)',
+          background: 'var(--surface)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-md)',
         }}
       >
         <div className="mb-6 flex items-center gap-2">
           <MarkGithubIcon size={28} />
-          <span className="text-base font-semibold" style={{ color: 'var(--fgColor-default)' }}>
+          <span className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
             IPO Ledger
           </span>
         </div>
@@ -50,8 +50,8 @@ export function LoginPage() {
             onClick={() => setEmailMode('signin')}
             className="pb-2"
             style={{
-              color: emailMode === 'signin' ? 'var(--fgColor-accent)' : 'var(--fgColor-muted)',
-              borderBottom: emailMode === 'signin' ? '2px solid var(--fgColor-accent)' : '2px solid transparent',
+              color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
+              borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
             }}
           >
             Sign in
@@ -60,8 +60,8 @@ export function LoginPage() {
             onClick={() => setEmailMode('register')}
             className="pb-2"
             style={{
-              color: emailMode === 'register' ? 'var(--fgColor-accent)' : 'var(--fgColor-muted)',
-              borderBottom: emailMode === 'register' ? '2px solid var(--fgColor-accent)' : '2px solid transparent',
+              color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
+              borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
             }}
           >
             Create account
@@ -69,17 +69,17 @@ export function LoginPage() {
         </div>
         {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
 
-        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--fgColor-muted)' }}>
-          <div className="h-px flex-1" style={{ background: 'var(--borderColor-default)' }} />
+        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
           or
-          <div className="h-px flex-1" style={{ background: 'var(--borderColor-default)' }} />
+          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
         </div>
 
         <Button onClick={handleGoogle} block>
           Continue with Google
         </Button>
 
-        <p className="mt-6 text-xs" style={{ color: 'var(--fgColor-muted)' }}>
+        <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
           Creating an account gives you your own portal — add your demat/PAN and bank/UPI accounts and start
           tracking IPO applications.
         </p>
