@@ -9,7 +9,7 @@ export type Registrar =
   | 'SKYLINE'
   | 'MAASHITLA'
   | 'OTHER'
-export type NotificationType = 'APPLIED' | 'ALLOTTED' | 'SELL_REMINDER' | 'CUSTOM'
+export type NotificationType = 'APPLIED' | 'ALLOTTED' | 'SELL_REMINDER' | 'CUSTOM' | 'GMP_ALERT'
 export type NotificationStatus = 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SIMULATED'
 
 export interface Profile {
@@ -67,6 +67,7 @@ export interface Ipo {
   gmp_notes: string | null
   issue_size: string | null
   retail_issue_size: string | null
+  shareholder_issue_size: string | null
   retail_subscription_rate: string | null
   created_at: string
   is_archived: boolean
@@ -93,6 +94,7 @@ export interface Notification {
   id: string
   application_id: string | null
   demat_id: string | null
+  ipo_id: string | null
   type: NotificationType
   to_phone: string
   template_name: string

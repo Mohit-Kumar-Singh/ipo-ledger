@@ -618,10 +618,11 @@ function IpoCard({
         </div>
       )}
 
-      {(ipo.issue_size || ipo.retail_issue_size) && (
+      {(ipo.issue_size || ipo.retail_issue_size || ipo.shareholder_issue_size) && (
         <div className="grid grid-cols-2 gap-2 text-xs">
           <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
           <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
+          {ipo.shareholder_issue_size && <Stat label="Shareholder quota" value={ipo.shareholder_issue_size} />}
         </div>
       )}
 
@@ -737,6 +738,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
   const [gmpNotes, setGmpNotes] = useState(existing?.gmp_notes ?? '')
   const [issueSize, setIssueSize] = useState(existing?.issue_size ?? '')
   const [retailIssueSize, setRetailIssueSize] = useState(existing?.retail_issue_size ?? '')
+  const [shareholderIssueSize, setShareholderIssueSize] = useState(existing?.shareholder_issue_size ?? '')
   const [retailSubscriptionRate, setRetailSubscriptionRate] = useState(existing?.retail_subscription_rate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
   const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
@@ -763,6 +765,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       gmp_notes: gmpNotes || null,
       issue_size: issueSize || null,
       retail_issue_size: retailIssueSize || null,
+      shareholder_issue_size: shareholderIssueSize || null,
       retail_subscription_rate: retailSubscriptionRate || null,
     }
 
@@ -843,6 +846,14 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
           value={retailIssueSize}
           onChange={(e) => setRetailIssueSize(e.target.value)}
           placeholder="e.g. ₹3100.87 Cr (31.66%)"
+          className="input"
+        />
+      </Field>
+      <Field label="Shareholder quota (optional, only if applicable)">
+        <input
+          value={shareholderIssueSize}
+          onChange={(e) => setShareholderIssueSize(e.target.value)}
+          placeholder="e.g. ₹50 Cr"
           className="input"
         />
       </Field>

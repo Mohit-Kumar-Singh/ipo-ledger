@@ -7,6 +7,7 @@ import { Skeleton } from '../../components/PageSpinner'
 import { AttributionChart } from '../../components/AttributionChart'
 import { IpoProgressGauge } from '../../components/IpoProgressGauge'
 import { isLiveIpo } from '../../lib/ipoStatus'
+import { parseGmpPercent } from '../../lib/ipoGmp'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { computeIpoAttribution, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
@@ -67,6 +68,16 @@ interface IpoProgress {
   gmpNotes: string | null
 }
 
+const HIGH_GMP_THRESHOLD = 15
+
+interface HighGmpAlert {
+  ipoId: string
+  companyName: string
+  openDate: string
+  gmpPercent: number
+  gmpNotes: string
+}
+
 interface DashboardData {
   closingSoon: Ipo[]
   pendingMandate: AllotmentBoardRow[]
@@ -74,6 +85,7 @@ interface DashboardData {
   failedMessages: Notification[]
   attribution: IpoAttribution[]
   ipoProgress: IpoProgress[]
+  highGmpAlerts: HighGmpAlert[]
   pendingPayouts: PendingPayout[]
   linkRequests: LinkRequestRow[]
   bankLinkRequests: BankLinkRequestRow[]
@@ -233,6 +245,24 @@ export function DashboardPage() {
         }))
         .sort((a, b) => a.endDate.localeCompare(b.endDate))
 
+      // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
+      // heads-up (2 days / 1 day before open) — shown here so it's visible
+      // in the UI too, not just via WhatsApp.
+      const todayForGmp = new Date().toISOString().slice(0, 10)
+      const in2DaysForGmp = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)
+      const highGmpAlerts: HighGmpAlert[] = ((allIpos.data ?? []) as Ipo[])
+        .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmp)
+        .map((ipo) => ({ ipo, gmpPercent: parseGmpPercent(ipo.gmp_notes) }))
+        .filter((x): x is { ipo: Ipo; gmpPercent: number } => x.gmpPercent !== null && x.gmpPercent > HIGH_GMP_THRESHOLD)
+        .map(({ ipo, gmpPercent }) => ({
+          ipoId: ipo.id,
+          companyName: ipo.company_name,
+          openDate: ipo.open_date,
+          gmpPercent,
+          gmpNotes: ipo.gmp_notes ?? '',
+        }))
+        .sort((a, b) => a.openDate.localeCompare(b.openDate))
+
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
@@ -240,6 +270,7 @@ export function DashboardPage() {
         failedMessages: (failedMessages.data ?? []) as Notification[],
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
         ipoProgress,
+        highGmpAlerts,
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
@@ -325,6 +356,31 @@ export function DashboardPage() {
           />
         )}
       </div>
+
+      {data.highGmpAlerts.length > 0 && (
+        <section className="space-y-2">
+          {data.highGmpAlerts.map((a) => {
+            const daysOut = Math.round(
+              (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime()) /
+                86400000,
+            )
+            return (
+              <div
+                key={a.ipoId}
+                className="card flex items-start gap-3 p-4"
+                style={{ borderColor: 'var(--warning)', background: 'var(--warning-tint)' }}
+              >
+                <AlertIcon size={18} className="mt-0.5 shrink-0" fill="var(--warning-text)" />
+                <p className="text-sm" style={{ color: 'var(--warning-text)' }}>
+                  <strong>{a.companyName}</strong> opens {daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`}{' '}
+                  ({a.openDate}) with GMP running high at <strong>{a.gmpPercent}%</strong> ({a.gmpNotes}). Worth a
+                  look — a WhatsApp heads-up also goes out to account holders 2 days and 1 day before it opens.
+                </p>
+              </div>
+            )
+          })}
+        </section>
+      )}
 
       {data.ipoProgress.length > 0 && (
         <section>
