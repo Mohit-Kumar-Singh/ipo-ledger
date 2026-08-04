@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { TrendingUp } from 'lucide-react'
+import { GraphIcon } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -145,7 +145,12 @@ export function IposPage() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('ipos').select('*').order('open_date', { ascending: false })
+    const { data, error } = await supabase.from('ipos').select('*').order('open_date', { ascending: false })
+    if (error) {
+      alert(`Couldn't load IPOs: ${error.message}`)
+      setLoading(false)
+      return
+    }
     setIpos(sortIpos((data ?? []) as Ipo[]))
     setLoading(false)
   }
@@ -459,7 +464,7 @@ export function IposPage() {
                         className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
                         style={{ width: '2.25rem', height: '2.25rem' }}
                       >
-                        <TrendingUp size={16} strokeWidth={2} />
+                        <GraphIcon size={16} />
                       </div>
                       <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                         {ipo.company_name}

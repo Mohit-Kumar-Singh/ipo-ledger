@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ChevronDown, CreditCard, Hash, Link2, Pencil, Phone, Trash2 } from 'lucide-react'
+import { AlertIcon, ChevronDownIcon, CreditCardIcon, HashIcon, LinkIcon, PencilIcon, DeviceMobileIcon, TrashIcon } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -199,7 +199,7 @@ export function AccountsPage() {
 
       {duplicatePanIds.size > 0 && (
         <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <AlertIcon size={18} className="mt-0.5 shrink-0" fill="var(--critical)" />
           <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
             {duplicatePanIds.size} accounts share a PAN with another account (marked below) — that's why saving an
             edit on one of them can fail with "already exists." Delete or fix the duplicate to resolve it.
@@ -209,7 +209,7 @@ export function AccountsPage() {
 
       {loadError && (
         <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <AlertIcon size={18} className="mt-0.5 shrink-0" fill="var(--critical)" />
           <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
             Couldn't load accounts: {loadError}
           </p>
@@ -338,11 +338,12 @@ function AccountSection({
             {subtitle}
           </p>
         </div>
-        <ChevronDown
-          size={16}
+        <span
           className="shrink-0 transition-transform duration-200 ease-out"
-          style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
-        />
+          style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : 'rotate(0deg)' }}
+        >
+          <ChevronDownIcon size={16} fill="var(--ink-muted)" />
+        </span>
       </button>
 
       {open &&
@@ -387,7 +388,7 @@ function AccountSection({
                             {a.holder_name}
                           </p>
                           {a.linked_user_id && (
-                            <Link2 size={13} className="shrink-0" style={{ color: 'var(--good)' }} aria-label="Linked to a member" />
+                            <LinkIcon size={13} className="shrink-0" fill="var(--good)" aria-label="Linked to a member" />
                           )}
                           {duplicatePanIds.has(a.id) && (
                             <span className="badge badge-critical shrink-0">duplicate PAN</span>
@@ -406,7 +407,7 @@ function AccountSection({
                         className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--ink-muted)' }}
                       >
-                        <Pencil size={15} />
+                        <PencilIcon size={15} />
                       </button>
                       <button
                         onClick={() => onDelete(a.id, a.holder_name)}
@@ -414,7 +415,7 @@ function AccountSection({
                         className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
                         style={{ color: 'var(--critical)' }}
                       >
-                        <Trash2 size={15} />
+                        <TrashIcon size={15} />
                       </button>
                     </div>
                   </div>
@@ -424,7 +425,7 @@ function AccountSection({
                     style={{ borderColor: 'var(--border)' }}
                   >
                     <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <CreditCard size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
+                      <CreditCardIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
                       <span className="font-mono">{pan}</span>
                       {revealed[a.id] ? (
                         <CopyButton value={pan} label="PAN" />
@@ -440,13 +441,13 @@ function AccountSection({
                     </span>
                     {a.dp_client_id && (
                       <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                        <Hash size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
+                        <HashIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
                         <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
                         <CopyButton value={a.dp_client_id} label="Client ID" />
                       </span>
                     )}
                     <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <Phone size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
+                      <DeviceMobileIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
                       {a.phone_e164}
                       <CopyButton value={a.phone_e164} label="phone number" />
                     </span>
@@ -548,7 +549,7 @@ function AccountForm({
     setError(null)
 
     if (!phoneValid) {
-      setError('Phone number must be exactly 10 digits.')
+      setError('DeviceMobileIcon number must be exactly 10 digits.')
       return
     }
     if (!panValid) {
@@ -590,7 +591,7 @@ function AccountForm({
       <Field label="Holder name">
         <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
-      <Field label="Phone number" hint="10 digits, no country code">
+      <Field label="DeviceMobileIcon number" hint="10 digits, no country code">
         <div className="flex items-center gap-2">
           <span
             className="rounded-md border px-3 py-2 text-sm"
@@ -667,7 +668,7 @@ function AccountForm({
         <Field label="Linked member">
           <div className="flex items-center gap-2 py-2">
             <span className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--ink-primary)' }}>
-              <Link2 size={14} style={{ color: 'var(--good)' }} />
+              <LinkIcon size={14} fill="var(--good)" />
               {linkableMembers?.find((m) => m.id === existing.linkedUserId)?.full_name ?? existing.linkedUserId}
             </span>
             <button

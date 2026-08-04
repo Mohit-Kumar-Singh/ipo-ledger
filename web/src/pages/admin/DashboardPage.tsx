@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, CheckCircle2, Clock, Landmark, Link2, Wallet } from 'lucide-react'
+import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, LinkIcon, CreditCardIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -302,16 +302,16 @@ export function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-        <StatTile icon={Clock} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
-        <StatTile icon={Landmark} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
+        <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
+        <StatTile icon={LawIcon} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         {isAdmin && (
-          <StatTile icon={Link2} label="Pending link requests" value={pendingLinkRequests.length} tone="warning" />
+          <StatTile icon={LinkIcon} label="Pending link requests" value={pendingLinkRequests.length} tone="warning" />
         )}
-        <StatTile icon={CheckCircle2} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
-        <StatTile icon={AlertTriangle} label="Failed messages" value={data.failedMessages.length} tone="critical" />
+        <StatTile icon={CheckCircleIcon} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
+        <StatTile icon={AlertIcon} label="Failed messages" value={data.failedMessages.length} tone="critical" />
         {isAdmin && (
           <StatTile
-            icon={Wallet}
+            icon={CreditCardIcon}
             label="Payouts pending"
             value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
             tone="warning"
@@ -549,7 +549,7 @@ function StatTile({
   tone = 'info',
   format,
 }: {
-  icon: typeof Clock
+  icon: typeof ClockIcon
   label: string
   value: number
   tone?: 'info' | 'warning' | 'good' | 'critical'
@@ -566,7 +566,7 @@ function StatTile({
   return (
     <div className="card stagger-item flex flex-col gap-3 p-4">
       <div className={`icon-badge icon-badge-${tone}`}>
-        <Icon size={20} strokeWidth={2} />
+        <Icon size={20} />
       </div>
       <div>
         <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>

@@ -88,7 +88,12 @@ export function AllotmentBoardPage() {
       return
     }
     setLoading(true)
-    const { data } = await supabase.from('v_allotment_board').select('*').eq('ipo_id', ipoId)
+    const { data, error } = await supabase.from('v_allotment_board').select('*').eq('ipo_id', ipoId)
+    if (error) {
+      alert(`Couldn't load the allotment board: ${error.message}`)
+      setLoading(false)
+      return
+    }
     const boardRows = (data ?? []) as AllotmentBoardRow[]
     setRows(boardRows)
 

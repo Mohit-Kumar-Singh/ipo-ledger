@@ -1,24 +1,24 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Bell,
-  ClipboardCheck,
-  FileText,
-  Landmark,
-  LayoutDashboard,
-  Sparkles,
-  TrendingUp,
-  Users,
-  X,
-  type LucideIcon,
-} from 'lucide-react'
+  BellIcon,
+  ChecklistIcon,
+  FileIcon,
+  LawIcon,
+  HomeIcon,
+  SparklesFillIcon,
+  GraphIcon,
+  PeopleIcon,
+  XIcon,
+  type Icon,
+} from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { showToast } from '../lib/toast'
 
 interface Step {
   target: string | null // matches a [data-tour] value in AppShell's sidebar, or null to just dim the page
-  icon: LucideIcon
+  icon: Icon
   title: string
   body: string
 }
@@ -27,19 +27,19 @@ function steps(isAdmin: boolean): Step[] {
   return [
     {
       target: null,
-      icon: Sparkles,
+      icon: SparklesFillIcon,
       title: 'Welcome to IPO Ledger',
       body: "Let's highlight what's in the sidebar. Skip anytime — you can always find your way around from here.",
     },
     {
       target: '/',
-      icon: LayoutDashboard,
+      icon: HomeIcon,
       title: 'Dashboard',
       body: 'A snapshot of open IPOs, recent applications, and allotment activity as soon as you sign in.',
     },
     {
       target: '/accounts',
-      icon: Users,
+      icon: PeopleIcon,
       title: 'Accounts',
       body: isAdmin
         ? 'Manage demat accounts and holders — link users, set profit share, and mark accounts active or inactive.'
@@ -47,31 +47,31 @@ function steps(isAdmin: boolean): Step[] {
     },
     {
       target: '/bank-accounts',
-      icon: Landmark,
+      icon: LawIcon,
       title: 'Bank / UPI accounts',
       body: 'Keep bank and UPI details on file for payouts, linked to the right demat holder.',
     },
     {
       target: '/ipos',
-      icon: TrendingUp,
+      icon: GraphIcon,
       title: 'IPOs',
       body: 'Browse upcoming and ongoing IPOs with issue size, price band, and key dates.',
     },
     {
       target: '/applications',
-      icon: FileText,
+      icon: FileIcon,
       title: 'Applications',
       body: 'Track every IPO application by category and status, from applied through allotted or sold.',
     },
     {
       target: '/allotment',
-      icon: ClipboardCheck,
+      icon: ChecklistIcon,
       title: 'Allotment board',
       body: 'See allotment results across all your accounts in one place, with payout status.',
     },
     {
       target: '/notifications',
-      icon: Bell,
+      icon: BellIcon,
       title: 'Notifications',
       body: 'WhatsApp updates for applications, allotments, and sell reminders land here.',
     },
@@ -196,14 +196,14 @@ export function OnboardingTour({ onRequireNavOpen, onActiveChange }: OnboardingT
           className="absolute top-3 right-3 rounded-lg p-1.5"
           style={{ color: 'var(--ink-muted)' }}
         >
-          <X size={18} />
+          <XIcon size={18} />
         </button>
 
         <div
           className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl"
           style={{ background: 'linear-gradient(135deg, var(--btn-primary-bg), var(--accent))', color: 'white' }}
         >
-          <Icon size={20} strokeWidth={2} />
+          <Icon size={20} />
         </div>
 
         <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>

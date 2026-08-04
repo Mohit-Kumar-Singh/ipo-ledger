@@ -14,11 +14,16 @@ export function NotificationsPage() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .order('created_at', { ascending: false })
       .limit(200)
+    if (error) {
+      alert(`Couldn't load notifications: ${error.message}`)
+      setLoading(false)
+      return
+    }
     setNotifications((data ?? []) as Notification[])
     setLoading(false)
   }

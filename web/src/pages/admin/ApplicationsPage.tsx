@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { AlertTriangle, History, Pencil, Trash2 } from 'lucide-react'
+import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -213,7 +213,7 @@ export function ApplicationsPage() {
 
       {loadError && (
         <div className="card flex items-start gap-3 p-4" style={{ borderColor: 'var(--critical)' }}>
-          <AlertTriangle size={18} className="mt-0.5 shrink-0" style={{ color: 'var(--critical)' }} />
+          <AlertIcon size={18} className="mt-0.5 shrink-0" fill="var(--critical)" />
           <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
             Couldn't load applications: {loadError}
           </p>
@@ -284,7 +284,7 @@ export function ApplicationsPage() {
                               className="shrink-0"
                               title="This application was created in backdated format."
                             >
-                              <History size={13} style={{ color: 'var(--warning)' }} aria-label="Backdated" />
+                              <HistoryIcon size={13} fill="var(--warning)" aria-label="Backdated" />
                             </span>
                           )}
                           {isFunderOnly && (
@@ -368,7 +368,7 @@ export function ApplicationsPage() {
                           className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
                           style={{ color: 'var(--ink-muted)' }}
                         >
-                          <Pencil size={15} />
+                          <PencilIcon size={15} />
                         </button>
                         )}
                         {isOwner && (
@@ -378,7 +378,7 @@ export function ApplicationsPage() {
                           className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
                           style={{ color: 'var(--critical)' }}
                         >
-                          <Trash2 size={15} />
+                          <TrashIcon size={15} />
                         </button>
                         )}
                       </div>
@@ -557,7 +557,7 @@ function NewApplicationForm({
           <Combobox
             aria-label="Demat account"
             placeholder="Select account"
-            searchPlaceholder="Search accounts…"
+            searchPlaceholder="SearchIcon accounts…"
             value={dematId}
             onChange={setDematId}
             options={accounts.map((a) => ({
@@ -572,7 +572,7 @@ function NewApplicationForm({
         <Combobox
           aria-label="Bank account used"
           placeholder="Select bank/UPI"
-          searchPlaceholder="Search bank/UPI accounts…"
+          searchPlaceholder="SearchIcon bank/UPI accounts…"
           value={bankAccountId}
           onChange={setBankAccountId}
           options={[

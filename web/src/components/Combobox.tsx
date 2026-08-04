@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { Check, ChevronsUpDown } from 'lucide-react'
+import { CheckIcon, UnfoldIcon } from '@primer/octicons-react'
 
 export interface ComboboxOption {
   value: string
@@ -18,7 +18,7 @@ export function Combobox({
   value,
   onChange,
   placeholder = 'Select…',
-  searchPlaceholder = 'Search…',
+  searchPlaceholder = 'SearchIcon…',
   emptyLabel = 'No matches.',
   disabled,
   'aria-label': ariaLabel,
@@ -54,7 +54,7 @@ export function Combobox({
           <span className="truncate" style={{ color: selected ? 'var(--ink-primary)' : 'var(--ink-muted)' }}>
             {selected?.label ?? placeholder}
           </span>
-          <ChevronsUpDown size={14} className="shrink-0" style={{ color: 'var(--ink-muted)' }} />
+          <UnfoldIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -99,7 +99,7 @@ export function Combobox({
                       style={{ color: 'var(--ink-primary)' }}
                     >
                       <span className="truncate">{o.label}</span>
-                      {o.value === value && <Check size={14} className="shrink-0" style={{ color: 'var(--accent)' }} />}
+                      {o.value === value && <CheckIcon size={14} className="shrink-0" fill="var(--accent)" />}
                     </Command.Item>
                   ))}
                 </Command.Group>

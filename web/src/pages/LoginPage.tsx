@@ -1,5 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Navigate } from 'react-router-dom'
+import { Button, FormControl, TextInput, Flash } from '@primer/react'
+import { MarkGithubIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -21,41 +23,35 @@ export function LoginPage() {
 
   return (
     <div
-      className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-8"
-      style={{ background: 'var(--page)' }}
+      className="relative flex min-h-screen items-center justify-center px-4 py-8"
+      style={{ background: 'var(--bgColor-inset)' }}
     >
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-32 -left-24 h-80 w-80 rounded-full opacity-30 blur-3xl"
-        style={{ background: 'var(--accent)' }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-24 -bottom-32 h-80 w-80 rounded-full opacity-20 blur-3xl"
-        style={{ background: 'var(--violet)' }}
-      />
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
 
-      <ThemeToggle className="absolute top-4 right-4" />
-      <div className="card animate-page-in relative w-full max-w-sm p-7" style={{ boxShadow: 'var(--shadow-lg)' }}>
+      <div
+        className="animate-page-in relative w-full max-w-sm rounded-md p-7"
+        style={{
+          background: 'var(--bgColor-default)',
+          border: '1px solid var(--borderColor-default)',
+          boxShadow: 'var(--shadow-resting-medium)',
+        }}
+      >
         <div className="mb-6 flex items-center gap-2">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-md text-sm font-semibold text-white"
-            style={{ background: 'linear-gradient(135deg, var(--btn-primary-bg), var(--accent))' }}
-          >
-            I
-          </div>
-          <span className="text-base font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <MarkGithubIcon size={28} />
+          <span className="text-base font-semibold" style={{ color: 'var(--fgColor-default)' }}>
             IPO Ledger
           </span>
         </div>
 
-        <div className="mb-5 flex gap-4 text-sm font-medium" style={{ borderColor: 'var(--border)' }}>
+        <div className="mb-5 flex gap-4 text-sm font-medium">
           <button
             onClick={() => setEmailMode('signin')}
             className="pb-2"
             style={{
-              color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
-              borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: emailMode === 'signin' ? 'var(--fgColor-accent)' : 'var(--fgColor-muted)',
+              borderBottom: emailMode === 'signin' ? '2px solid var(--fgColor-accent)' : '2px solid transparent',
             }}
           >
             Sign in
@@ -64,8 +60,8 @@ export function LoginPage() {
             onClick={() => setEmailMode('register')}
             className="pb-2"
             style={{
-              color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
-              borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
+              color: emailMode === 'register' ? 'var(--fgColor-accent)' : 'var(--fgColor-muted)',
+              borderBottom: emailMode === 'register' ? '2px solid var(--fgColor-accent)' : '2px solid transparent',
             }}
           >
             Create account
@@ -73,17 +69,17 @@ export function LoginPage() {
         </div>
         {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
 
-        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--fgColor-muted)' }}>
+          <div className="h-px flex-1" style={{ background: 'var(--borderColor-default)' }} />
           or
-          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+          <div className="h-px flex-1" style={{ background: 'var(--borderColor-default)' }} />
         </div>
 
-        <button onClick={handleGoogle} className="btn-secondary w-full py-2.5">
+        <Button onClick={handleGoogle} block>
           Continue with Google
-        </button>
+        </Button>
 
-        <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        <p className="mt-6 text-xs" style={{ color: 'var(--fgColor-muted)' }}>
           Creating an account gives you your own portal — add your demat/PAN and bank/UPI accounts and start
           tracking IPO applications.
         </p>
@@ -109,30 +105,24 @@ function EmailSignInForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <Field label="Email">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="input"
-          autoComplete="email"
-        />
-      </Field>
-      <Field label="Password">
-        <input
+      <FormControl required>
+        <FormControl.Label>Email</FormControl.Label>
+        <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" block />
+      </FormControl>
+      <FormControl required>
+        <FormControl.Label>Password</FormControl.Label>
+        <TextInput
           type="password"
-          required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="input"
           autoComplete="current-password"
+          block
         />
-      </Field>
-      {error && <p className="badge badge-critical w-fit">{error}</p>}
-      <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
+      </FormControl>
+      {error && <Flash variant="danger">{error}</Flash>}
+      <Button type="submit" variant="primary" disabled={submitting} block>
         {submitting ? 'Signing in…' : 'Sign in'}
-      </button>
+      </Button>
     </form>
   )
 }
@@ -181,61 +171,41 @@ function EmailRegisterForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <Field label="Full name">
-        <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
-      </Field>
-      <Field label="Email">
-        <input
-          type="email"
-          required
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="input"
-          autoComplete="email"
-        />
-      </Field>
-      <Field label="Password" hint="8+ characters">
-        <input
+      <FormControl required>
+        <FormControl.Label>Full name</FormControl.Label>
+        <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} block />
+      </FormControl>
+      <FormControl required>
+        <FormControl.Label>Email</FormControl.Label>
+        <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" block />
+      </FormControl>
+      <FormControl required>
+        <FormControl.Label>Password</FormControl.Label>
+        <FormControl.Caption>8+ characters</FormControl.Caption>
+        <TextInput
           type="password"
-          required
           minLength={8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="input"
           autoComplete="new-password"
+          block
         />
-      </Field>
-      <Field label="Confirm password">
-        <input
+      </FormControl>
+      <FormControl required>
+        <FormControl.Label>Confirm password</FormControl.Label>
+        <TextInput
           type="password"
-          required
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
-          className="input"
           autoComplete="new-password"
+          block
         />
-      </Field>
-      {error && <p className="badge badge-critical w-fit">{error}</p>}
-      {notice && <p className="badge badge-good w-fit">{notice}</p>}
-      <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
+      </FormControl>
+      {error && <Flash variant="danger">{error}</Flash>}
+      {notice && <Flash variant="success">{notice}</Flash>}
+      <Button type="submit" variant="primary" disabled={submitting} block>
         {submitting ? 'Creating account…' : 'Create account'}
-      </button>
+      </Button>
     </form>
-  )
-}
-
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-      <span className="flex items-baseline justify-between gap-2">
-        {label}
-        {hint && (
-          <span className="text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
-            {hint}
-          </span>
-        )}
-      </span>
-      <div className="mt-1">{children}</div>
-    </label>
   )
 }

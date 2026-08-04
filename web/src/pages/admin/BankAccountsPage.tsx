@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Landmark, Link2 } from 'lucide-react'
+import { LawIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { BankAccount, Profile } from '../../types/database'
@@ -213,7 +213,7 @@ export function BankAccountsPage() {
                   aria-label={`Select ${b.account_holder_name}`}
                 />
                 <div className="icon-badge icon-badge-good shrink-0" style={{ width: '2.25rem', height: '2.25rem' }}>
-                  <Landmark size={16} strokeWidth={2} />
+                  <LawIcon size={16} />
                 </div>
                 <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                   {b.account_holder_name}
@@ -228,7 +228,7 @@ export function BankAccountsPage() {
                 {b.is_default && <span className="badge badge-info">default</span>}
                 {isAdmin && b.linked_user_id && (
                   <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--good)' }}>
-                    <Link2 size={12} />
+                    <LinkIcon size={12} />
                     {linkableMembers.find((m) => m.id === b.linked_user_id)?.full_name ?? 'linked'}
                     <button
                       onClick={() => unlinkMember(b.id)}
@@ -329,7 +329,7 @@ function BankForm({
     setError(null)
 
     if (!phoneValid) {
-      setError('Phone number is required and must be exactly 10 digits.')
+      setError('DeviceMobileIcon number is required and must be exactly 10 digits.')
       return
     }
 
@@ -381,7 +381,7 @@ function BankForm({
       <Field label="Bank" hint="optional">
         <input value={bankName} onChange={(e) => setBankName(e.target.value)} className="input" />
       </Field>
-      <Field label="Phone number" hint="sends the applied message to this holder too">
+      <Field label="DeviceMobileIcon number" hint="sends the applied message to this holder too">
         <div className="flex items-center gap-2">
           <span
             className="rounded-md border px-3 py-2 text-sm"

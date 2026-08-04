@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link2, ShieldCheck } from 'lucide-react'
+import { LinkIcon, ShieldCheckIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import type { RegistrarLink } from '../../types/database'
@@ -42,7 +42,12 @@ function RegistrarLinksSection({ editable }: { editable: boolean }) {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('registrar_links').select('*').order('registrar')
+    const { data, error } = await supabase.from('registrar_links').select('*').order('registrar')
+    if (error) {
+      alert(`Couldn't load registrar links: ${error.message}`)
+      setLoading(false)
+      return
+    }
     const rows = (data ?? []) as RegistrarLink[]
     setLinks(rows)
     setDrafts(Object.fromEntries(rows.map((r) => [r.registrar, r.check_url])))
@@ -70,7 +75,7 @@ function RegistrarLinksSection({ editable }: { editable: boolean }) {
   return (
     <section>
       <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-        <Link2 size={15} style={{ color: 'var(--accent)' }} />
+        <LinkIcon size={15} fill="var(--accent)" />
         Registrar allotment-check links
       </h2>
       <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -139,7 +144,7 @@ function PanAccessLogSection() {
   return (
     <section>
       <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-        <ShieldCheck size={15} style={{ color: 'var(--violet)' }} />
+        <ShieldCheckIcon size={15} fill="var(--violet)" />
         PAN access log
       </h2>
       <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>

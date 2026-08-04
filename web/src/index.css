@@ -4,132 +4,124 @@
 :root {
   color-scheme: light;
 
-  /* Filetio-inspired palette (light) — cool off-white page, colorful tints */
+  /* GitHub's actual light palette (Primer primitives) — every token below is
+     kept under its ORIGINAL name so every existing page (which already
+     references var(--accent), .card, .btn-primary, etc.) picks up GitHub's
+     real colors without needing each call site rewritten. */
   --surface: #ffffff;
-  --page: #f4f5fb;
-  --hover-surface: #eef0f8;
-  --ink-primary: #14151f;
-  --ink-secondary: #5c5f74;
-  --ink-muted: #8d90a6;
-  --border: #e7e8f2;
-  --border-strong: #d9dbe8;
-  --card-shadow: rgba(20, 21, 40, 0.07);
+  --page: #ffffff;
+  --hover-surface: #f3f4f6;
+  --ink-primary: #1f2328;
+  --ink-secondary: #59636e;
+  --ink-muted: #6e7781;
+  --border: #d1d9e0;
+  --border-strong: #d1d9e0;
+  --card-shadow: rgba(31, 35, 40, 0.04);
 
-  /* Sidebar surface — follows the theme like everything else (white here) */
-  --header-bg: #ffffff;
-  --header-fg: #14151f;
-  --header-fg-muted: #8d90a6;
-  --header-hover: rgba(20, 21, 31, 0.05);
+  --header-bg: #f6f8fa;
+  --header-fg: #1f2328;
+  --header-fg-muted: #59636e;
+  --header-hover: rgba(31, 35, 40, 0.08);
 
-  /* Accent (links, focus rings, active nav) */
-  --accent: #4f7cff;
-  --accent-hover: #3d67f0;
-  --accent-tint: #e8edff;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --accent-tint: #ddf4ff;
 
-  /* Primary button — teal, the app's brand color */
-  --btn-primary-bg: #16a394;
-  --btn-primary-hover: #0f8c7f;
+  --btn-primary-bg: #1f883d;
+  --btn-primary-hover: #1a7f37;
 
-  /* Status (fixed hues; only the tint/text pairing adapts per mode) */
-  --good: #16a394;
-  --good-tint: #dcf5f0;
-  --good-text: #0f8c7f;
-  --warning: #f5a524;
-  --warning-tint: #fef1dc;
-  --warning-text: #b8790f;
-  --serious: #f2683c;
-  --serious-tint: #fde7dd;
-  --serious-text: #c24f27;
-  --critical: #f0506e;
-  --critical-tint: #fde3ea;
-  --critical-text: #cf3355;
+  --good: #1f883d;
+  --good-tint: #dafbe1;
+  --good-text: #1a7f37;
+  --warning: #9a6700;
+  --warning-tint: #fff8c5;
+  --warning-text: #7d4e00;
+  --serious: #bc4c00;
+  --serious-tint: #fff1e5;
+  --serious-text: #bc4c00;
+  --critical: #cf222e;
+  --critical-tint: #ffebe9;
+  --critical-text: #d1242f;
 
-  /* Purple — used for final states like Sold/Listed, and violet icon badges */
-  --violet: #8b5cf6;
-  --violet-tint: #ede4fe;
+  --violet: #8250df;
+  --violet-tint: #fbefff;
 
-  /* Chart series identity — kept separate from the status colors above (never
-     reused for series 4+); values are the dataviz skill's validated
-     categorical slots 1-3, adopted as-is. --series-other is a neutral, not a
-     4th identity color, for whatever gets folded past the top 3 contributors. */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
+  --series-1: #0969da;
+  --series-2: #bc4c00;
+  --series-3: #1f883d;
   --series-other: var(--ink-muted);
 
-  /* Layered shadow system — soft ambient layer + tighter contact layer */
-  --shadow-sm: 0 1px 2px rgba(20, 21, 40, 0.06), 0 1px 1px rgba(20, 21, 40, 0.05);
-  --shadow-md: 0 8px 16px rgba(20, 21, 40, 0.08), 0 2px 6px rgba(20, 21, 40, 0.06);
-  --shadow-lg: 0 20px 40px rgba(20, 21, 40, 0.14), 0 6px 12px rgba(20, 21, 40, 0.07);
-  --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(79, 124, 255, 0.22);
-  --shadow-glow-primary: 0 8px 20px rgba(22, 163, 148, 0.3);
-  --shadow-glow-warning: 0 8px 20px rgba(245, 165, 36, 0.3);
-  --shadow-glow-critical: 0 8px 20px rgba(240, 80, 110, 0.3);
+  /* GitHub's shadows are thin and mostly border-driven, not soft/glowy */
+  --shadow-sm: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-md: 0 3px 6px rgba(140, 149, 159, 0.15);
+  --shadow-lg: 0 8px 24px rgba(140, 149, 159, 0.2);
+  --shadow-glow-accent: none;
+  --shadow-glow-primary: none;
+  --shadow-glow-warning: none;
+  --shadow-glow-critical: none;
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* Filetio-inspired palette (dark) — near-black surfaces, vivid tinted badges */
-  --surface: #1a1c27;
-  --page: #101019;
-  --hover-surface: #242636;
-  --ink-primary: #f2f3fa;
-  --ink-secondary: #a9acc4;
-  --ink-muted: #7d8096;
-  --border: #2b2d3d;
-  --border-strong: #383b4f;
-  --card-shadow: rgba(0, 0, 0, 0.55);
+  /* GitHub's actual dark palette */
+  --surface: #0d1117;
+  --page: #0d1117;
+  --hover-surface: #21262d;
+  --ink-primary: #e6edf3;
+  --ink-secondary: #9198a1;
+  --ink-muted: #7d8590;
+  --border: #3d444d;
+  --border-strong: #3d444d;
+  --card-shadow: rgba(0, 0, 0, 0.4);
 
-  --header-bg: #0a0a10;
-  --header-fg: #f5f6fb;
-  --header-fg-muted: #9698ac;
-  --header-hover: rgba(255, 255, 255, 0.06);
+  --header-bg: #010409;
+  --header-fg: #e6edf3;
+  --header-fg-muted: #9198a1;
+  --header-hover: rgba(255, 255, 255, 0.08);
 
-  --accent: #6d8bff;
-  --accent-hover: #85a0ff;
-  --accent-tint: rgba(109, 139, 255, 0.18);
+  --accent: #4493f8;
+  --accent-hover: #6cb0fe;
+  --accent-tint: rgba(56, 139, 253, 0.15);
 
-  --btn-primary-bg: #1fc2ac;
-  --btn-primary-hover: #2fd6bf;
+  --btn-primary-bg: #238636;
+  --btn-primary-hover: #2ea043;
 
-  --good: #2dd4bf;
-  --good-tint: rgba(45, 212, 191, 0.16);
-  --good-text: #2dd4bf;
-  --warning: #fbbf4a;
-  --warning-tint: rgba(251, 191, 74, 0.16);
-  --warning-text: #fbbf4a;
-  --serious: #ff8a5c;
-  --serious-tint: rgba(255, 138, 92, 0.16);
-  --serious-text: #ff8a5c;
-  --critical: #ff6b8b;
-  --critical-tint: rgba(255, 107, 139, 0.16);
-  --critical-text: #ff6b8b;
+  --good: #3fb950;
+  --good-tint: rgba(46, 160, 67, 0.15);
+  --good-text: #3fb950;
+  --warning: #d29922;
+  --warning-tint: rgba(187, 128, 9, 0.15);
+  --warning-text: #d29922;
+  --serious: #e0823d;
+  --serious-tint: rgba(219, 109, 40, 0.15);
+  --serious-text: #e0823d;
+  --critical: #f85149;
+  --critical-tint: rgba(248, 81, 73, 0.15);
+  --critical-text: #ff7b72;
 
-  --violet: #b794f6;
-  --violet-tint: rgba(183, 148, 246, 0.16);
+  --violet: #a371f7;
+  --violet-tint: rgba(163, 113, 247, 0.15);
 
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
+  --series-1: #4493f8;
+  --series-2: #e0823d;
+  --series-3: #3fb950;
   --series-other: var(--ink-muted);
 
-  /* Layered shadow system — dark surfaces need deeper, higher-contrast layers */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 1px 1px rgba(0, 0, 0, 0.28);
-  --shadow-md: 0 8px 16px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 20px 40px rgba(0, 0, 0, 0.5), 0 6px 14px rgba(0, 0, 0, 0.35);
-  --shadow-glow-accent: 0 0 0 1px var(--accent-tint), 0 8px 20px rgba(109, 139, 255, 0.28);
-  --shadow-glow-primary: 0 8px 20px rgba(31, 194, 172, 0.32);
-  --shadow-glow-warning: 0 8px 20px rgba(251, 191, 74, 0.3);
-  --shadow-glow-critical: 0 8px 20px rgba(255, 107, 139, 0.3);
+  --shadow-sm: 0 1px 0 rgba(1, 4, 9, 0.15);
+  --shadow-md: 0 3px 6px rgba(1, 4, 9, 0.4);
+  --shadow-lg: 0 8px 24px rgba(1, 4, 9, 0.5);
+  --shadow-glow-accent: none;
+  --shadow-glow-primary: none;
+  --shadow-glow-warning: none;
+  --shadow-glow-critical: none;
 }
 
 body {
   margin: 0;
   background: var(--page);
   color: var(--ink-primary);
-  font-family: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  font-feature-settings: 'cv11', 'ss01';
+  font-family: -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
@@ -164,7 +156,7 @@ table {
   background-image: linear-gradient(90deg, var(--hover-surface) 25%, var(--border) 37%, var(--hover-surface) 63%);
   background-size: 400% 100%;
   animation: shimmer 1.4s ease infinite;
-  border-radius: 0.5rem;
+  border-radius: 6px;
 }
 
 @keyframes toast-in {
@@ -257,13 +249,15 @@ table {
   }
 }
 
+/* GitHub/Primer-style flat controls: 6px radius, 1px borders, no lift/glow
+   on hover — just a subtle background/border darken, matching github.com. */
 @layer components {
   .input {
-    @apply w-full rounded-xl border px-3 py-2 text-sm outline-none;
+    @apply w-full rounded-md border px-3 py-2 text-sm outline-none;
     border-color: var(--border-strong);
     background: var(--surface);
     color: var(--ink-primary);
-    transition: border-color 0.15s ease, box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.15s ease;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
   }
   .input::placeholder {
     color: var(--ink-muted);
@@ -274,62 +268,47 @@ table {
   }
 
   .btn-primary {
-    @apply rounded-xl border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: linear-gradient(135deg, var(--btn-primary-bg), var(--btn-primary-hover));
+    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: var(--btn-primary-bg);
     border-color: rgba(31, 35, 40, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
+    transition: background-color 0.15s ease;
   }
   .btn-primary:hover:not(:disabled) {
-    filter: brightness(1.08);
-    box-shadow: var(--shadow-glow-primary);
-    transform: translateY(-1px);
+    background: var(--btn-primary-hover);
   }
 
   .btn-secondary {
-    @apply rounded-xl border px-3 py-2 text-sm font-medium disabled:opacity-50;
+    @apply rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50;
     border-color: var(--border-strong);
     color: var(--ink-primary);
-    background: var(--surface);
-    transition: background-color 0.15s ease, transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+    background: var(--hover-surface);
+    transition: background-color 0.15s ease;
   }
   .btn-secondary:hover:not(:disabled) {
-    background: var(--hover-surface);
-    box-shadow: var(--shadow-sm);
-    transform: translateY(-1px);
+    background: var(--border);
   }
 
   .btn-warning {
-    @apply rounded-xl border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: linear-gradient(135deg, var(--warning), color-mix(in srgb, var(--warning) 75%, black));
+    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: var(--warning);
     border-color: rgba(0, 0, 0, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
+    transition: filter 0.15s ease;
   }
   .btn-warning:hover:not(:disabled) {
-    filter: brightness(1.08);
-    box-shadow: var(--shadow-glow-warning);
-    transform: translateY(-1px);
+    filter: brightness(0.92);
   }
 
   .btn-danger {
-    @apply rounded-xl border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: linear-gradient(135deg, var(--critical), color-mix(in srgb, var(--critical) 75%, black));
+    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    background: var(--critical);
     border-color: rgba(0, 0, 0, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, filter 0.2s ease;
+    transition: filter 0.15s ease;
   }
   .btn-danger:hover:not(:disabled) {
-    filter: brightness(1.08);
-    box-shadow: var(--shadow-glow-critical);
-    transform: translateY(-1px);
-  }
-
-  .btn-primary:active:not(:disabled),
-  .btn-secondary:active:not(:disabled),
-  .btn-warning:active:not(:disabled),
-  .btn-danger:active:not(:disabled) {
-    transform: translateY(0) scale(0.97);
+    filter: brightness(0.92);
   }
 
   .link-accent {
@@ -340,17 +319,12 @@ table {
   }
 
   .card {
-    @apply rounded-2xl border;
+    @apply rounded-md border;
     border-color: var(--border-strong);
     background: var(--surface);
-    box-shadow: var(--shadow-sm);
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
-  }
-  .card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-lg);
   }
 
+  /* GitHub label pill (issue/PR labels): tinted bg, no border, fully round */
   .badge {
     @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium;
   }
@@ -381,7 +355,7 @@ table {
 
   /* Colored rounded-square icon tile — the folder/stat-tile icon look */
   .icon-badge {
-    @apply flex shrink-0 items-center justify-center rounded-xl;
+    @apply flex shrink-0 items-center justify-center rounded-md;
     width: 2.75rem;
     height: 2.75rem;
   }
@@ -410,23 +384,23 @@ table {
     color: var(--ink-secondary);
   }
 
-  /* Sidebar nav item */
+  /* Sidebar nav item — GitHub settings-sidebar style: flat selected bg, no
+     gradient/glow, thin accent-colored left edge on the active item. */
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all duration-200 ease-out;
+    @apply flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium;
     color: var(--header-fg-muted);
+    transition: background-color 0.15s ease, color 0.15s ease;
   }
   .sidebar-link:hover {
     background: var(--header-hover);
     color: var(--header-fg);
-    transform: translateX(2px);
   }
   .sidebar-link-active {
-    background: linear-gradient(135deg, var(--btn-primary-bg), var(--btn-primary-hover));
-    color: white;
-    box-shadow: var(--shadow-glow-primary);
+    background: var(--accent-tint);
+    color: var(--accent);
+    font-weight: 600;
   }
   .sidebar-link-active:hover {
-    transform: none;
-    color: white;
+    color: var(--accent);
   }
 }

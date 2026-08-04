@@ -1,12 +1,17 @@
 import { useEffect, useState } from 'react'
+import { Label, IconButton } from '@primer/react'
+import { XIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
 import { onToast } from '../lib/toast'
+import { Panel } from './Panel'
 import type { Notification } from '../types/database'
+
+type LabelVariant = 'accent' | 'attention' | 'success' | 'danger' | 'secondary'
 
 interface RenderedToast {
   id: string
-  badgeClass: string
-  badgeLabel: string
+  labelVariant: LabelVariant
+  labelText: string
   title?: string
   message: string
 }
@@ -29,24 +34,24 @@ function renderPreview(templateName: string, variables: unknown): string {
 function notificationToast(n: Notification): RenderedToast {
   const meta =
     n.status === 'SIMULATED'
-      ? { label: 'Simulated WhatsApp (no Meta setup yet)', badge: 'badge-warning' }
+      ? ({ label: 'Simulated WhatsApp (no Meta setup yet)', variant: 'attention' } as const)
       : n.status === 'FAILED'
-        ? { label: 'WhatsApp send failed', badge: 'badge-critical' }
-        : { label: 'WhatsApp sent', badge: 'badge-good' }
+        ? ({ label: 'WhatsApp send failed', variant: 'danger' } as const)
+        : ({ label: 'WhatsApp sent', variant: 'success' } as const)
   return {
     id: `${n.id}-${n.status}-${Date.now()}`,
-    badgeClass: meta.badge,
-    badgeLabel: meta.label,
+    labelVariant: meta.variant,
+    labelText: meta.label,
     title: `To ${n.to_phone}`,
     message: renderPreview(n.template_name, n.variables),
   }
 }
 
-const toneMeta: Record<string, { badgeClass: string; badgeLabel: string }> = {
-  info: { badgeClass: 'badge-info', badgeLabel: 'Note' },
-  warning: { badgeClass: 'badge-warning', badgeLabel: 'Heads up' },
-  good: { badgeClass: 'badge-good', badgeLabel: 'Done' },
-  critical: { badgeClass: 'badge-critical', badgeLabel: 'Error' },
+const toneMeta: Record<string, { variant: LabelVariant; label: string }> = {
+  info: { variant: 'accent', label: 'Note' },
+  warning: { variant: 'attention', label: 'Heads up' },
+  good: { variant: 'success', label: 'Done' },
+  critical: { variant: 'danger', label: 'Error' },
 }
 
 /** Pops up a card for (a) notifications actually dispatched (SENT, SIMULATED
@@ -108,8 +113,8 @@ export function ToastHost() {
       const meta = toneMeta[toast.tone] ?? toneMeta.info
       const rendered: RenderedToast = {
         id: toast.id,
-        badgeClass: meta.badgeClass,
-        badgeLabel: meta.badgeLabel,
+        labelVariant: meta.variant,
+        labelText: meta.label,
         message: toast.message,
       }
       setToasts((t) => [...t, rendered])
@@ -131,31 +136,24 @@ export function ToastHost() {
   return (
     <div className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
       {toasts.map((t) => (
-        <div
+        <Panel
           key={t.id}
-          className={`card p-4 ${leavingIds.has(t.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
-          style={{ boxShadow: 'var(--shadow-lg)' }}
+          className={`p-4 ${leavingIds.has(t.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
+          style={{ boxShadow: 'var(--shadow-floating-large)' }}
         >
           <div className="flex items-start justify-between gap-2">
-            <span className={`badge ${t.badgeClass}`}>{t.badgeLabel}</span>
-            <button
-              onClick={() => dismiss(t.id)}
-              aria-label="Dismiss"
-              className="text-sm leading-none"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              ×
-            </button>
+            <Label variant={t.labelVariant}>{t.labelText}</Label>
+            <IconButton onClick={() => dismiss(t.id)} aria-label="Dismiss" icon={XIcon} variant="invisible" size="small" />
           </div>
           {t.title && (
-            <p className="mt-2 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+            <p className="mt-2 text-xs font-medium" style={{ color: 'var(--fgColor-muted)' }}>
               {t.title}
             </p>
           )}
-          <p className="mt-1 text-sm" style={{ color: 'var(--ink-primary)' }}>
+          <p className="mt-1 text-sm" style={{ color: 'var(--fgColor-default)' }}>
             {t.message}
           </p>
-        </div>
+        </Panel>
       ))}
     </div>
   )

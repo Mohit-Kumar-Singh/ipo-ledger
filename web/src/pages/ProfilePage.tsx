@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CreditCard, Landmark, Mail, Phone, Search, ShieldCheck, User, X } from 'lucide-react'
+import { CreditCardIcon, LawIcon, MailIcon, DeviceMobileIcon, SearchIcon, ShieldCheckIcon, PersonIcon, XIcon } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AttributionChart } from '../components/AttributionChart'
@@ -85,20 +85,30 @@ export function ProfilePage() {
 
   async function loadMyRequests() {
     setLoadingRequests(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('demat_link_requests')
       .select('*, demat_accounts(holder_name)')
       .order('requested_at', { ascending: false })
+    if (error) {
+      alert(`Couldn't load your link requests: ${error.message}`)
+      setLoadingRequests(false)
+      return
+    }
     setMyRequests((data ?? []) as MyRequestRow[])
     setLoadingRequests(false)
   }
 
   async function loadMyBankRequests() {
     setLoadingBankRequests(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('bank_link_requests')
       .select('*, bank_accounts(account_holder_name)')
       .order('requested_at', { ascending: false })
+    if (error) {
+      alert(`Couldn't load your bank link requests: ${error.message}`)
+      setLoadingBankRequests(false)
+      return
+    }
     setMyBankRequests((data ?? []) as MyBankRequestRow[])
     setLoadingBankRequests(false)
   }
@@ -149,7 +159,7 @@ export function ProfilePage() {
       return
     }
     if (!phoneValid) {
-      setError('Phone number must be exactly 10 digits, or left blank.')
+      setError('DeviceMobileIcon number must be exactly 10 digits, or left blank.')
       return
     }
 
@@ -364,7 +374,7 @@ export function ProfilePage() {
         <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
           Full name
           <div className="mt-1 flex items-center gap-2">
-            <User size={15} style={{ color: 'var(--ink-muted)' }} />
+            <PersonIcon size={15} fill="var(--ink-muted)" />
             <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
           </div>
           <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -374,13 +384,13 @@ export function ProfilePage() {
 
         <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
           <span className="flex items-baseline justify-between gap-2">
-            Phone number
+            DeviceMobileIcon number
             <span className="text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
               optional, 10 digits
             </span>
           </span>
           <div className="mt-1 flex items-center gap-2">
-            <Phone size={15} style={{ color: 'var(--ink-muted)' }} />
+            <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
             <span
               className="rounded-md border px-3 py-2 text-sm"
               style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
@@ -404,7 +414,7 @@ export function ProfilePage() {
         </label>
 
         <div className="flex items-center gap-2 border-t pt-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}>
-          <Mail size={15} style={{ color: 'var(--ink-muted)' }} />
+          <MailIcon size={15} fill="var(--ink-muted)" />
           {session?.user.email ?? session?.user.phone ?? '—'}
         </div>
 
@@ -417,7 +427,7 @@ export function ProfilePage() {
 
       <form onSubmit={handleSavePan} className="card animate-page-in space-y-3 p-5">
         <div className="flex items-center gap-2">
-          <ShieldCheck size={16} style={{ color: 'var(--accent)' }} />
+          <ShieldCheckIcon size={16} fill="var(--accent)" />
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Your PAN
           </h2>
@@ -432,7 +442,7 @@ export function ProfilePage() {
             <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
               PAN
               <div className="mt-1 flex items-center gap-2">
-                <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                <CreditCardIcon size={15} fill="var(--ink-muted)" />
                 <input
                   value={pan}
                   onChange={(e) => setPan(e.target.value.toUpperCase())}
@@ -478,7 +488,7 @@ export function ProfilePage() {
               style={{ borderColor: 'var(--border-strong)' }}
             >
               <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
-                <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                <CreditCardIcon size={15} fill="var(--ink-muted)" />
                 {profile.self_pan_masked}
               </span>
               <button
@@ -499,11 +509,11 @@ export function ProfilePage() {
           Request to link a demat account
         </h2>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
+          SearchIcon by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
           here, and only the name and a masked phone number.
         </p>
         <div className="flex items-center gap-2">
-          <Search size={15} style={{ color: 'var(--ink-muted)' }} />
+          <SearchIcon size={15} fill="var(--ink-muted)" />
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -511,7 +521,7 @@ export function ProfilePage() {
             className="input"
           />
           <button type="submit" disabled={searching || !searchQuery.trim()} className="btn-secondary shrink-0 disabled:opacity-50">
-            {searching ? 'Searching…' : 'Search'}
+            {searching ? 'Searching…' : 'SearchIcon'}
           </button>
         </div>
 
@@ -582,7 +592,7 @@ export function ProfilePage() {
                       className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
                       style={{ color: 'var(--critical)' }}
                     >
-                      <X size={14} />
+                      <XIcon size={14} />
                     </button>
                   )}
                 </div>
@@ -604,7 +614,7 @@ export function ProfilePage() {
             {linkedDemat.map((d) => (
               <div key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                 <div className="flex items-center gap-2">
-                  <CreditCard size={15} style={{ color: 'var(--ink-muted)' }} />
+                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
                   <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {d.holder_name}
                   </span>
@@ -623,7 +633,7 @@ export function ProfilePage() {
             {linkedBank.map((b) => (
               <div key={b.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
                 <div className="flex items-center gap-2">
-                  <Landmark size={15} style={{ color: 'var(--ink-muted)' }} />
+                  <LawIcon size={15} fill="var(--ink-muted)" />
                   <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
                   </span>
@@ -653,7 +663,7 @@ export function ProfilePage() {
           bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead.
         </p>
         <div className="flex items-center gap-2">
-          <Search size={15} style={{ color: 'var(--ink-muted)' }} />
+          <SearchIcon size={15} fill="var(--ink-muted)" />
           <input
             value={bankSearchQuery}
             onChange={(e) => setBankSearchQuery(e.target.value)}
@@ -665,7 +675,7 @@ export function ProfilePage() {
             disabled={searchingBank || !bankSearchQuery.trim()}
             className="btn-secondary shrink-0 disabled:opacity-50"
           >
-            {searchingBank ? 'Searching…' : 'Search'}
+            {searchingBank ? 'Searching…' : 'SearchIcon'}
           </button>
         </div>
 
@@ -747,7 +757,7 @@ export function ProfilePage() {
                       className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
                       style={{ color: 'var(--critical)' }}
                     >
-                      <X size={14} />
+                      <XIcon size={14} />
                     </button>
                   )}
                 </div>
