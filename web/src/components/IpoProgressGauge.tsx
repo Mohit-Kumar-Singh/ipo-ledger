@@ -14,6 +14,7 @@ export function IpoProgressGauge({
   applied,
   total,
   gmpNotes,
+  remainingHolderNames,
 }: {
   companyName: string
   startDate: string
@@ -21,8 +22,10 @@ export function IpoProgressGauge({
   applied: number
   total: number
   gmpNotes: string | null
+  remainingHolderNames: string[]
 }) {
   const [grown, setGrown] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   useEffect(() => {
     const raf = requestAnimationFrame(() => setGrown(true))
     return () => cancelAnimationFrame(raf)
@@ -56,7 +59,16 @@ export function IpoProgressGauge({
             {startDate} – {endDate}
           </p>
         </div>
-        <span className="badge badge-neutral shrink-0 text-xs">{accountsLeft} left</span>
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          disabled={accountsLeft === 0}
+          aria-expanded={expanded}
+          className="badge badge-neutral shrink-0 text-xs disabled:cursor-default"
+          style={{ cursor: accountsLeft > 0 ? 'pointer' : undefined }}
+        >
+          {accountsLeft} left
+        </button>
       </div>
 
       <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="w-full">
@@ -97,6 +109,36 @@ export function IpoProgressGauge({
             GMP: {gmpNotes}
           </p>
         )}
+      </div>
+
+      {/* Grid-rows 0fr->1fr trick: animates height to content's natural size
+          without knowing it in advance, then the inner list scrolls once
+          expanded rather than growing the tile without bound. */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateRows: expanded ? '1fr' : '0fr',
+          transition: 'grid-template-rows 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+        }}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-3 border-t pt-2 text-left" style={{ borderColor: 'var(--border)' }}>
+            <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+              Accounts yet to apply ({remainingHolderNames.length})
+            </p>
+            <ul className="max-h-40 overflow-y-auto">
+              {remainingHolderNames.map((name) => (
+                <li
+                  key={name}
+                  className="truncate border-b py-1.5 text-xs last:border-b-0"
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
+                >
+                  {name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
   )

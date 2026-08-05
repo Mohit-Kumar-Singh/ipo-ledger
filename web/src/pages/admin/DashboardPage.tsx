@@ -68,6 +68,7 @@ interface IpoProgress {
   applied: number
   totalActive: number
   gmpNotes: string | null
+  remainingHolderNames: string[]
 }
 
 const HIGH_GMP_THRESHOLD = 15
@@ -193,11 +194,11 @@ export function DashboardPage() {
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
 
-      const [closingSoon, allIpos, activeAccountsCount, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] =
+      const [closingSoon, allIpos, activeAccounts, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] =
         await Promise.all([
           supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
           supabase.from('ipos').select('*'),
-          supabase.from('demat_accounts').select('id', { count: 'exact', head: true }).eq('is_active', true),
+          supabase.from('demat_accounts').select('id, holder_name').eq('is_active', true),
           supabase.from('v_allotment_board').select('*'),
           supabase
             .from('notifications')
@@ -231,23 +232,35 @@ export function DashboardPage() {
 
       const boardRows = (board.data ?? []) as AllotmentBoardRow[]
 
-      // Applied-per-IPO counts come from the board rows already fetched above
+      // Applied-per-IPO accounts come from the board rows already fetched above
       // (one row per application) rather than a separate query — v_allotment_board
       // already covers every IPO, not just the top-8-by-open-date attribution set.
-      const appliedByIpo = new Map<string, number>()
-      for (const r of boardRows) appliedByIpo.set(r.ipo_id, (appliedByIpo.get(r.ipo_id) ?? 0) + 1)
-      const totalActive = activeAccountsCount.count ?? 0
+      const appliedDematIdsByIpo = new Map<string, Set<string>>()
+      for (const r of boardRows) {
+        if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
+        appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
+      }
+      const activeDematAccounts = (activeAccounts.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[]
+      const totalActive = activeDematAccounts.length
       const ipoProgress: IpoProgress[] = ((allIpos.data ?? []) as Ipo[])
         .filter(isLiveIpo)
-        .map((ipo) => ({
-          ipoId: ipo.id,
-          companyName: ipo.company_name,
-          openDate: ipo.open_date,
-          endDate: ipo.listing_date ?? ipo.close_date,
-          applied: appliedByIpo.get(ipo.id) ?? 0,
-          totalActive,
-          gmpNotes: ipo.gmp_notes,
-        }))
+        .map((ipo) => {
+          const appliedIds = appliedDematIdsByIpo.get(ipo.id) ?? new Set<string>()
+          const remainingHolderNames = activeDematAccounts
+            .filter((d) => !appliedIds.has(d.id))
+            .map((d) => d.holder_name)
+            .sort((a, b) => a.localeCompare(b))
+          return {
+            ipoId: ipo.id,
+            companyName: ipo.company_name,
+            openDate: ipo.open_date,
+            endDate: ipo.listing_date ?? ipo.close_date,
+            applied: appliedIds.size,
+            totalActive,
+            gmpNotes: ipo.gmp_notes,
+            remainingHolderNames,
+          }
+        })
         .sort((a, b) => a.endDate.localeCompare(b.endDate))
 
       // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
@@ -390,6 +403,7 @@ export function DashboardPage() {
                 applied={p.applied}
                 total={p.totalActive}
                 gmpNotes={p.gmpNotes}
+                remainingHolderNames={p.remainingHolderNames}
               />
             ))}
           </div>
@@ -405,9 +419,9 @@ export function DashboardPage() {
             No applications yet.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
             {data.attribution.map((a) => (
-              <div key={a.ipoId} className="card stagger-item p-4">
+              <div key={a.ipoId} className="card stagger-item min-w-0 p-4">
                 <AttributionChart attribution={a} />
               </div>
             ))}

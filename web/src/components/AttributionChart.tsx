@@ -44,7 +44,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
   })
 
   return (
-    <div>
+    <div className="min-w-0">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <p
           className={`truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
@@ -57,7 +57,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
         </span>
       </div>
 
-      <div className="flex items-center gap-4">
+      <div className="flex min-w-0 items-center gap-4">
         <svg width={size} height={size} className="shrink-0 overflow-visible">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} opacity={0.5} />
           <g transform={`rotate(-90 ${cx} ${cy})`}>
@@ -97,14 +97,14 @@ export function AttributionChart({ attribution, compact = false }: { attribution
               ),
           )}
         </svg>
-        <div className="flex flex-col gap-1 text-xs">
+        <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
           {geometry.map((s, i) => (
-            <div key={s.name} className="flex items-center gap-1.5">
+            <div key={s.name} className="flex min-w-0 items-center gap-1.5">
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
               />
-              <span style={{ color: 'var(--ink-secondary)' }}>
+              <span className="truncate" style={{ color: 'var(--ink-secondary)' }}>
                 {s.name} — {formatCount(s.value)} ({Math.round(s.rawPct)}%)
               </span>
             </div>
