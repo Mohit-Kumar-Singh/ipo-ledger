@@ -55,9 +55,14 @@
   --violet: #8250df;
   --violet-tint: #fbefff;
 
-  --series-1: #0969da;
-  --series-2: #bc4c00;
-  --series-3: #1f883d;
+  /* Validated categorical triplet (dataviz skill: blue/orange/aqua, first 3
+     slots of the reference 8-hue order) — clears all-pairs CVD + normal-vision
+     floors in both modes, unlike GitHub's own blue/orange/green accents which
+     don't (green↔orange ΔE 5.3, below the 6 floor). --series-other stays a
+     muted neutral since "Other" is a fold-in bucket, not a real hue. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
   --series-other: var(--ink-muted);
 
   /* GitHub's shadows are thin and mostly border-driven, not soft/glowy */
@@ -132,9 +137,9 @@
   --violet: #a371f7;
   --violet-tint: rgba(163, 113, 247, 0.15);
 
-  --series-1: #4493f8;
-  --series-2: #e0823d;
-  --series-3: #3fb950;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
   --series-other: var(--ink-muted);
 
   --shadow-sm: 0 1px 0 rgba(1, 4, 9, 0.15);

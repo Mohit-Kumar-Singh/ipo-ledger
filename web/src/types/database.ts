@@ -167,6 +167,7 @@ export interface ApplicationAttributionRow {
   holder_name: string
   bank_account_id: string | null
   funder_user_id: string | null
+  funder_name: string | null
   created_by: string | null
 }
 

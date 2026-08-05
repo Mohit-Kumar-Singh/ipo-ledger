@@ -1,6 +1,12 @@
+import { useEffect, useState } from 'react'
+import { useCountUp } from '../lib/useCountUp'
+
 // Hand-rolled half-donut gauge (SVG arc via pathLength/dasharray) — no
 // charting library, same spirit as the other charts in this app. Fill grows
-// with `applied`, so it visibly advances as more accounts apply.
+// with `applied`, so it visibly advances as more accounts apply, and draws
+// in from zero on mount (same trick as AttributionChart's sweep-in: render
+// the "before" state first, flip to the real value a frame later so the
+// CSS transition animates it).
 export function IpoProgressGauge({
   companyName,
   startDate,
@@ -16,15 +22,23 @@ export function IpoProgressGauge({
   total: number
   gmpNotes: string | null
 }) {
+  const [grown, setGrown] = useState(false)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setGrown(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
   const pct = total > 0 ? Math.min(applied / total, 1) : 0
+  const drawnPct = grown ? pct : 0
   const accountsLeft = Math.max(total - applied, 0)
+  const animatedApplied = useCountUp(applied)
 
   const size = 160
   const r = 68
   const cx = size / 2
   const cy = size / 2 + 4
   const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
-  const angle = Math.PI * (1 - pct)
+  const angle = Math.PI * (1 - drawnPct)
   const dotX = cx + r * Math.cos(angle)
   const dotY = cy - r * Math.sin(angle)
 
@@ -55,15 +69,25 @@ export function IpoProgressGauge({
           strokeLinecap="round"
           pathLength={100}
           strokeDasharray={100}
-          strokeDashoffset={100 - pct * 100}
-          style={{ transition: 'stroke-dashoffset 0.5s cubic-bezier(0.16, 1, 0.3, 1)' }}
+          strokeDashoffset={100 - drawnPct * 100}
+          style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
         />
-        {pct > 0 && <circle cx={dotX} cy={dotY} r={5} fill="var(--good)" stroke="var(--surface)" strokeWidth={2} />}
+        {drawnPct > 0 && (
+          <circle
+            cx={dotX}
+            cy={dotY}
+            r={5}
+            fill="var(--good)"
+            stroke="var(--surface)"
+            strokeWidth={2}
+            style={{ transition: 'cx 0.7s cubic-bezier(0.16, 1, 0.3, 1), cy 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+          />
+        )}
       </svg>
 
       <div className="-mt-1 text-center">
         <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}>
-          {applied}/{total}
+          {animatedApplied}/{total}
         </p>
         <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
           applied / active accounts
