@@ -13,6 +13,22 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+// The handle_new_user DB trigger normally creates a profiles row the moment
+// auth.users gets one — but it can silently fail to fire for a given signup
+// without erroring the signup itself, leaving an account stuck
+// signed-in-but-broken (every page reading `profile` sees perpetual null,
+// which looks like "can't log in" from the user's side). If the row is
+// missing, self-heal via ensure_own_profile() (idempotent, same insert the
+// trigger does) and refetch once before giving up.
+async function fetchOrHealProfile(userId: string): Promise<Profile | null> {
+  const first = await supabase.from('profiles').select('*').eq('id', userId).single()
+  if (first.data) return first.data as Profile
+
+  await supabase.rpc('ensure_own_profile')
+  const healed = await supabase.from('profiles').select('*').eq('id', userId).single()
+  return (healed.data as Profile | null) ?? null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -46,14 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) return
     let cancelled = false
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', session.user.id)
-      .single()
-      .then(({ data }) => {
-        if (!cancelled) setProfile(data as Profile | null)
-      })
+    fetchOrHealProfile(session.user.id).then((data) => {
+      if (!cancelled) setProfile(data)
+    })
     return () => {
       cancelled = true
     }
@@ -65,8 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function refreshProfile() {
     if (!session) return
-    const { data } = await supabase.from('profiles').select('*').eq('id', session.user.id).single()
-    setProfile(data as Profile | null)
+    setProfile(await fetchOrHealProfile(session.user.id))
   }
 
   return (
