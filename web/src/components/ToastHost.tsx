@@ -118,7 +118,7 @@ export function ToastHost() {
         message: toast.message,
       }
       setToasts((t) => [...t, rendered])
-      setTimeout(() => removeToast(rendered.id), 8000)
+      setTimeout(() => removeToast(rendered.id), 10000)
     })
 
     return () => {

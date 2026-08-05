@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon } from '@primer/octicons-react'
+import * as Popover from '@radix-ui/react-popover'
+import { Command } from 'cmdk'
+import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -660,9 +662,12 @@ function NewApplicationForm({
   )
 }
 
-// Checklist rather than a repeated single Combobox — selecting several
-// accounts here drives handleSubmit's per-account insert loop, so one
-// application gets created per holder from a single "Save" click.
+// Click-to-open popover (same Radix Popover + cmdk shell as Combobox, the
+// "Bank account used" field) rather than an always-expanded checklist, so
+// the form doesn't balloon in height. Multi-select semantics: checkboxes,
+// doesn't auto-close on select — selecting several accounts here drives
+// handleSubmit's per-account insert loop, so one application gets created
+// per holder from a single "Save" click.
 function MultiDematSelect({
   accounts,
   selected,
@@ -672,62 +677,87 @@ function MultiDematSelect({
   selected: string[]
   onChange: (ids: string[]) => void
 }) {
-  const [query, setQuery] = useState('')
-  const q = query.trim().toLowerCase()
-  const filtered = q ? accounts.filter((a) => a.holder_name.toLowerCase().includes(q)) : accounts
-  const active = filtered.filter((a) => a.is_active)
-  const inactive = filtered.filter((a) => !a.is_active)
+  const [open, setOpen] = useState(false)
+  const active = accounts.filter((a) => a.is_active)
+  const inactive = accounts.filter((a) => !a.is_active)
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
   }
 
+  const triggerLabel =
+    selected.length === 0
+      ? 'Select accounts…'
+      : selected.length === 1
+        ? (accounts.find((a) => a.id === selected[0])?.holder_name ?? '1 selected')
+        : `${selected.length} accounts selected`
+
   return (
-    <div className="overflow-hidden rounded-md border" style={{ borderColor: 'var(--border-strong)' }}>
-      <input
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search accounts…"
-        aria-label="Search demat accounts"
-        className="w-full border-b px-3 py-2 text-sm outline-none"
-        style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--ink-primary)' }}
-      />
-      <div className="max-h-52 overflow-y-auto p-1">
-        {filtered.length === 0 && (
-          <p className="px-2 py-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No matches.
-          </p>
-        )}
-        {(
-          [
-            ['Active accounts', active],
-            ['Inactive accounts', inactive],
-          ] as const
-        ).map(
-          ([label, list]) =>
-            list.length > 0 && (
-              <div key={label}>
-                <p
-                  className="px-2 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider uppercase"
-                  style={{ color: 'var(--ink-muted)' }}
-                >
-                  {label}
-                </p>
-                {list.map((a) => (
-                  <label
-                    key={a.id}
-                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--hover-surface)]"
-                    style={{ color: 'var(--ink-primary)' }}
-                  >
-                    <input type="checkbox" checked={selected.includes(a.id)} onChange={() => toggle(a.id)} />
-                    {a.holder_name}
-                  </label>
-                ))}
-              </div>
-            ),
-        )}
-      </div>
-    </div>
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          className="input flex items-center justify-between gap-2 text-left"
+        >
+          <span className="truncate" style={{ color: selected.length ? 'var(--ink-primary)' : 'var(--ink-muted)' }}>
+            {triggerLabel}
+          </span>
+          <UnfoldIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          align="start"
+          sideOffset={4}
+          className="card z-50 w-72 overflow-hidden p-0"
+          style={{ borderColor: 'var(--border-strong)', boxShadow: 'var(--shadow-lg)' }}
+        >
+          <Command loop>
+            <div className="flex items-center border-b px-3" style={{ borderColor: 'var(--border)' }}>
+              <Command.Input
+                autoFocus
+                placeholder="Search accounts…"
+                aria-label="Search demat accounts"
+                className="h-9 w-full bg-transparent text-sm outline-none"
+                style={{ color: 'var(--ink-primary)' }}
+              />
+            </div>
+            <Command.List className="max-h-64 overflow-y-auto p-1">
+              <Command.Empty className="px-3 py-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+                No matches.
+              </Command.Empty>
+              {(
+                [
+                  ['Active accounts', active],
+                  ['Inactive accounts', inactive],
+                ] as const
+              ).map(
+                ([label, list]) =>
+                  list.length > 0 && (
+                    <Command.Group key={label}>
+                      <div className="px-2 py-1.5 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+                        {label}
+                      </div>
+                      {list.map((a) => (
+                        <Command.Item
+                          key={a.id}
+                          value={`${a.holder_name}::${a.id}`}
+                          onSelect={() => toggle(a.id)}
+                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm data-[selected=true]:bg-[var(--hover-surface)]"
+                          style={{ color: 'var(--ink-primary)' }}
+                        >
+                          <input type="checkbox" readOnly checked={selected.includes(a.id)} className="pointer-events-none" />
+                          <span className="truncate">{a.holder_name}</span>
+                        </Command.Item>
+                      ))}
+                    </Command.Group>
+                  ),
+              )}
+            </Command.List>
+          </Command>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   )
 }
 

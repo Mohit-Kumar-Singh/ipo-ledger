@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, LinkIcon, CreditCardIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
@@ -8,6 +8,7 @@ import { AttributionChart } from '../../components/AttributionChart'
 import { IpoProgressGauge } from '../../components/IpoProgressGauge'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
+import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { computeIpoAttribution, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
@@ -143,6 +144,9 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
+  // Fires the high-GMP heads-up as a toast once per portal visit (not on
+  // every realtime-triggered reload this page's load() also runs on).
+  const hasShownGmpToast = useRef(false)
 
   async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
     setDecidingId(id)
@@ -263,6 +267,19 @@ export function DashboardPage() {
         }))
         .sort((a, b) => a.openDate.localeCompare(b.openDate))
 
+      if (!hasShownGmpToast.current && highGmpAlerts.length > 0) {
+        hasShownGmpToast.current = true
+        for (const a of highGmpAlerts) {
+          const daysOut = Math.round(
+            (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(todayForGmp + 'T00:00:00Z').getTime()) / 86400000,
+          )
+          showToast(
+            `${a.companyName} opens ${daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`} (${a.openDate}) with GMP running high at ${a.gmpPercent}% (${a.gmpNotes}).`,
+            'warning',
+          )
+        }
+      }
+
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
         pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
@@ -356,31 +373,6 @@ export function DashboardPage() {
           />
         )}
       </div>
-
-      {data.highGmpAlerts.length > 0 && (
-        <section className="space-y-2">
-          {data.highGmpAlerts.map((a) => {
-            const daysOut = Math.round(
-              (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime()) /
-                86400000,
-            )
-            return (
-              <div
-                key={a.ipoId}
-                className="card flex items-start gap-3 p-4"
-                style={{ borderColor: 'var(--warning)', background: 'var(--warning-tint)' }}
-              >
-                <AlertIcon size={18} className="mt-0.5 shrink-0" fill="var(--warning-text)" />
-                <p className="text-sm" style={{ color: 'var(--warning-text)' }}>
-                  <strong>{a.companyName}</strong> opens {daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`}{' '}
-                  ({a.openDate}) with GMP running high at <strong>{a.gmpPercent}%</strong> ({a.gmpNotes}). Worth a
-                  look — a WhatsApp heads-up also goes out to account holders 2 days and 1 day before it opens.
-                </p>
-              </div>
-            )
-          })}
-        </section>
-      )}
 
       {data.ipoProgress.length > 0 && (
         <section>
