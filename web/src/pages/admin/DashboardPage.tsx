@@ -394,25 +394,39 @@ export function DashboardPage() {
           <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             IPO progress
           </h2>
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-            {data.ipoProgress.map((p) => (
-              <div
-                key={p.ipoId}
-                style={{ gridColumn: expandedIpoId === p.ipoId ? 'span 2' : undefined }}
-              >
-                <IpoProgressGauge
-                  companyName={p.companyName}
-                  startDate={p.openDate}
-                  endDate={p.endDate}
-                  applied={p.applied}
-                  total={p.totalActive}
-                  gmpNotes={p.gmpNotes}
-                  remainingHolderNames={p.remainingHolderNames}
-                  expanded={expandedIpoId === p.ipoId}
-                  onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
-                />
-              </div>
-            ))}
+          {/* Flexbox, not CSS grid: a grid item can only grow by spanning
+              whole tracks, which snaps the tile to double width the instant
+              the span changes (before the inner content even starts
+              animating). flex-basis is itself a transitionable property, so
+              switching to flex-wrap lets the expanding tile's width animate
+              smoothly in one continuous motion instead of jump-then-reveal. */}
+          <div className="flex flex-wrap gap-5">
+            {data.ipoProgress.map((p) => {
+              const expanded = expandedIpoId === p.ipoId
+              return (
+                <div
+                  key={p.ipoId}
+                  style={{
+                    flexBasis: expanded ? 500 : 260,
+                    flexGrow: 0,
+                    flexShrink: 0,
+                    transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+                  }}
+                >
+                  <IpoProgressGauge
+                    companyName={p.companyName}
+                    startDate={p.openDate}
+                    endDate={p.endDate}
+                    applied={p.applied}
+                    total={p.totalActive}
+                    gmpNotes={p.gmpNotes}
+                    remainingHolderNames={p.remainingHolderNames}
+                    expanded={expanded}
+                    onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
+                  />
+                </div>
+              )
+            })}
           </div>
         </section>
       )}

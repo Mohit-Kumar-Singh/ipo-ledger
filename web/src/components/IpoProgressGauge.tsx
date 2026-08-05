@@ -50,7 +50,11 @@ export function IpoProgressGauge({
 
   return (
     <div className="card stagger-item flex gap-4 p-4">
-      <div className="min-w-0 flex-1">
+      {/* Fixed width, not flex-1: if this grew/shrank as the side panel's
+          width animates, the gauge (which scales to its container) would
+          visibly resize mid-animation on top of the tile widening — two
+          motions fighting each other instead of one clean one. */}
+      <div className="w-[204px] shrink-0">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p
@@ -116,17 +120,18 @@ export function IpoProgressGauge({
         </div>
       </div>
 
-      {/* Side panel, not a below-the-fold section: max-width 0->220px so the
-          card widens into a rectangle (its grid cell spans 2 columns while
-          expanded, set by the parent) instead of growing taller. */}
+      {/* Side panel, not a below-the-fold section: max-width 0->210px, timed
+          with the same 0.35s/easing as the parent's flex-basis transition
+          (DashboardPage) so the tile widens and the panel reveals as one
+          continuous motion instead of a snap-then-fade. */}
       <div
         className="shrink-0 overflow-hidden"
         style={{
-          maxWidth: expanded ? 220 : 0,
+          maxWidth: expanded ? 210 : 0,
           transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
-        <div className="w-[220px] border-l pl-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }}>
           <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
             Accounts yet to apply ({remainingHolderNames.length})
           </p>

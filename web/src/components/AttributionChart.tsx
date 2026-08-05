@@ -113,7 +113,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
                 style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
               />
               <span className="truncate" style={{ color: 'var(--ink-secondary)' }} title={s.name}>
-                {firstName(s.name)} — {formatCount(s.value)} ({Math.round(s.rawPct)}%)
+                {firstName(s.name)} — {formatCount(s.value)}
               </span>
             </div>
           ))}
