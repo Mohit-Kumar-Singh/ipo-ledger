@@ -435,7 +435,12 @@ function NewApplicationForm({
 }) {
   const existingIpo = existing ? ipos.find((i) => i.id === existing.ipo_id) : undefined
   const [ipoId, setIpoId] = useState(existing?.ipo_id ?? '')
-  const [dematId, setDematId] = useState(existing?.demat_id ?? '')
+  const dematId = existing?.demat_id ?? ''
+  // Only used for new applications — selecting more than one account creates
+  // one application per selected holder in a single submit, all sharing the
+  // same IPO/bank/category/lots. Editing an existing application is always
+  // a single record, so this stays irrelevant there.
+  const [dematIds, setDematIds] = useState<string[]>([])
   const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
@@ -495,22 +500,37 @@ function NewApplicationForm({
       return
     }
 
-    const { error } = await supabase.from('applications').insert({
-      ipo_id: ipoId,
-      demat_id: dematId,
-      bank_account_id: bankAccountId || null,
-      category,
-      lots: Number(lots),
-      bid_amount: bidAmount || null,
-      is_backdated: backdated,
-    })
+    const results = await Promise.all(
+      dematIds.map(async (id) => {
+        const { error } = await supabase.from('applications').insert({
+          ipo_id: ipoId,
+          demat_id: id,
+          bank_account_id: bankAccountId || null,
+          category,
+          lots: Number(lots),
+          bid_amount: bidAmount || null,
+          is_backdated: backdated,
+        })
+        return { id, error }
+      }),
+    )
     setSubmitting(false)
-    if (error) {
+
+    const failed = results.filter((r) => r.error)
+    if (failed.length > 0) {
+      const names = failed
+        .map((f) => {
+          const name = accounts.find((a) => a.id === f.id)?.holder_name ?? f.id
+          return f.error?.code === '23505' ? `${name} (already applied)` : `${name} (${f.error?.message})`
+        })
+        .join(', ')
+      const succeeded = results.length - failed.length
       setError(
-        error.code === '23505'
-          ? 'Already applied from this PAN for this IPO.'
-          : error.message,
+        succeeded > 0
+          ? `Created ${succeeded} of ${results.length} application(s). Failed for: ${names}.`
+          : `Couldn't create any applications. Failed for: ${names}.`,
       )
+      if (succeeded > 0) onDone()
       return
     }
     onDone()
@@ -548,24 +568,13 @@ function NewApplicationForm({
           </>
         )}
       </Field>
-      <Field label="Demat account">
+      <Field label={existing ? 'Demat account' : `Demat account(s)${dematIds.length > 1 ? ` — ${dematIds.length} selected` : ''}`}>
         {existing ? (
           <p className="input" style={{ background: 'var(--page)' }}>
             {selectedAccount?.holder_name ?? existing.demat_accounts?.holder_name}
           </p>
         ) : (
-          <Combobox
-            aria-label="Demat account"
-            placeholder="Select account"
-            searchPlaceholder="Search accounts…"
-            value={dematId}
-            onChange={setDematId}
-            options={accounts.map((a) => ({
-              value: a.id,
-              label: a.holder_name,
-              group: a.is_active ? 'Active accounts' : 'Inactive accounts',
-            }))}
-          />
+          <MultiDematSelect accounts={accounts} selected={dematIds} onChange={setDematIds} />
         )}
       </Field>
       <Field label="Bank account used">
@@ -630,10 +639,16 @@ function NewApplicationForm({
       <div className="col-span-1 flex gap-2 sm:col-span-2 lg:col-span-3">
         <button
           type="submit"
-          disabled={submitting || !ipoId || !dematId}
+          disabled={submitting || !ipoId || (existing ? !dematId : dematIds.length === 0)}
           className="btn-primary flex-1 py-2.5"
         >
-          {submitting ? 'Saving…' : existing ? 'Save changes' : 'Save application'}
+          {submitting
+            ? 'Saving…'
+            : existing
+              ? 'Save changes'
+              : dematIds.length > 1
+                ? `Save ${dematIds.length} applications`
+                : 'Save application'}
         </button>
         {onCancel && (
           <button type="button" onClick={onCancel} className="btn-secondary">
@@ -642,6 +657,77 @@ function NewApplicationForm({
         )}
       </div>
     </form>
+  )
+}
+
+// Checklist rather than a repeated single Combobox — selecting several
+// accounts here drives handleSubmit's per-account insert loop, so one
+// application gets created per holder from a single "Save" click.
+function MultiDematSelect({
+  accounts,
+  selected,
+  onChange,
+}: {
+  accounts: DematAccount[]
+  selected: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const [query, setQuery] = useState('')
+  const q = query.trim().toLowerCase()
+  const filtered = q ? accounts.filter((a) => a.holder_name.toLowerCase().includes(q)) : accounts
+  const active = filtered.filter((a) => a.is_active)
+  const inactive = filtered.filter((a) => !a.is_active)
+
+  function toggle(id: string) {
+    onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
+  }
+
+  return (
+    <div className="overflow-hidden rounded-md border" style={{ borderColor: 'var(--border-strong)' }}>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search accounts…"
+        aria-label="Search demat accounts"
+        className="w-full border-b px-3 py-2 text-sm outline-none"
+        style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--ink-primary)' }}
+      />
+      <div className="max-h-52 overflow-y-auto p-1">
+        {filtered.length === 0 && (
+          <p className="px-2 py-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No matches.
+          </p>
+        )}
+        {(
+          [
+            ['Active accounts', active],
+            ['Inactive accounts', inactive],
+          ] as const
+        ).map(
+          ([label, list]) =>
+            list.length > 0 && (
+              <div key={label}>
+                <p
+                  className="px-2 pt-1.5 pb-1 text-[10px] font-semibold tracking-wider uppercase"
+                  style={{ color: 'var(--ink-muted)' }}
+                >
+                  {label}
+                </p>
+                {list.map((a) => (
+                  <label
+                    key={a.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[var(--hover-surface)]"
+                    style={{ color: 'var(--ink-primary)' }}
+                  >
+                    <input type="checkbox" checked={selected.includes(a.id)} onChange={() => toggle(a.id)} />
+                    {a.holder_name}
+                  </label>
+                ))}
+              </div>
+            ),
+        )}
+      </div>
+    </div>
   )
 }
 
