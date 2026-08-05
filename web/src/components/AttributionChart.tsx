@@ -7,6 +7,14 @@ function formatCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+// First token of the name only ("Mohit Kumar Singh" -> "Mohit") — the
+// legend needs to fit name + count + percent in a narrow tile, and the
+// count/percent matter more there than the full name (full name is still
+// shown as the tile/page's own heading context elsewhere).
+function firstName(name: string): string {
+  return name.trim().split(/\s+/)[0] ?? name
+}
+
 // Hand-rolled SVG donut (stacked stroke-dasharray arcs on a shared circle) —
 // no charting library, same spirit as IpoProgressGauge's SVG arc. A thick
 // ring (not a solid disc) with a thin surface-colored gap between segments,
@@ -104,8 +112,8 @@ export function AttributionChart({ attribution, compact = false }: { attribution
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
               />
-              <span className="truncate" style={{ color: 'var(--ink-secondary)' }}>
-                {s.name} — {formatCount(s.value)} ({Math.round(s.rawPct)}%)
+              <span className="truncate" style={{ color: 'var(--ink-secondary)' }} title={s.name}>
+                {firstName(s.name)} — {formatCount(s.value)} ({Math.round(s.rawPct)}%)
               </span>
             </div>
           ))}

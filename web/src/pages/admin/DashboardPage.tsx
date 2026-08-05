@@ -146,6 +146,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
+  const [expandedIpoId, setExpandedIpoId] = useState<string | null>(null)
   // Fires the high-GMP heads-up as a toast once per portal visit (not on
   // every realtime-triggered reload this page's load() also runs on).
   const hasShownGmpToast = useRef(false)
@@ -395,16 +396,22 @@ export function DashboardPage() {
           </h2>
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
             {data.ipoProgress.map((p) => (
-              <IpoProgressGauge
+              <div
                 key={p.ipoId}
-                companyName={p.companyName}
-                startDate={p.openDate}
-                endDate={p.endDate}
-                applied={p.applied}
-                total={p.totalActive}
-                gmpNotes={p.gmpNotes}
-                remainingHolderNames={p.remainingHolderNames}
-              />
+                style={{ gridColumn: expandedIpoId === p.ipoId ? 'span 2' : undefined }}
+              >
+                <IpoProgressGauge
+                  companyName={p.companyName}
+                  startDate={p.openDate}
+                  endDate={p.endDate}
+                  applied={p.applied}
+                  total={p.totalActive}
+                  gmpNotes={p.gmpNotes}
+                  remainingHolderNames={p.remainingHolderNames}
+                  expanded={expandedIpoId === p.ipoId}
+                  onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
+                />
+              </div>
             ))}
           </div>
         </section>
