@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
 import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
@@ -19,6 +19,14 @@ import type {
 import { InlineSpinner } from '../../components/PageSpinner'
 
 const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDER', 'EMPLOYEE']
+
+// Whoever's bank/UPI account actually funded the application — falls back to
+// the demat holder when no bank/UPI account was recorded (self-funded, the
+// common case), same fallback logic as the attribution split's "no funder
+// row" branch.
+function funderNameFor(a: ApplicationRow): string {
+  return a.bank_accounts?.account_holder_name ?? a.demat_accounts?.holder_name ?? 'Unknown'
+}
 
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
@@ -44,6 +52,7 @@ export function ApplicationsPage() {
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [backdatedMode, setBackdatedMode] = useState(false)
+  const [sortByFunder, setSortByFunder] = useState(false)
 
   async function loadApplications() {
     setLoading(true)
@@ -158,7 +167,10 @@ export function ApplicationsPage() {
   // applications is already fetched newest-applied-first, so grouping into a
   // Map (which preserves insertion order) naturally puts each IPO's group at
   // the position of its own most recent application — i.e. latest IPO on top
-  // — without needing a second sort pass.
+  // — without needing a second sort pass. When sorting by funder, each IPO's
+  // items are further clustered by funderNameFor (alphabetical), so e.g. all
+  // of Jiggi's applications for an IPO sit together under one sub-header —
+  // exactly the "who used whose UPI" view this is for.
   const groupedApplications = useMemo(() => {
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
     for (const a of applications) {
@@ -166,8 +178,17 @@ export function ApplicationsPage() {
       if (!groups.has(key)) groups.set(key, { ipoName: a.ipos?.company_name ?? 'Unknown IPO', items: [] })
       groups.get(key)!.items.push(a)
     }
-    return Array.from(groups.values())
-  }, [applications])
+    const result = Array.from(groups.values())
+    if (sortByFunder) {
+      for (const g of result) {
+        g.items.sort((a, b) => {
+          const byFunder = funderNameFor(a).localeCompare(funderNameFor(b))
+          return byFunder !== 0 ? byFunder : b.applied_at.localeCompare(a.applied_at)
+        })
+      }
+    }
+    return result
+  }, [applications, sortByFunder])
 
   return (
     <div className="space-y-5">
@@ -197,6 +218,36 @@ export function ApplicationsPage() {
           )}
         </div>
       </div>
+
+      {!showForm && applications.length > 0 && (
+        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+          <span>Sort within each IPO by</span>
+          <div className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: 'var(--border-strong)' }}>
+            <button
+              type="button"
+              onClick={() => setSortByFunder(false)}
+              className="px-2.5 py-1 text-xs font-medium"
+              style={{
+                background: sortByFunder ? 'transparent' : 'var(--accent-tint)',
+                color: sortByFunder ? 'var(--ink-secondary)' : 'var(--accent)',
+              }}
+            >
+              Recent
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortByFunder(true)}
+              className="px-2.5 py-1 text-xs font-medium"
+              style={{
+                background: sortByFunder ? 'var(--accent-tint)' : 'transparent',
+                color: sortByFunder ? 'var(--accent)' : 'var(--ink-secondary)',
+              }}
+            >
+              Who funded it
+            </button>
+          </div>
+        </div>
+      )}
 
       {showForm && formDataLoading && <InlineSpinner label="Loading form…" />}
 
@@ -236,26 +287,42 @@ export function ApplicationsPage() {
                 {ipoName}
               </h2>
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
-                {items.map((a) => {
+                {items.map((a, i) => {
+                  const showFunderHeader = sortByFunder && (i === 0 || funderNameFor(items[i - 1]) !== funderNameFor(a))
+                  const funderHeader = showFunderHeader && (
+                    <div
+                      key={`${a.id}-funder-header`}
+                      className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase"
+                      style={{ color: 'var(--ink-muted)', background: 'var(--hover-surface)' }}
+                    >
+                      Funded by {funderNameFor(a)}
+                    </div>
+                  )
+
                   if (editingApplication?.id === a.id) {
-                    return formDataLoading ? (
-                      <div key={a.id} className="p-4">
-                        <InlineSpinner label="Loading form…" />
-                      </div>
-                    ) : (
-                      <div key={a.id} className="p-4">
-                        <NewApplicationForm
-                          ipos={ipos}
-                          accounts={accounts}
-                          banks={banks}
-                          existing={editingApplication}
-                          onCancel={() => setEditingApplication(null)}
-                          onDone={() => {
-                            setEditingApplication(null)
-                            loadApplications()
-                          }}
-                        />
-                      </div>
+                    return (
+                      <Fragment key={a.id}>
+                        {funderHeader}
+                        {formDataLoading ? (
+                          <div className="p-4">
+                            <InlineSpinner label="Loading form…" />
+                          </div>
+                        ) : (
+                          <div className="p-4">
+                            <NewApplicationForm
+                              ipos={ipos}
+                              accounts={accounts}
+                              banks={banks}
+                              existing={editingApplication}
+                              onCancel={() => setEditingApplication(null)}
+                              onDone={() => {
+                                setEditingApplication(null)
+                                loadApplications()
+                              }}
+                            />
+                          </div>
+                        )}
+                      </Fragment>
                     )
                   }
 
@@ -267,8 +334,13 @@ export function ApplicationsPage() {
                   const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profile?.id
                   const isFunderOnly = !isOwner && a.bank_accounts?.linked_user_id === profile?.id
 
+                  const funderName = funderNameFor(a)
+                  const funderDiffersFromHolder = funderName !== a.demat_accounts?.holder_name
+
                   return (
-                    <div key={a.id} className="stagger-item flex flex-wrap items-center gap-3 p-4">
+                    <Fragment key={a.id}>
+                      {funderHeader}
+                      <div className="stagger-item flex flex-wrap items-center gap-3 p-4">
                       <div
                         className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
                         style={{ width: '2.25rem', height: '2.25rem' }}
@@ -295,6 +367,11 @@ export function ApplicationsPage() {
                             </span>
                           )}
                         </div>
+                        {funderDiffersFromHolder && (
+                          <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            via {funderName}
+                          </p>
+                        )}
                       </div>
 
                       <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -384,7 +461,8 @@ export function ApplicationsPage() {
                         </button>
                         )}
                       </div>
-                    </div>
+                      </div>
+                    </Fragment>
                   )
                 })}
               </div>
