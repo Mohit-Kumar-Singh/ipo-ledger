@@ -2,52 +2,83 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { isLiveIpo } from '../../lib/ipoStatus'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
-interface FunderSummary {
-  name: string
+interface FunderApplicationDetail {
+  holderName: string
+  upiId: string | null
+  lots: number
+}
+
+// One card per (funder name, IPO) — a funder who's currently live across
+// several IPOs gets a separate card and a separate WhatsApp message for
+// each, rather than one message covering everything they've ever funded.
+interface FunderIpoCard {
+  key: string
+  funderName: string
   phone: string | null
-  ipoNames: string[]
+  ipoId: string
+  ipoName: string
+  applications: FunderApplicationDetail[]
 }
 
 type ApplicationForFunderRow = {
   ipo_id: string
-  ipos: { company_name: string } | null
-  bank_accounts: { account_holder_name: string | null; phone_e164: string | null } | null
+  lots: number
+  ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
+  demat_accounts: { holder_name: string } | null
+  bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
 }
 
-// One entry per distinct name on a bank/UPI account actually used to fund an
-// application (self-funded applications have no bank_account_id, so they're
-// excluded — there's no one else to message). Collapsing by name, not by
-// bank_account_id, is what makes "Jiggi funded 4 IPOs across 2 different UPI
-// accounts" collapse into one summary instead of two.
-function summarizeFunders(rows: ApplicationForFunderRow[]): FunderSummary[] {
-  const byName = new Map<string, { phone: string | null; ipoNames: Map<string, string> }>()
+// Excludes self-funded applications (no bank_account_id, so no one else to
+// message) and anything not currently live — a funder shouldn't get pinged
+// about an IPO that already closed and settled months ago. Grouped by name
+// rather than bank_account_id, so "Jiggi paid via two different UPI IDs for
+// the same IPO" still collapses into one card listing both applications
+// (each application line shows its own UPI ID regardless).
+function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
+  const byKey = new Map<string, FunderIpoCard>()
   for (const r of rows) {
     const name = r.bank_accounts?.account_holder_name
-    if (!name) continue
-    if (!byName.has(name)) byName.set(name, { phone: null, ipoNames: new Map() })
-    const entry = byName.get(name)!
-    if (!entry.phone && r.bank_accounts?.phone_e164) entry.phone = r.bank_accounts.phone_e164
-    entry.ipoNames.set(r.ipo_id, r.ipos?.company_name ?? 'Unknown IPO')
+    if (!name || !r.ipos || !isLiveIpo(r.ipos)) continue
+    const key = `${name}::${r.ipo_id}`
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        key,
+        funderName: name,
+        phone: r.bank_accounts?.phone_e164 ?? null,
+        ipoId: r.ipo_id,
+        ipoName: r.ipos.company_name,
+        applications: [],
+      })
+    }
+    const card = byKey.get(key)!
+    if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
+    card.applications.push({
+      holderName: r.demat_accounts?.holder_name ?? 'Unknown',
+      upiId: r.bank_accounts?.upi_id ?? null,
+      lots: r.lots,
+    })
   }
-  return Array.from(byName.entries())
-    .map(([name, { phone, ipoNames }]) => ({ name, phone, ipoNames: Array.from(ipoNames.values()).sort() }))
-    .filter((f) => f.ipoNames.length > 0)
-    .sort((a, b) => b.ipoNames.length - a.ipoNames.length)
+  return Array.from(byKey.values()).sort(
+    (a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName),
+  )
 }
 
-function buildFunderMessage(funder: FunderSummary, signerName: string): string {
-  const list = funder.ipoNames.map((n) => `• ${n}`).join('\n')
-  return `Hi ${funder.name}, you've funded ${funder.ipoNames.length} IPO application${funder.ipoNames.length === 1 ? '' : 's'} so far:\n${list}\n\n— ${signerName}`
+function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string {
+  const list = card.applications
+    .map((app) => `• ${app.holderName} — ${app.lots} lot${app.lots === 1 ? '' : 's'}${app.upiId ? ` via ${app.upiId}` : ''}`)
+    .join('\n')
+  return `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n${list}\n\n— ${signerName}`
 }
 
 export function NotificationsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [funders, setFunders] = useState<FunderSummary[]>([])
+  const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
 
@@ -58,7 +89,9 @@ export function NotificationsPage() {
       isAdmin
         ? supabase
             .from('applications')
-            .select('ipo_id, ipos(company_name), bank_accounts(account_holder_name, phone_e164)')
+            .select(
+              'ipo_id, lots, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+            )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
     ])
@@ -68,7 +101,7 @@ export function NotificationsPage() {
       return
     }
     setNotifications((notifRes.data ?? []) as Notification[])
-    setFunders(summarizeFunders((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
+    setFunderCards(buildFunderIpoCards((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
     setLoading(false)
   }
 
@@ -102,41 +135,47 @@ export function NotificationsPage() {
         </p>
       </div>
 
-      {isAdmin && !loading && funders.length > 0 && (
+      {isAdmin && !loading && funderCards.length > 0 && (
         <section>
           <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             Funders
           </h2>
           <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Everyone whose bank/UPI account has funded an application, grouped by name — send them a rundown of what
-            they've funded so far.
+            One card per funder per currently-live IPO — if someone's funded applications across multiple ongoing
+            IPOs, send each one separately.
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {funders.map((f) => (
-              <div key={f.name} className="card stagger-item flex flex-col gap-2 p-4">
+            {funderCards.map((c) => (
+              <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {f.name}
-                  </p>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.funderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName}
+                    </p>
+                  </div>
                   <span className="badge badge-neutral shrink-0 text-xs">
-                    {f.ipoNames.length} IPO{f.ipoNames.length === 1 ? '' : 's'}
+                    {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
                   </span>
                 </div>
                 <ul className="max-h-28 space-y-0.5 overflow-y-auto text-xs" style={{ color: 'var(--ink-secondary)' }}>
-                  {f.ipoNames.map((name) => (
-                    <li key={name} className="truncate">
-                      {name}
+                  {c.applications.map((app, i) => (
+                    <li key={i} className="truncate">
+                      {app.holderName} — {app.lots} lot{app.lots === 1 ? '' : 's'}
+                      {app.upiId ? ` via ${app.upiId}` : ''}
                     </li>
                   ))}
                 </ul>
                 <button
                   type="button"
-                  onClick={() => f.phone && sendCustomWhatsapp(f.phone, buildFunderMessage(f, profile?.full_name ?? 'there'))}
-                  disabled={!f.phone}
-                  title={f.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                  onClick={() => c.phone && sendCustomWhatsapp(c.phone, buildFunderIpoMessage(c, profile?.full_name ?? 'there'))}
+                  disabled={!c.phone}
+                  title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
                   className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Send list on WhatsApp
+                  Send on WhatsApp
                 </button>
               </div>
             ))}

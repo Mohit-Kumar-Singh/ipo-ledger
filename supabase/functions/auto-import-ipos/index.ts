@@ -20,6 +20,14 @@ function isEligible(c: Candidate): boolean {
   return c.open_date != null && c.close_date != null && c.lot_size != null
 }
 
+// Collapses stray whitespace ipoji's markup can introduce — e.g. a trailing
+// space or double space on a later scrape — which would otherwise make the
+// exact-match lookup in upsertCandidate miss the existing row and insert a
+// duplicate instead of updating it.
+function normalizeCompanyName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ')
+}
+
 // Detail pages are fetched one HTTP round-trip each — running the whole list
 // serially risks the Edge Function's wall-clock timeout once there are more
 // than a handful of candidates. Bounded concurrency keeps this fast without
@@ -57,8 +65,9 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     // Detail fetch failing shouldn't block saving the core list-card fields.
   }
 
+  const company_name = normalizeCompanyName(c.company_name)
   const payload = {
-    company_name: c.company_name,
+    company_name,
     price_low: c.price_low,
     price_high: c.price_high,
     lot_size: c.lot_size,
@@ -76,7 +85,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   const { data: existing } = await admin
     .from('ipos')
     .select('id')
-    .ilike('company_name', c.company_name)
+    .ilike('company_name', company_name)
     .maybeSingle()
 
   const { error } = existing

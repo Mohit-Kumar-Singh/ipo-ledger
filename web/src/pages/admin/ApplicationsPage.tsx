@@ -28,11 +28,22 @@ function funderNameFor(a: ApplicationRow): string {
   return a.bank_accounts?.account_holder_name ?? a.demat_accounts?.holder_name ?? 'Unknown'
 }
 
+// The UPI ID itself, distinct from funderNameFor — one funder name can span
+// several UPI/bank accounts, so this is the finer-grained "which specific
+// account paid" view. Bank accounts without a UPI ID (bank-only entries)
+// group under a shared placeholder rather than splintering by holder name.
+function upiIdFor(a: ApplicationRow): string {
+  return a.bank_accounts?.upi_id ?? 'No UPI ID'
+}
+
+type SortMode = 'recent' | 'funder' | 'upi'
+
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name'>
-  // null when the viewer is only the funder, not the demat owner or admin —
-  // RLS blocks the full row (phone, DP client ID, profit share, PAN mask),
-  // backfilled with just holder_name below via resolve_demat_holder_names.
+  // null when RLS withholds the full row — that only happens for a
+  // funder-only viewer (their linked bank/UPI paid for someone else's
+  // demat), and those rows are filtered out of this list before render (see
+  // loadApplications), so demat_accounts is non-null for everything shown.
   demat_accounts: Pick<DematAccount, 'holder_name' | 'linked_user_id'> | null
   bank_accounts: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
   notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
@@ -52,7 +63,7 @@ export function ApplicationsPage() {
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [backdatedMode, setBackdatedMode] = useState(false)
-  const [sortByFunder, setSortByFunder] = useState(false)
+  const [sortMode, setSortMode] = useState<SortMode>('recent')
 
   async function loadApplications() {
     setLoading(true)
@@ -70,23 +81,13 @@ export function ApplicationsPage() {
     setLoadError(null)
     const rows = (data ?? []) as ApplicationRow[]
 
-    // Funder-only rows (viewer paid via a linked bank/UPI account but isn't
-    // the demat owner or admin) come back with demat_accounts = null — RLS
-    // deliberately withholds the full row. Backfill just the holder_name so
-    // the list still shows whose application this was, nothing more.
-    const missingIds = Array.from(new Set(rows.filter((r) => !r.demat_accounts).map((r) => r.demat_id)))
-    if (missingIds.length > 0) {
-      const { data: names } = await supabase.rpc('resolve_demat_holder_names', { p_ids: missingIds })
-      const nameById = new Map(((names ?? []) as { id: string; holder_name: string }[]).map((n) => [n.id, n.holder_name]))
-      for (const r of rows) {
-        if (!r.demat_accounts) {
-          const holderName = nameById.get(r.demat_id)
-          if (holderName) r.demat_accounts = { holder_name: holderName, linked_user_id: null }
-        }
-      }
-    }
-
-    setApplications(rows)
+    // RLS also returns funder-only rows to a member (their linked bank/UPI
+    // paid for someone else's demat, demat_accounts = null since that full
+    // row is withheld) — this list only shows applications on the viewer's
+    // own linked demat account, so those are dropped here. Admin is
+    // unaffected. Funder credit still shows up elsewhere (attribution
+    // charts, Dashboard payout tracking).
+    setApplications(isAdmin ? rows : rows.filter((r) => r.demat_accounts != null))
     setLoading(false)
   }
 
@@ -167,10 +168,10 @@ export function ApplicationsPage() {
   // applications is already fetched newest-applied-first, so grouping into a
   // Map (which preserves insertion order) naturally puts each IPO's group at
   // the position of its own most recent application — i.e. latest IPO on top
-  // — without needing a second sort pass. When sorting by funder, each IPO's
-  // items are further clustered by funderNameFor (alphabetical), so e.g. all
-  // of Jiggi's applications for an IPO sit together under one sub-header —
-  // exactly the "who used whose UPI" view this is for.
+  // — without needing a second sort pass. When sorting by funder or UPI ID,
+  // each IPO's items are further clustered by that key (alphabetical), so
+  // e.g. all of Jiggi's applications for an IPO — or all applications paid
+  // via one specific UPI ID — sit together under one sub-header.
   const groupedApplications = useMemo(() => {
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
     for (const a of applications) {
@@ -179,16 +180,17 @@ export function ApplicationsPage() {
       groups.get(key)!.items.push(a)
     }
     const result = Array.from(groups.values())
-    if (sortByFunder) {
+    if (sortMode !== 'recent') {
+      const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
       for (const g of result) {
         g.items.sort((a, b) => {
-          const byFunder = funderNameFor(a).localeCompare(funderNameFor(b))
-          return byFunder !== 0 ? byFunder : b.applied_at.localeCompare(a.applied_at)
+          const byKey = groupKeyFor(a).localeCompare(groupKeyFor(b))
+          return byKey !== 0 ? byKey : b.applied_at.localeCompare(a.applied_at)
         })
       }
     }
     return result
-  }, [applications, sortByFunder])
+  }, [applications, sortMode])
 
   return (
     <div className="space-y-5">
@@ -223,28 +225,26 @@ export function ApplicationsPage() {
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
           <span>Sort within each IPO by</span>
           <div className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: 'var(--border-strong)' }}>
-            <button
-              type="button"
-              onClick={() => setSortByFunder(false)}
-              className="px-2.5 py-1 text-xs font-medium"
-              style={{
-                background: sortByFunder ? 'transparent' : 'var(--accent-tint)',
-                color: sortByFunder ? 'var(--ink-secondary)' : 'var(--accent)',
-              }}
-            >
-              Recent
-            </button>
-            <button
-              type="button"
-              onClick={() => setSortByFunder(true)}
-              className="px-2.5 py-1 text-xs font-medium"
-              style={{
-                background: sortByFunder ? 'var(--accent-tint)' : 'transparent',
-                color: sortByFunder ? 'var(--accent)' : 'var(--ink-secondary)',
-              }}
-            >
-              Who funded it
-            </button>
+            {(
+              [
+                ['recent', 'Recent'],
+                ['funder', 'Who funded it'],
+                ['upi', 'UPI ID'],
+              ] as [SortMode, string][]
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSortMode(mode)}
+                className="px-2.5 py-1 text-xs font-medium"
+                style={{
+                  background: sortMode === mode ? 'var(--accent-tint)' : 'transparent',
+                  color: sortMode === mode ? 'var(--accent)' : 'var(--ink-secondary)',
+                }}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       )}
@@ -288,14 +288,15 @@ export function ApplicationsPage() {
               </h2>
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
-                  const showFunderHeader = sortByFunder && (i === 0 || funderNameFor(items[i - 1]) !== funderNameFor(a))
+                  const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
+                  const showFunderHeader = sortMode !== 'recent' && (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
                   const funderHeader = showFunderHeader && (
                     <div
                       key={`${a.id}-funder-header`}
                       className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase"
                       style={{ color: 'var(--ink-muted)', background: 'var(--hover-surface)' }}
                     >
-                      Funded by {funderNameFor(a)}
+                      {sortMode === 'upi' ? `Paid via ${upiIdFor(a)}` : `Funded by ${funderNameFor(a)}`}
                     </div>
                   )
 
@@ -327,12 +328,8 @@ export function ApplicationsPage() {
                   }
 
                   const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
-                  // Owner = admin, or the member whose linked demat this application is
-                  // on. A funder-only viewer (their linked bank/UPI paid for someone
-                  // else's demat) gets full read visibility (granted by RLS) but no
-                  // write actions — those stay owner-only.
+                  // Owner = admin, or the member whose linked demat this application is on.
                   const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profile?.id
-                  const isFunderOnly = !isOwner && a.bank_accounts?.linked_user_id === profile?.id
 
                   const funderName = funderNameFor(a)
                   const funderDiffersFromHolder = funderName !== a.demat_accounts?.holder_name
@@ -359,11 +356,6 @@ export function ApplicationsPage() {
                               title="This application was created in backdated format."
                             >
                               <HistoryIcon size={13} fill="var(--warning)" aria-label="Backdated" />
-                            </span>
-                          )}
-                          {isFunderOnly && (
-                            <span className="badge badge-info shrink-0" title="Paid via your linked bank/UPI account">
-                              funded by you
                             </span>
                           )}
                         </div>

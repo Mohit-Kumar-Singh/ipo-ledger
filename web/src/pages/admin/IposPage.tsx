@@ -88,6 +88,13 @@ function sortIpos(ipos: Ipo[]): Ipo[] {
   })
 }
 
+// Collapses stray whitespace ipoji's markup (or a manual typo) can introduce
+// — e.g. a trailing space or double space — which would otherwise make the
+// exact-match lookup below miss an existing row and insert a duplicate.
+function normalizeCompanyName(name: string): string {
+  return name.trim().replace(/\s+/g, ' ')
+}
+
 // Upserts by company name (case-insensitive exact match) so re-importing the
 // same IPO refreshes it instead of creating a duplicate.
 // Each detail fetch is a separate round-trip through the import-ipos Edge
@@ -110,15 +117,17 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 }
 
 async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
+  const normalized = { ...payload, company_name: normalizeCompanyName(payload.company_name as string) }
+
   const { data: existing } = await supabase
     .from('ipos')
     .select('id')
-    .ilike('company_name', payload.company_name as string)
+    .ilike('company_name', normalized.company_name)
     .maybeSingle()
 
   const { error } = existing
-    ? await supabase.from('ipos').update(payload).eq('id', existing.id)
-    : await supabase.from('ipos').insert(payload)
+    ? await supabase.from('ipos').update(normalized).eq('id', existing.id)
+    : await supabase.from('ipos').insert(normalized)
 
   return { error: error?.message ?? null }
 }
