@@ -82,17 +82,45 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     retail_subscription_rate,
   }
 
-  const { data: existing } = await admin
+  // .limit(1) instead of .maybeSingle(): if a duplicate ever slips past the
+  // DB's unique index (ipos_company_name_ci_key, migration 0044) —
+  // .maybeSingle() errors the moment more than one row matches, which made
+  // `existing` read as absent and caused every later cron run to insert yet
+  // another duplicate instead of updating. This was the actual root cause
+  // of the runaway duplicate IPO cards: once any two rows shared a name, the
+  // lookup broke permanently and a new duplicate landed on every 4h run.
+  const { data: existingRows } = await admin
     .from('ipos')
     .select('id')
     .ilike('company_name', company_name)
-    .maybeSingle()
+    .order('created_at', { ascending: true })
+    .limit(1)
+  const existing = existingRows?.[0]
 
-  const { error } = existing
-    ? await admin.from('ipos').update(payload).eq('id', existing.id)
-    : await admin.from('ipos').insert(payload)
+  if (existing) {
+    const { error } = await admin.from('ipos').update(payload).eq('id', existing.id)
+    return error ? 'failed' : 'saved'
+  }
 
-  return error ? 'failed' : 'saved'
+  const { error: insertError } = await admin.from('ipos').insert(payload)
+  if (!insertError) return 'saved'
+  // Concurrent workers in the same mapWithConcurrency batch can race past
+  // the lookup above for the same company — the unique index turns that
+  // into a 23505 instead of a second row; fall back to updating whichever
+  // insert won.
+  if (insertError.code === '23505') {
+    const { data: retryExisting } = await admin
+      .from('ipos')
+      .select('id')
+      .ilike('company_name', company_name)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (retryExisting?.[0]) {
+      const { error } = await admin.from('ipos').update(payload).eq('id', retryExisting[0].id)
+      return error ? 'failed' : 'saved'
+    }
+  }
+  return 'failed'
 }
 
 Deno.serve(async (req) => {

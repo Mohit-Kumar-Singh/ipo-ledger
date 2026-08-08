@@ -119,17 +119,44 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
 async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
   const normalized = { ...payload, company_name: normalizeCompanyName(payload.company_name as string) }
 
-  const { data: existing } = await supabase
+  // .limit(1) instead of .maybeSingle(): if a duplicate ever slips past the
+  // DB's unique index (ipos_company_name_ci_key, migration 0044) — e.g. two
+  // upserts racing — .maybeSingle() errors the moment more than one row
+  // matches, which made `existing` read as absent and caused every later
+  // call to insert yet another duplicate instead of updating. .limit(1)
+  // degrades gracefully to "just pick one" instead of erroring.
+  const { data: existingRows } = await supabase
     .from('ipos')
     .select('id')
     .ilike('company_name', normalized.company_name)
-    .maybeSingle()
+    .order('created_at', { ascending: true })
+    .limit(1)
+  const existing = existingRows?.[0]
 
-  const { error } = existing
-    ? await supabase.from('ipos').update(normalized).eq('id', existing.id)
-    : await supabase.from('ipos').insert(normalized)
+  if (existing) {
+    const { error } = await supabase.from('ipos').update(normalized).eq('id', existing.id)
+    return { error: error?.message ?? null }
+  }
 
-  return { error: error?.message ?? null }
+  const { error: insertError } = await supabase.from('ipos').insert(normalized)
+  if (!insertError) return { error: null }
+  // A concurrent upsert (e.g. the cron import running at the same moment)
+  // may have inserted the same company between the lookup above and this
+  // insert — the unique index turns that into a 23505 instead of a second
+  // row. Fall back to updating the row that won the race.
+  if (insertError.code === '23505') {
+    const { data: retryExisting } = await supabase
+      .from('ipos')
+      .select('id')
+      .ilike('company_name', normalized.company_name)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (retryExisting?.[0]) {
+      const { error } = await supabase.from('ipos').update(normalized).eq('id', retryExisting[0].id)
+      return { error: error?.message ?? null }
+    }
+  }
+  return { error: insertError.message }
 }
 
 export function IposPage() {
