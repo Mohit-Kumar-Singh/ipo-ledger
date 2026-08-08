@@ -1,4 +1,7 @@
-// Admin, or the member an account is linked to. Decrypts a PAN for the
+// Admin, the member a demat account is linked to, or a member whose linked
+// bank/UPI account funded an application on that demat (so they can
+// self-check allotment status on the registrar's site, which needs the
+// real PAN — a masked one is useless for that). Decrypts a PAN for the
 // "Copy PAN" / edit-account action and logs the access.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
@@ -33,21 +36,39 @@ Deno.serve(async (req) => {
     const { demat_id } = body
     if (!demat_id) return jsonError('demat_id is required', 400, cors)
 
+    let isOwner = false
     if (!isAdmin) {
       const { data: account } = await admin
         .from('demat_accounts')
         .select('linked_user_id')
         .eq('id', demat_id)
         .single()
-      if (account?.linked_user_id !== userData.user.id) {
-        return new Response('forbidden', { status: 403, headers: cors })
+      isOwner = account?.linked_user_id === userData.user.id
+
+      if (!isOwner) {
+        // Funder check: does the caller's own linked bank/UPI account fund
+        // at least one application on this demat account?
+        const { data: fundedApp } = await admin
+          .from('applications')
+          .select('id, bank_accounts!inner(linked_user_id)')
+          .eq('demat_id', demat_id)
+          .eq('bank_accounts.linked_user_id', userData.user.id)
+          .limit(1)
+          .maybeSingle()
+        if (!fundedApp) {
+          return new Response('forbidden', { status: 403, headers: cors })
+        }
       }
     }
 
     const { data: pan, error } = await admin.rpc('decrypt_pan', { p_demat_id: demat_id, p_key: PAN_KEY })
     if (error || !pan) return jsonError(error?.message ?? 'not found', 404, cors)
 
-    await admin.from('pan_access_log').insert({ demat_id, accessed_by: userData.user.id, is_self_reveal: !isAdmin })
+    // is_self_reveal only when literally revealing your own account's PAN —
+    // was previously `!isAdmin`, which was accurate back when a non-admin
+    // caller could only ever be the account's own owner; no longer true now
+    // that a funder can also reveal someone else's PAN.
+    await admin.from('pan_access_log').insert({ demat_id, accessed_by: userData.user.id, is_self_reveal: isOwner })
 
     return jsonResponse({ pan }, 200, cors)
   } catch (err) {

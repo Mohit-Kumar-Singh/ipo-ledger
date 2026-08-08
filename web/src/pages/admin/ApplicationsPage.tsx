@@ -8,6 +8,7 @@ import { isLiveIpo } from '../../lib/ipoStatus'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
+import { CopyButton } from '../../components/CopyButton'
 import type {
   Application,
   ApplicationCategory,
@@ -74,6 +75,25 @@ export function ApplicationsPage() {
   const [resolvedDematInfo, setResolvedDematInfo] = useState<Map<string, { holder_name: string; pan_masked: string | null }>>(
     new Map(),
   )
+  // A masked PAN is useless for actually checking allotment on the
+  // registrar's site — reveal-pan now also authorizes a funder (not just
+  // admin/owner) to decrypt the real PAN for a demat account their linked
+  // bank/UPI funded an application on.
+  const [revealedPans, setRevealedPans] = useState<Record<string, string>>({})
+  const [revealingPan, setRevealingPan] = useState<string | null>(null)
+
+  async function revealPan(dematId: string) {
+    setRevealingPan(dematId)
+    const { data, error } = await supabase.functions.invoke<{ pan: string }>('reveal-pan', {
+      body: { demat_id: dematId },
+    })
+    setRevealingPan(null)
+    if (error || !data) {
+      alert("Couldn't reveal PAN.")
+      return
+    }
+    setRevealedPans((r) => ({ ...r, [dematId]: data.pan }))
+  }
 
   async function loadApplications() {
     setLoading(true)
@@ -392,12 +412,26 @@ export function ApplicationsPage() {
                             via {funderName}
                           </p>
                         )}
-                        {/* Funder-only rows show PAN (masked) instead of the full
-                            demat/phone details — enough for the funder to self-check
-                            allotment status on the registrar's site, nothing more. */}
+                        {/* Funder-only rows show PAN instead of the full demat/phone
+                            details — enough for the funder to self-check allotment
+                            status on the registrar's site, nothing more. Masked by
+                            default (same reveal-then-copy pattern as AccountsPage); a
+                            masked PAN can't actually be used to check allotment, so
+                            "Reveal" calls reveal-pan (now funder-authorized too). */}
                         {resolvedDemat?.pan_masked && (
-                          <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                            PAN: {resolvedDemat.pan_masked}
+                          <p className="flex items-center gap-1 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            <span className="font-mono">PAN: {revealedPans[a.demat_id] ?? resolvedDemat.pan_masked}</span>
+                            {revealedPans[a.demat_id] ? (
+                              <CopyButton value={revealedPans[a.demat_id]} label="PAN" />
+                            ) : (
+                              <button
+                                onClick={() => revealPan(a.demat_id)}
+                                disabled={revealingPan === a.demat_id}
+                                className="link-accent font-medium disabled:opacity-50"
+                              >
+                                {revealingPan === a.demat_id ? 'Revealing…' : 'Reveal'}
+                              </button>
+                            )}
                           </p>
                         )}
                       </div>
