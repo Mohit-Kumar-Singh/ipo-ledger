@@ -76,5 +76,12 @@ async function verifySignature(body: string, signatureHeader: string, secret: st
   const digest = Array.from(new Uint8Array(sigBuffer))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
-  return digest === expected
+  // Constant-time compare — a plain `===` short-circuits on the first
+  // mismatched character, which is the textbook timing side-channel for a
+  // signature check (impractical to actually exploit over real network
+  // jitter, but cheap to close and a near-certain audit flag otherwise).
+  if (digest.length !== expected.length) return false
+  let diff = 0
+  for (let i = 0; i < digest.length; i++) diff |= digest.charCodeAt(i) ^ expected.charCodeAt(i)
+  return diff === 0
 }

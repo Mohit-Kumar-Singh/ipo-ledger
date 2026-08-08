@@ -49,12 +49,19 @@ export function IpoProgressGauge({
   const dotY = cy - r * Math.sin(angle)
 
   return (
-    <div className="card stagger-item flex gap-4 p-4">
-      {/* Fixed width, not flex-1: if this grew/shrank as the side panel's
-          width animates, the gauge (which scales to its container) would
-          visibly resize mid-animation on top of the tile widening — two
-          motions fighting each other instead of one clean one. */}
-      <div className="w-[204px] shrink-0">
+    // flex-col below sm (640px): side-by-side only has room once the left
+    // column (204px) + expanded side panel (210px) + gaps/padding actually
+    // fit the viewport — on a phone that's ~460px of content in a 375px
+    // window, clipping the panel right off-screen. Stacking instead means
+    // each piece only has to fit on its own.
+    <div className="card stagger-item flex flex-col gap-4 p-4 sm:flex-row">
+      {/* Fixed width on sm+, not flex-1: if this grew/shrank as the side
+          panel's width animates, the gauge (which scales to its container)
+          would visibly resize mid-animation on top of the tile widening —
+          two motions fighting each other instead of one clean one. Full
+          width when stacked (below sm) since there's no sibling beside it
+          to share the row with there. */}
+      <div className="w-full sm:w-[204px] sm:shrink-0">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
             <p

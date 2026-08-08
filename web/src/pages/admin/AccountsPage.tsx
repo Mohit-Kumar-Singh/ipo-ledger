@@ -514,7 +514,15 @@ function AccountForm({
   onDone: () => void
 }) {
   const draftKey = existing ? `draft:edit-demat:${existing.id}` : ADD_DRAFT_KEY
-  const draft = loadDraft<EditingAccount>(draftKey)
+  // A stale draft must never silently win over the real fetched value for an
+  // EXISTING account — that's exactly what caused an admin to see "Active"
+  // in the edit form for an account that was actually inactive (someone
+  // opened this edit form once, didn't explicitly Cancel/Save — a tab
+  // close, browser back, or crash skips handleCancel's clearDraft — and a
+  // stale localStorage draft outlived the account's real state changing
+  // elsewhere). The draft-recovery feature only makes sense for the ADD
+  // flow, where there's no "real" value to contradict yet.
+  const draft = existing ? null : loadDraft<EditingAccount>(draftKey)
 
   const [holderName, setHolderName] = useState(draft?.holderName ?? existing?.holderName ?? '')
   const [phoneDigits, setPhoneDigits] = useState(draft?.phoneDigits ?? existing?.phoneDigits ?? '')

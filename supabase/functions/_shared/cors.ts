@@ -8,7 +8,16 @@ const ALLOWED_ORIGINS = [
   'https://mohit-kumar-singh-ipo-ledger.vercel.app',
   'http://localhost:5173',
 ]
-const VERCEL_PREVIEW_RE = /^https:\/\/[a-z0-9-]+\.vercel\.app$/
+// Scoped to THIS project's own preview subdomains (e.g.
+// mohit-kumar-singh-ipo-ledger-<hash>-<team>.vercel.app), not every
+// vercel.app site — the previous unscoped /^https:\/\/[a-z0-9-]+\.vercel\.app$/
+// matched literally any Vercel-hosted project, letting an unrelated
+// attacker-controlled site read these functions' responses in a victim's
+// browser (auth here is a Bearer JWT the attacker's page can't forge, so
+// this was defense-in-depth rather than a credential-theft path — but
+// still real over-trust worth closing, and the kind of thing a security
+// audit flags on sight).
+const VERCEL_PREVIEW_RE = /^https:\/\/mohit-kumar-singh-ipo-ledger-[a-z0-9-]+\.vercel\.app$/
 
 function resolveOrigin(req: Request): string {
   const origin = req.headers.get('origin') ?? ''

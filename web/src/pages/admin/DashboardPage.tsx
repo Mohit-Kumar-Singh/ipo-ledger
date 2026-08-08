@@ -415,7 +415,14 @@ export function DashboardPage() {
                 <div
                   key={p.ipoId}
                   style={{
-                    flexBasis: expanded ? 500 : 260,
+                    // min(…, 100%) — plain px flex-basis with flexShrink:0
+                    // refuses to shrink below that width even when the
+                    // viewport itself is narrower (a phone screen), which is
+                    // exactly what clipped the expanded 500px panel off the
+                    // right edge of a 375px window. Capping the basis at the
+                    // container's own width means there's nothing left to
+                    // overflow, on any screen size.
+                    flexBasis: expanded ? 'min(500px, 100%)' : 'min(260px, 100%)',
                     flexGrow: 0,
                     flexShrink: 0,
                     transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
