@@ -77,6 +77,18 @@
   --shadow-glow-warning: none;
   --shadow-glow-critical: none;
 
+  /* Transparent here, real values in the dark theme (see that block's
+     comment) — same component code, no glow rendered in light mode. */
+  --glow-accent: transparent;
+  --glow-good: transparent;
+  --glow-warning: transparent;
+  --glow-critical: transparent;
+  --glow-series-1: transparent;
+  --glow-series-2: transparent;
+  --glow-series-3: transparent;
+  --glow-series-4: transparent;
+  --header-accent-bar: var(--accent);
+
   /* Primer's own component CSS reads these var(--x, #fallback) directly —
      BaseStyles is supposed to define them dynamically per color mode, but
      that definition doesn't reliably reach descendants in this setup (Vite
@@ -101,58 +113,96 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
 
-  /* GitHub's actual dark palette */
-  --surface: #0d1117;
-  --page: #0d1117;
-  --hover-surface: #21262d;
-  --ink-primary: #e6edf3;
-  --ink-secondary: #9198a1;
-  --ink-muted: #7d8590;
-  --border: #3d444d;
-  --border-strong: #3d444d;
-  --card-shadow: rgba(0, 0, 0, 0.4);
+  /* "KOVAREX Command Center" retheme — glassy near-black cards, neon ring
+     gauges, gradient accent bars (kovarex-monitor.shares.zrok.io/#sec-services,
+     verified via screenshot + computed styles). Light mode is untouched
+     (kept GitHub-flavored, by explicit choice — the reference has no light
+     mode of its own and nothing here should leak into :root). */
+  --surface: #0b0e15;
+  --page: #04060c;
+  --hover-surface: #12151f;
+  --ink-primary: #e2e8f0;
+  --ink-secondary: #94a3b8;
+  --ink-muted: #64748b;
+  --border: rgba(148, 163, 184, 0.14);
+  --border-strong: rgba(148, 163, 184, 0.22);
+  --card-shadow: rgba(0, 0, 0, 0.5);
 
-  --header-bg: #010409;
-  --header-fg: #e6edf3;
-  --header-fg-muted: #9198a1;
-  --header-hover: rgba(255, 255, 255, 0.08);
+  --header-bg: #060810;
+  --header-fg: #e2e8f0;
+  --header-fg-muted: #64748b;
+  --header-hover: rgba(148, 163, 184, 0.08);
 
-  --accent: #4493f8;
-  --accent-hover: #6cb0fe;
-  --accent-tint: rgba(56, 139, 253, 0.15);
+  --accent: #22d3ee;
+  --accent-hover: #67e8f9;
+  --accent-tint: rgba(34, 211, 238, 0.14);
 
-  --btn-primary-bg: #238636;
-  --btn-primary-hover: #2ea043;
+  --btn-primary-bg: #10b981;
+  --btn-primary-hover: #34d399;
 
-  --good: #3fb950;
-  --good-tint: rgba(46, 160, 67, 0.15);
-  --good-text: #3fb950;
-  --warning: #d29922;
-  --warning-tint: rgba(187, 128, 9, 0.15);
-  --warning-text: #d29922;
-  --serious: #e0823d;
-  --serious-tint: rgba(219, 109, 40, 0.15);
-  --serious-text: #e0823d;
-  --critical: #f85149;
-  --critical-tint: rgba(248, 81, 73, 0.15);
-  --critical-text: #ff7b72;
+  --good: #34d399;
+  --good-tint: rgba(52, 211, 153, 0.14);
+  --good-text: #34d399;
+  --warning: #fbbf24;
+  --warning-tint: rgba(251, 191, 36, 0.14);
+  --warning-text: #fbbf24;
+  --serious: #fb923c;
+  --serious-tint: rgba(251, 146, 60, 0.14);
+  --serious-text: #fb923c;
+  --critical: #f87171;
+  --critical-tint: rgba(248, 113, 113, 0.14);
+  --critical-text: #f87171;
 
-  --violet: #a371f7;
-  --violet-tint: rgba(163, 113, 247, 0.15);
+  --violet: #c4b5fd;
+  --violet-tint: rgba(196, 181, 253, 0.14);
 
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
-  --series-4: #c98500;
+  /* Categorical set for adjacent-slice charts (AttributionChart's donut) —
+     dataviz-skill-validated against this surface (#04060c): cyan/violet/
+     amber/pink all clear CVD separation (worst pair ΔE 8.5) and the
+     normal-vision floor (worst pair ΔE 22.6) at --pairs all. The
+     reference's own pastel Tailwind-300/400 set (cyan/violet/lime/
+     emerald/pink/amber together) does NOT clear adjacent-pair CVD in any
+     4-wide ordering tried (violet↔cyan ΔE 2.0, lime↔amber ΔE 13.8 <15
+     floor) — these are more saturated 500-ish steps of the same hues,
+     chosen for real separation while staying in the reference's neon
+     family. Every candidate here also fails the validator's dark
+     lightness band (0.48–0.67), which is calibrated to a much lighter
+     dark surface (~#1a1a19) than this near-black #04060c — legible
+     accents against true near-black necessarily run lighter, and actual
+     contrast-vs-surface passes (all ≥ 3:1), which is the check that
+     matters for legibility here. */
+  --series-1: #22d3ee;
+  --series-2: #8b5cf6;
+  --series-3: #facc15;
+  --series-4: #f472b6;
   --series-other: var(--ink-muted);
 
-  --shadow-sm: 0 1px 0 rgba(1, 4, 9, 0.15);
-  --shadow-md: 0 3px 6px rgba(1, 4, 9, 0.4);
-  --shadow-lg: 0 8px 24px rgba(1, 4, 9, 0.5);
-  --shadow-glow-accent: none;
-  --shadow-glow-primary: none;
-  --shadow-glow-warning: none;
-  --shadow-glow-critical: none;
+  --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --shadow-glow-accent: 0 0 28px rgba(34, 211, 238, 0.25);
+  --shadow-glow-primary: 0 0 28px rgba(52, 211, 153, 0.25);
+  --shadow-glow-warning: 0 0 24px rgba(251, 191, 36, 0.2);
+  --shadow-glow-critical: 0 0 24px rgba(248, 113, 113, 0.2);
+
+  /* Plain color tokens (not full box-shadow strings) for the radial glow
+     bled behind a ring gauge — used as a gradient color-stop, e.g.
+     `radial-gradient(circle, var(--glow-good) 0%, transparent 70%)`.
+     Transparent in light mode (defined below) so the same JSX/inline
+     style produces no glow at all there, no per-component theme branching
+     needed. */
+  --glow-accent: rgba(34, 211, 238, 0.35);
+  --glow-good: rgba(52, 211, 153, 0.35);
+  --glow-warning: rgba(251, 191, 36, 0.3);
+  --glow-critical: rgba(248, 113, 113, 0.3);
+  --glow-series-1: rgba(34, 211, 238, 0.3);
+  --glow-series-2: rgba(139, 92, 246, 0.3);
+  --glow-series-3: rgba(250, 204, 21, 0.3);
+  --glow-series-4: rgba(244, 114, 182, 0.3);
+
+  /* Section-header accent bar, left of the heading text (§ requirement 4)
+     — blue-to-purple, matching the reference's own header treatment. */
+  --header-accent-bar: linear-gradient(180deg, #22d3ee, #8b5cf6);
 }
 
 body {
@@ -440,5 +490,39 @@ table {
   }
   .sidebar-link-active:hover {
     color: var(--accent);
+  }
+
+  /* Section heading with a small vertical gradient accent bar to its left,
+     instead of a plain heading or a full-width divider — cyan-to-violet in
+     dark (KOVAREX retheme), the plain accent color in light. */
+  .section-heading {
+    @apply flex items-center gap-2.5;
+  }
+  .section-heading::before {
+    content: '';
+    display: block;
+    width: 3px;
+    height: 1.1em;
+    border-radius: 2px;
+    background: var(--header-accent-bar);
+    flex-shrink: 0;
+  }
+
+  /* Pill-shaped segmented control (the reference's All/Up/Down-style
+     filter) — active segment gets a solid light fill, inactive segments
+     stay transparent. Used for e.g. the Applications sort-by control. */
+  .segmented {
+    @apply inline-flex overflow-hidden rounded-full border p-0.5;
+    border-color: var(--border-strong);
+    background: var(--hover-surface);
+  }
+  .segmented-item {
+    @apply rounded-full px-3 py-1 text-xs font-medium transition-colors;
+    color: var(--ink-muted);
+  }
+  .segmented-item-active {
+    background: var(--surface);
+    color: var(--ink-primary);
+    box-shadow: var(--shadow-sm);
   }
 }

@@ -86,31 +86,42 @@ export function IpoProgressGauge({
           </button>
         </div>
 
-        <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="w-full">
-          <path d={arcPath} fill="none" stroke="var(--border)" strokeWidth={10} strokeLinecap="round" />
-          <path
-            d={arcPath}
-            fill="none"
-            stroke="var(--good)"
-            strokeWidth={10}
-            strokeLinecap="round"
-            pathLength={100}
-            strokeDasharray={100}
-            strokeDashoffset={100 - drawnPct * 100}
-            style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+        <div className="relative">
+          {/* Soft radial glow behind the ring, in the gauge's own accent
+              color (--glow-good, same token the arc itself is drawn in) —
+              transparent in light mode, so this is a no-op there. The
+              glow, not a box-shadow, is the depth cue (KOVAREX retheme). */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{ background: 'radial-gradient(circle at 50% 55%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(6px)' }}
           />
-          {drawnPct > 0 && (
-            <circle
-              cx={dotX}
-              cy={dotY}
-              r={5}
-              fill="var(--good)"
-              stroke="var(--surface)"
-              strokeWidth={2}
-              style={{ transition: 'cx 0.7s cubic-bezier(0.16, 1, 0.3, 1), cy 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+          <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="relative w-full">
+            <path d={arcPath} fill="none" stroke="var(--border)" strokeWidth={10} strokeLinecap="round" />
+            <path
+              d={arcPath}
+              fill="none"
+              stroke="var(--good)"
+              strokeWidth={10}
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray={100}
+              strokeDashoffset={100 - drawnPct * 100}
+              style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
             />
-          )}
-        </svg>
+            {drawnPct > 0 && (
+              <circle
+                cx={dotX}
+                cy={dotY}
+                r={5}
+                fill="var(--good)"
+                stroke="var(--surface)"
+                strokeWidth={2}
+                style={{ transition: 'cx 0.7s cubic-bezier(0.16, 1, 0.3, 1), cy 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+              />
+            )}
+          </svg>
+        </div>
 
         <div className="-mt-1 text-center">
           <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}>

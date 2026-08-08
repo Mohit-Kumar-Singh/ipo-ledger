@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
 const SERIES_VARS = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-other']
+const SERIES_GLOW_VARS = ['--glow-series-1', '--glow-series-2', '--glow-series-3', '--glow-series-4']
 
 function formatCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -66,7 +67,19 @@ export function AttributionChart({ attribution, compact = false }: { attribution
       </div>
 
       <div className="flex min-w-0 items-center gap-4">
-        <svg width={size} height={size} className="shrink-0 overflow-visible">
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+          {/* Glow keyed off the largest (first, since slices sort desc)
+              slice's own color — "this chart's accent," not one fixed hue
+              — transparent in light mode. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: `radial-gradient(circle, var(${SERIES_GLOW_VARS[0]}) 0%, transparent 68%)`,
+              filter: 'blur(6px)',
+            }}
+          />
+        <svg width={size} height={size} className="relative shrink-0 overflow-visible">
           <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} opacity={0.5} />
           <g transform={`rotate(-90 ${cx} ${cy})`}>
             {geometry.map((g, i) => (
@@ -105,6 +118,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
               ),
           )}
         </svg>
+        </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
           {geometry.map((s, i) => (
             <div key={s.name} className="flex min-w-0 items-center gap-1.5">

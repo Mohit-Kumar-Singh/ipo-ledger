@@ -399,7 +399,7 @@ export function DashboardPage() {
 
       {data.ipoProgress.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+          <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             IPO progress
           </h2>
           {/* Flexbox, not CSS grid: a grid item can only grow by spanning
@@ -447,7 +447,7 @@ export function DashboardPage() {
       )}
 
       <section>
-        <h2 className="mb-3 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Application credit by IPO
         </h2>
         {data.attribution.length === 0 ? (
@@ -642,11 +642,19 @@ function StatTile({
     good: 'var(--good)',
     critical: 'var(--critical)',
   }[tone]
+  // --shadow-glow-* is `none` in light mode, a real soft glow in dark
+  // (KOVAREX retheme) — same class, no per-theme branching here.
+  const toneGlow = {
+    info: 'var(--shadow-glow-accent)',
+    warning: 'var(--shadow-glow-warning)',
+    good: 'var(--shadow-glow-primary)',
+    critical: 'var(--shadow-glow-critical)',
+  }[tone]
   const animated = useCountUp(value)
 
   return (
     <div className="card stagger-item flex flex-col gap-3 p-4">
-      <div className={`icon-badge icon-badge-${tone}`}>
+      <div className={`icon-badge icon-badge-${tone}`} style={{ boxShadow: toneGlow }}>
         <Icon size={20} />
       </div>
       <div>
@@ -668,7 +676,7 @@ function Section({ title, empty, children }: { title: string; empty: string; chi
   const hasChildren = Array.isArray(children) ? children.some(Boolean) : Boolean(children)
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+      <h2 className="section-heading mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
         {title}
       </h2>
       <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { IconButton, NavList } from '@primer/react'
 import {
@@ -15,6 +15,7 @@ import {
   ThreeBarsIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabase'
 import { ThemeToggle } from '../ThemeToggle'
 import { ToastHost } from '../ToastHost'
 import { OnboardingTour } from '../OnboardingTour'
@@ -35,7 +36,32 @@ export function AppShell() {
   const { profile, signOut } = useAuth()
   const [navOpen, setNavOpen] = useState(false)
   const [tourActive, setTourActive] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
   const location = useLocation()
+
+  // Pending demat/bank link requests — RLS already scopes this correctly
+  // per viewer (admin sees every pending request, a member sees only their
+  // own), so the same query works unmodified for both; no client-side role
+  // branching needed. Drives both the Dashboard nav badge and the status
+  // pill below.
+  useEffect(() => {
+    async function loadPendingCount() {
+      const [demat, bank] = await Promise.all([
+        supabase.from('demat_link_requests').select('id', { count: 'exact', head: true }).eq('status', 'PENDING'),
+        supabase.from('bank_link_requests').select('id', { count: 'exact', head: true }).eq('status', 'PENDING'),
+      ])
+      setPendingCount((demat.count ?? 0) + (bank.count ?? 0))
+    }
+    loadPendingCount()
+    const channel = supabase
+      .channel('appshell-pending-count')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'demat_link_requests' }, loadPendingCount)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bank_link_requests' }, loadPendingCount)
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   const initials = (profile?.full_name ?? '?')
     .split(' ')
@@ -120,12 +146,31 @@ export function AppShell() {
           <ThemeToggle iconOnly />
         </div>
 
+        {/* Status pill — colored dot + short status text, same pending-count
+            data as the Dashboard nav badge below. */}
+        <div className="mx-3 mb-2.5 flex items-center gap-1.5 px-2">
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: pendingCount > 0 ? 'var(--warning)' : 'var(--good)' }}
+          />
+          <span
+            className="text-[10px] font-semibold tracking-wider uppercase"
+            style={{ color: pendingCount > 0 ? 'var(--warning-text)' : 'var(--good-text)' }}
+          >
+            {pendingCount > 0 ? `${pendingCount} pending request${pendingCount === 1 ? '' : 's'}` : 'all clear'}
+          </span>
+        </div>
+
         {/* Nav */}
         <nav className="sidebar-scroll flex-1 overflow-y-auto px-2 pt-1">
           <NavList>
             {links.map((l) => {
               const Icon = l.icon
               const isActive = l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)
+              // Only the Dashboard link has a natural home for this count
+              // today — pending link requests surface and get approved
+              // there, not on a dedicated page of their own.
+              const count = l.to === '/' ? pendingCount : 0
               return (
                 <NavList.Item
                   key={l.to}
@@ -134,12 +179,30 @@ export function AppShell() {
                   data-tour={l.to}
                   onClick={() => setNavOpen(false)}
                   aria-current={isActive ? 'page' : undefined}
-                  style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)', marginBottom: 4 }}
+                  style={{
+                    color: isActive ? 'var(--accent)' : 'var(--header-fg)',
+                    marginBottom: 4,
+                    borderRadius: 6,
+                    // Left accent bar + background tint on the active item,
+                    // not just a text-color swap (KOVAREX retheme).
+                    borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+                    background: isActive ? 'var(--accent-tint)' : undefined,
+                  }}
                 >
                   <NavList.LeadingVisual>
                     <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
                   </NavList.LeadingVisual>
                   <span style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}>{l.label}</span>
+                  {count > 0 && (
+                    <NavList.TrailingVisual>
+                      <span
+                        className="inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+                        style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
+                      >
+                        {count}
+                      </span>
+                    </NavList.TrailingVisual>
+                  )}
                 </NavList.Item>
               )
             })}

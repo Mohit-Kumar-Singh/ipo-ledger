@@ -268,7 +268,7 @@ export function ApplicationsPage() {
       {!showForm && applications.length > 0 && (
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
           <span>Sort within each IPO by</span>
-          <div className="inline-flex overflow-hidden rounded-md border" style={{ borderColor: 'var(--border-strong)' }}>
+          <div className="segmented">
             {(
               [
                 ['recent', 'Recent'],
@@ -280,11 +280,7 @@ export function ApplicationsPage() {
                 key={mode}
                 type="button"
                 onClick={() => setSortMode(mode)}
-                className="px-2.5 py-1 text-xs font-medium"
-                style={{
-                  background: sortMode === mode ? 'var(--accent-tint)' : 'transparent',
-                  color: sortMode === mode ? 'var(--accent)' : 'var(--ink-secondary)',
-                }}
+                className={`segmented-item ${sortMode === mode ? 'segmented-item-active' : ''}`}
               >
                 {label}
               </button>
