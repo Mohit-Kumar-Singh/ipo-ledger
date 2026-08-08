@@ -147,9 +147,13 @@ export function DashboardPage() {
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [expandedIpoId, setExpandedIpoId] = useState<string | null>(null)
-  // Fires the high-GMP heads-up as a toast once per portal visit (not on
-  // every realtime-triggered reload this page's load() also runs on).
-  const hasShownGmpToast = useRef(false)
+  // Fires the high-GMP heads-up as a toast once per calendar day, not on
+  // every visit to (or realtime-triggered reload of) the Dashboard — a
+  // plain useRef only survives while this component stays mounted, so
+  // navigating away and back (or a page reload) reset it and re-fired the
+  // toast on every single visit. localStorage persists across all of that;
+  // the guard is "have we already shown it today," not "this mount."
+  const hasShownGmpToast = useRef(localStorage.getItem('gmpToastShownDate') === new Date().toISOString().slice(0, 10))
 
   async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
     setDecidingId(id)
@@ -262,6 +266,9 @@ export function DashboardPage() {
             remainingHolderNames,
           }
         })
+        // No point showing a progress tile for an IPO nobody has applied to
+        // yet — it's not "in progress," there's nothing to track.
+        .filter((p) => p.applied > 0)
         .sort((a, b) => a.endDate.localeCompare(b.endDate))
 
       // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
@@ -284,6 +291,7 @@ export function DashboardPage() {
 
       if (!hasShownGmpToast.current && highGmpAlerts.length > 0) {
         hasShownGmpToast.current = true
+        localStorage.setItem('gmpToastShownDate', todayForGmp)
         for (const a of highGmpAlerts) {
           const daysOut = Math.round(
             (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(todayForGmp + 'T00:00:00Z').getTime()) / 86400000,

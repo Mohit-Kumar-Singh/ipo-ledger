@@ -39,7 +39,7 @@ function upiIdFor(a: ApplicationRow): string {
 type SortMode = 'recent' | 'funder' | 'upi'
 
 type ApplicationRow = Application & {
-  ipos: Pick<Ipo, 'company_name'>
+  ipos: Pick<Ipo, 'company_name' | 'allotment_date'>
   // null when RLS withholds the full row — that only happens for a
   // funder-only viewer (their linked bank/UPI paid for someone else's
   // demat), and those rows are filtered out of this list before render (see
@@ -64,13 +64,14 @@ export function ApplicationsPage() {
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [backdatedMode, setBackdatedMode] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   async function loadApplications() {
     setLoading(true)
     const { data, error } = await supabase
       .from('applications')
       .select(
-        '*, ipos(company_name), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
+        '*, ipos(company_name, allotment_date), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
     if (error) {
@@ -415,16 +416,29 @@ export function ApplicationsPage() {
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
                         {isOwner && a.status === 'APPLIED' && (
                           <>
-                            <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
-                              Allotted
-                            </button>
-                            <button
-                              onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
-                              className="text-xs font-medium hover:underline"
-                              style={{ color: 'var(--ink-muted)' }}
-                            >
-                              Not allotted
-                            </button>
+                            {/* Can't know allotment status before the registrar has actually
+                                run allotment — gate both actions on the IPO's own
+                                allotment_date having passed, same rule as the Allotment
+                                board (which only lists already-past-allotment-date IPOs to
+                                pick from in the first place). */}
+                            {a.ipos.allotment_date && a.ipos.allotment_date <= todayStr ? (
+                              <>
+                                <button onClick={() => markStatus(a.id, 'ALLOTTED')} className="link-accent text-xs font-medium">
+                                  Allotted
+                                </button>
+                                <button
+                                  onClick={() => markStatus(a.id, 'NOT_ALLOTTED')}
+                                  className="text-xs font-medium hover:underline"
+                                  style={{ color: 'var(--ink-muted)' }}
+                                >
+                                  Not allotted
+                                </button>
+                              </>
+                            ) : (
+                              <span className="text-xs" style={{ color: 'var(--ink-muted)' }} title="Allotment date hasn't passed yet">
+                                Awaiting allotment
+                              </span>
+                            )}
                           </>
                         )}
                         {isOwner && a.status === 'ALLOTTED' && (

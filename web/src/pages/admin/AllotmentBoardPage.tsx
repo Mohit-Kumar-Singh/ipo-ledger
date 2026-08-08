@@ -301,20 +301,29 @@ export function AllotmentBoardPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5">
-                    {row.status === 'APPLIED' && (
-                      <div className="flex gap-3">
-                        <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
-                          Allotted
-                        </button>
-                        <button
-                          onClick={() => markStatus(row.application_id, 'NOT_ALLOTTED')}
-                          className="text-xs font-medium hover:underline"
-                          style={{ color: 'var(--ink-muted)' }}
-                        >
-                          Not allotted
-                        </button>
-                      </div>
-                    )}
+                    {row.status === 'APPLIED' &&
+                      // Defense in depth: the IPO dropdown above only lists IPOs whose
+                      // allotment_date has already passed, but re-check here too in case
+                      // the IPO's date got edited to a future date after this board was
+                      // loaded (stale selectedIpo in an already-open tab).
+                      (selectedIpo?.allotment_date && selectedIpo.allotment_date <= new Date().toISOString().slice(0, 10) ? (
+                        <div className="flex gap-3">
+                          <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
+                            Allotted
+                          </button>
+                          <button
+                            onClick={() => markStatus(row.application_id, 'NOT_ALLOTTED')}
+                            className="text-xs font-medium hover:underline"
+                            style={{ color: 'var(--ink-muted)' }}
+                          >
+                            Not allotted
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-xs" style={{ color: 'var(--ink-muted)' }} title="Allotment date hasn't passed yet">
+                          Awaiting allotment
+                        </span>
+                      ))}
                   </td>
                 </tr>
                 )

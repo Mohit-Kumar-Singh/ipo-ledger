@@ -123,12 +123,19 @@ export function IpoProgressGauge({
       {/* Side panel, not a below-the-fold section: max-width 0->210px, timed
           with the same 0.35s/easing as the parent's flex-basis transition
           (DashboardPage) so the tile widens and the panel reveals as one
-          continuous motion instead of a snap-then-fade. */}
+          continuous motion instead of a snap-then-fade. max-height is
+          collapsed alongside max-width — without it, this panel's own fixed-
+          width (210px) content still lays out at its natural height even
+          while visually clipped to 0 width, so cards with more "yet to
+          apply" names (a taller capped list) rendered taller than cards with
+          fewer names, even collapsed. Both dimensions must close to 0 for
+          every collapsed card to actually be the same size. */}
       <div
         className="shrink-0 overflow-hidden"
         style={{
           maxWidth: expanded ? 210 : 0,
-          transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+          maxHeight: expanded ? 400 : 0,
+          transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }}>

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
-const SERIES_VARS = ['--series-1', '--series-2', '--series-3', '--series-other']
+const SERIES_VARS = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-other']
 
 function formatCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -112,7 +112,11 @@ export function AttributionChart({ attribution, compact = false }: { attribution
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
               />
-              <span className="truncate" style={{ color: 'var(--ink-secondary)' }} title={s.name}>
+              <span
+                className="truncate"
+                style={{ color: 'var(--ink-secondary)' }}
+                title={s.members ? `Other: ${s.members.join(', ')}` : s.name}
+              >
                 {firstName(s.name)} — {formatCount(s.value)}
               </span>
             </div>
