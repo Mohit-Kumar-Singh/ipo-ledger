@@ -65,6 +65,15 @@ export function ApplicationsPage() {
   const [backdatedMode, setBackdatedMode] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const todayStr = new Date().toISOString().slice(0, 10)
+  // Funder-only rows (RLS grants SELECT on the application itself, but not
+  // the full demat_accounts row) come back with demat_accounts = null — this
+  // resolves just holder_name + pan_masked for those via a narrow RPC
+  // (resolve_demat_holder_names, migration 0045), never phone/DP client id,
+  // so a funder can see who/what they funded and self-check allotment via
+  // PAN without seeing anything else about that demat account.
+  const [resolvedDematInfo, setResolvedDematInfo] = useState<Map<string, { holder_name: string; pan_masked: string | null }>>(
+    new Map(),
+  )
 
   async function loadApplications() {
     setLoading(true)
@@ -82,13 +91,27 @@ export function ApplicationsPage() {
     setLoadError(null)
     const rows = (data ?? []) as ApplicationRow[]
 
-    // RLS also returns funder-only rows to a member (their linked bank/UPI
-    // paid for someone else's demat, demat_accounts = null since that full
-    // row is withheld) — this list only shows applications on the viewer's
-    // own linked demat account, so those are dropped here. Admin is
-    // unaffected. Funder credit still shows up elsewhere (attribution
-    // charts, Dashboard payout tracking).
-    setApplications(isAdmin ? rows : rows.filter((r) => r.demat_accounts != null))
+    // Previously these funder-only rows (their linked bank/UPI paid for
+    // someone else's demat) were dropped here entirely — a funder could
+    // fund 16 applications and see zero of them on their own page. Now
+    // resolved and shown instead, read-only (isOwner below already
+    // requires demat_accounts.linked_user_id === self, which funder-only
+    // rows never satisfy).
+    const unresolvedIds = Array.from(
+      new Set(rows.filter((r) => r.demat_accounts == null).map((r) => r.demat_id)),
+    )
+    if (unresolvedIds.length > 0) {
+      const { data: resolved } = await supabase.rpc('resolve_demat_holder_names', { p_ids: unresolvedIds })
+      const map = new Map<string, { holder_name: string; pan_masked: string | null }>()
+      for (const r of (resolved ?? []) as { id: string; holder_name: string; pan_masked: string | null }[]) {
+        map.set(r.id, { holder_name: r.holder_name, pan_masked: r.pan_masked })
+      }
+      setResolvedDematInfo(map)
+    } else {
+      setResolvedDematInfo(new Map())
+    }
+
+    setApplications(rows)
     setLoading(false)
   }
 
@@ -331,9 +354,13 @@ export function ApplicationsPage() {
                   const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
                   // Owner = admin, or the member whose linked demat this application is on.
                   const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profile?.id
+                  // demat_accounts is null for a funder-only row (RLS withholds the full
+                  // row) — fall back to the narrow holder_name/pan_masked resolved above.
+                  const resolvedDemat = a.demat_accounts ? null : resolvedDematInfo.get(a.demat_id)
+                  const holderName = a.demat_accounts?.holder_name ?? resolvedDemat?.holder_name
 
                   const funderName = funderNameFor(a)
-                  const funderDiffersFromHolder = funderName !== a.demat_accounts?.holder_name
+                  const funderDiffersFromHolder = funderName !== holderName
 
                   return (
                     <Fragment key={a.id}>
@@ -343,13 +370,13 @@ export function ApplicationsPage() {
                         className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
                         style={{ width: '2.25rem', height: '2.25rem' }}
                       >
-                        {a.demat_accounts?.holder_name?.[0]?.toUpperCase()}
+                        {holderName?.[0]?.toUpperCase()}
                       </div>
 
                       <div className="min-w-[9rem] flex-1">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                            {a.demat_accounts?.holder_name}
+                            {holderName}
                           </p>
                           {a.is_backdated && (
                             <span
@@ -363,6 +390,14 @@ export function ApplicationsPage() {
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
+                          </p>
+                        )}
+                        {/* Funder-only rows show PAN (masked) instead of the full
+                            demat/phone details — enough for the funder to self-check
+                            allotment status on the registrar's site, nothing more. */}
+                        {resolvedDemat?.pan_masked && (
+                          <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            PAN: {resolvedDemat.pan_masked}
                           </p>
                         )}
                       </div>
