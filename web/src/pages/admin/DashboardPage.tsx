@@ -429,6 +429,14 @@ export function DashboardPage() {
                       flexBasis: expanded ? 'min(500px, 100%)' : 'min(260px, 100%)',
                       flexGrow: 0,
                       flexShrink: 0,
+                      // Matches the Application-credit tiles' own minHeight
+                      // (§ same-size request) so a gauge and a donut card
+                      // always line up, not just in width. display:flex so
+                      // the glass-card child (a normal block by default)
+                      // actually stretches to fill this height instead of
+                      // leaving blank space below a shorter card.
+                      display: 'flex',
+                      minHeight: 280,
                       transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
                     }}
                   >
@@ -459,9 +467,17 @@ export function DashboardPage() {
               No applications yet.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 min-[1600px]:grid-cols-3">
+            // Same flex-wrap + fixed-flexBasis sizing as the IPO progress
+            // tiles above (not a fluid grid) — plus a shared min-height on
+            // both, so a chart's own tile always matches a gauge's own tile,
+            // instead of stretching to a variable grid-track width.
+            <div className="flex flex-wrap gap-5">
               {data.attribution.map((a) => (
-                <div key={a.ipoId} className="glass-card stagger-item min-w-0 p-4">
+                <div
+                  key={a.ipoId}
+                  className="glass-card stagger-item flex min-w-0 flex-col justify-center p-4"
+                  style={{ flexBasis: 'min(260px, 100%)', flexGrow: 0, flexShrink: 0, minHeight: 280 }}
+                >
                   <AttributionChart attribution={a} />
                 </div>
               ))}

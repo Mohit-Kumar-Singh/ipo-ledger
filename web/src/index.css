@@ -193,10 +193,12 @@
   --shadow-sm: 0 1px 0 rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
-  --shadow-glow-accent: 0 0 28px rgba(34, 211, 238, 0.25);
-  --shadow-glow-primary: 0 0 28px rgba(52, 211, 153, 0.25);
-  --shadow-glow-warning: 0 0 24px rgba(251, 191, 36, 0.2);
-  --shadow-glow-critical: 0 0 24px rgba(248, 113, 113, 0.2);
+  /* Toned down from the first KOVAREX pass (0.25/0.2 alpha, 28px/24px
+     spread) — read as too heavy/glare-y on icon badges at normal size. */
+  --shadow-glow-accent: 0 0 14px rgba(34, 211, 238, 0.14);
+  --shadow-glow-primary: 0 0 14px rgba(52, 211, 153, 0.14);
+  --shadow-glow-warning: 0 0 12px rgba(251, 191, 36, 0.11);
+  --shadow-glow-critical: 0 0 12px rgba(248, 113, 113, 0.11);
 
   /* Plain color tokens (not full box-shadow strings) for the radial glow
      bled behind a ring gauge — used as a gradient color-stop, e.g.
@@ -204,14 +206,17 @@
      Transparent in light mode (defined below) so the same JSX/inline
      style produces no glow at all there, no per-component theme branching
      needed. */
-  --glow-accent: rgba(34, 211, 238, 0.35);
-  --glow-good: rgba(52, 211, 153, 0.35);
-  --glow-warning: rgba(251, 191, 36, 0.3);
-  --glow-critical: rgba(248, 113, 113, 0.3);
-  --glow-series-1: rgba(34, 211, 238, 0.3);
-  --glow-series-2: rgba(139, 92, 246, 0.3);
-  --glow-series-3: rgba(250, 204, 21, 0.3);
-  --glow-series-4: rgba(244, 114, 182, 0.3);
+  /* Toned down from the first KOVAREX pass (0.3-0.35 alpha) — same reasoning
+     as --shadow-glow-* above; these bleed behind the ring gauges/donuts and
+     read as too strong at that alpha. */
+  --glow-accent: rgba(34, 211, 238, 0.18);
+  --glow-good: rgba(52, 211, 153, 0.18);
+  --glow-warning: rgba(251, 191, 36, 0.15);
+  --glow-critical: rgba(248, 113, 113, 0.15);
+  --glow-series-1: rgba(34, 211, 238, 0.15);
+  --glow-series-2: rgba(139, 92, 246, 0.15);
+  --glow-series-3: rgba(250, 204, 21, 0.15);
+  --glow-series-4: rgba(244, 114, 182, 0.15);
 
   /* Section-header accent bar, left of the heading text (§ requirement 4)
      — cyan-to-emerald, matching the Dashboard.dc.html reference's own
@@ -229,8 +234,8 @@
   --glass-bg: rgba(255, 255, 255, 0.045);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-blur: blur(20px);
-  --glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-  --glass-shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 4px 14px rgba(0, 0, 0, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --glass-shadow-hover: 0 10px 24px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.07);
 
   /* Ambient background blobs behind the whole app (AppShell) — large,
      heavily blurred, slow-floating radial tints. Transparent in light mode
@@ -324,10 +329,17 @@ table {
    Transparent in light mode via --blob-1/2/3, so these divs render as
    nothing there — no visibility toggle needed at the call site. */
 .bg-blob {
-  position: absolute;
-  /* Without this, an absolutely-positioned box with z-index:auto still
-     paints *after* (on top of) its non-positioned in-flow siblings — these
-     divs would sit over the sidebar/content, not behind them. */
+  /* position:fixed, not absolute — an absolute blob poking outside its
+     container's box (several are positioned with a negative top/bottom)
+     enlarges that container's scrollable overflow, and clipping that with
+     overflow:hidden on an ancestor breaks position:sticky for anything
+     inside it (the sidebar). Fixed removes these from layout entirely —
+     positioned against the viewport, no overflow contribution, no
+     clipping wrapper needed anywhere. */
+  position: fixed;
+  /* Without this, a positioned box with z-index:auto still paints *after*
+     (on top of) its non-positioned in-flow siblings — these divs would sit
+     over the sidebar/content, not behind them. */
   z-index: -1;
   border-radius: 50%;
   filter: blur(90px);
@@ -481,10 +493,23 @@ table {
     text-decoration: underline;
   }
 
+  /* Every .card now gets the same small minimal hover-pop, site-wide — this
+     supersedes the old "flat, no lift/glow on hover, matching github.com"
+     rule (see the removed reduced-motion .card:hover stub this used to
+     pair with). Deliberately smaller than .tile-hover/.row-card's lift —
+     those are the Dashboard's own richer glass treatment; this is the
+     baseline for every other page's plain cards. */
   .card {
     @apply rounded-md border;
     border-color: var(--border-strong);
     background: var(--surface);
+    transition:
+      transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
   }
 
   /* Depth-on-hover for the Dashboard stat tiles — lifts + deepens the
