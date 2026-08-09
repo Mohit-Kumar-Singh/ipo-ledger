@@ -68,6 +68,7 @@ interface IpoProgress {
   applied: number
   totalActive: number
   gmpNotes: string | null
+  subscriptionRate: string | null
   remainingHolderNames: string[]
 }
 
@@ -263,6 +264,7 @@ export function DashboardPage() {
             applied: appliedIds.size,
             totalActive,
             gmpNotes: ipo.gmp_notes,
+            subscriptionRate: ipo.retail_subscription_rate,
             remainingHolderNames,
           }
         })
@@ -458,6 +460,7 @@ export function DashboardPage() {
                       applied={p.applied}
                       total={p.totalActive}
                       gmpNotes={p.gmpNotes}
+                      subscriptionRate={p.subscriptionRate}
                       remainingHolderNames={p.remainingHolderNames}
                       expanded={expanded}
                       onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}

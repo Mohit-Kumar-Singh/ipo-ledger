@@ -5,7 +5,7 @@ interface IpoTimelineProps {
   listingDate: string | null
 }
 
-interface Step {
+interface Stage {
   label: string
   date: string | null
   estimated: boolean
@@ -33,59 +33,52 @@ function formatDate(iso: string | null): string {
   return `${ordinal(d)} ${month}`
 }
 
-function segmentFill(startIso: string | null, endIso: string | null, todayIso: string): number {
-  if (!startIso || !endIso) return 0
-  if (endIso <= startIso) return todayIso >= endIso ? 1 : 0
-  if (todayIso <= startIso) return 0
-  if (todayIso >= endIso) return 1
-  const start = Date.parse(startIso)
-  const end = Date.parse(endIso)
-  const today = Date.parse(todayIso)
-  return (today - start) / (end - start)
-}
-
-const CHEVRON_CLIP = 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%, 10px 50%)'
-
+// Straight port of the reference's stageSet()/segs() (IPO Tracker.dc.html) —
+// discrete on/off segments and exactly one bolded "current" stage, not the
+// fractional/multi-bold version this used to have. currentIdx there was a
+// hand-set field per mock row (0 for every "Open" example, -1 for every
+// "Upcoming" one); here it's derived from real dates instead of a fixed
+// per-status value, which is what actually varies once an IPO moves past
+// Open into Close/Allotment/Listed.
 export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }: IpoTimelineProps) {
   const todayIso = new Date().toISOString().slice(0, 10)
 
-  const steps: Step[] = [
+  const stages: Stage[] = [
     { label: 'Open', date: openDate, estimated: false },
     { label: 'Close', date: closeDate, estimated: false },
     { label: 'Allotment', date: allotmentDate, estimated: true },
     { label: 'Listing', date: listingDate, estimated: true },
   ]
 
-  const segments = [
-    segmentFill(openDate, closeDate, todayIso),
-    segmentFill(closeDate, allotmentDate, todayIso),
-    segmentFill(allotmentDate, listingDate, todayIso),
-  ]
+  // The latest stage whose date has actually arrived — matches the
+  // reference's currentIdx (0 = "we're in the Open window" for its Open
+  // examples, -1 = "hasn't opened yet" for its Upcoming ones).
+  let currentIdx = -1
+  stages.forEach((s, i) => {
+    if (s.date && s.date <= todayIso) currentIdx = i
+  })
+  const segmentCount = stages.length - 1
+  const filled = currentIdx >= 0 ? Math.min(currentIdx + 1, segmentCount) : 0
 
   return (
     <div>
-      <div className="flex h-2.5 gap-0.5">
-        {segments.map((fill, i) => (
+      <div className="flex items-center gap-1">
+        {Array.from({ length: segmentCount }, (_, i) => (
           <div
             key={i}
-            className="relative flex-1 overflow-hidden"
-            style={{ background: 'var(--border)', clipPath: CHEVRON_CLIP }}
-          >
-            <div
-              className="absolute inset-y-0 left-0 transition-[width] duration-700 ease-out"
-              style={{ width: `${fill * 100}%`, background: 'var(--accent)' }}
-            />
-          </div>
+            className="h-[3px] flex-1 rounded-full"
+            style={{ background: i < filled ? 'var(--good)' : 'var(--border)' }}
+          />
         ))}
       </div>
       <div className="mt-2 grid grid-cols-4 gap-1 text-xs">
-        {steps.map((s) => {
-          const done = s.date != null && s.date <= todayIso
+        {stages.map((s, i) => {
+          const isCurrent = i === currentIdx
           return (
             <div key={s.label}>
               <p
                 className="font-mono-ipo tabular-nums"
-                style={{ fontWeight: done ? 600 : 400, color: done ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
+                style={{ fontWeight: isCurrent ? 700 : 400, color: isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
               >
                 {formatDate(s.date)}
               </p>

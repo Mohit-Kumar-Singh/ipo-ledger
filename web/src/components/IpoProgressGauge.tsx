@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useCountUp } from '../lib/useCountUp'
 
-// Hand-rolled full-circle progress ring (SVG circle via pathLength/
-// dasharray, same "rotate -90 so 0% starts at 12 o'clock" trick as
-// AttributionChart's donut) — no charting library, same spirit as every
-// other chart in this app. Fill grows with `applied`, so it visibly
-// advances as more accounts apply, and draws in from zero on mount (render
-// the "before" state first, flip to the real value a frame later so the
-// CSS transition animates it).
+// Hand-rolled half-donut gauge (SVG arc via pathLength/dasharray) — no
+// charting library, same spirit as every other chart in this app. Fill
+// grows with `applied`, so it visibly advances as more accounts apply, and
+// draws in from zero on mount (render the "before" state first, flip to
+// the real value a frame later so the CSS transition animates it). Same
+// diameter as AttributionChart's donut (148) so the two chart types read
+// as one consistent system on the Dashboard instead of two different sizes
+// side by side.
 export function IpoProgressGauge({
   companyName,
   startDate,
@@ -15,6 +16,7 @@ export function IpoProgressGauge({
   applied,
   total,
   gmpNotes,
+  subscriptionRate,
   remainingHolderNames,
   expanded,
   onToggleExpanded,
@@ -25,6 +27,7 @@ export function IpoProgressGauge({
   applied: number
   total: number
   gmpNotes: string | null
+  subscriptionRate: string | null
   remainingHolderNames: string[]
   expanded: boolean
   onToggleExpanded: () => void
@@ -40,16 +43,15 @@ export function IpoProgressGauge({
   const accountsLeft = Math.max(total - applied, 0)
   const animatedApplied = useCountUp(applied)
 
-  const size = 190
-  const r = 78
-  const strokeWidth = 14
+  const size = 148
+  const r = 62
+  const strokeWidth = 12
   const cx = size / 2
-  const cy = size / 2
-  // Same convention as AttributionChart's pointAt(): 0% at 12 o'clock,
-  // sweeping clockwise as it grows.
-  const dotAngle = -Math.PI / 2 + drawnPct * 2 * Math.PI
+  const cy = size / 2 + 4
+  const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
+  const dotAngle = Math.PI * (1 - drawnPct)
   const dotX = cx + r * Math.cos(dotAngle)
-  const dotY = cy + r * Math.sin(dotAngle)
+  const dotY = cy - r * Math.sin(dotAngle)
 
   return (
     // flex-col below sm (640px): side-by-side only has room once the left
@@ -97,29 +99,26 @@ export function IpoProgressGauge({
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0"
-            style={{ background: 'radial-gradient(circle at 50% 50%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(8px)' }}
+            style={{ background: 'radial-gradient(circle at 50% 60%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(8px)' }}
           />
-          <svg viewBox={`0 0 ${size} ${size}`} className="relative w-full">
-            <g transform={`rotate(-90 ${cx} ${cy})`}>
-              <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} opacity={0.5} />
-              <circle
-                cx={cx}
-                cy={cy}
-                r={r}
-                fill="none"
-                stroke="var(--good)"
-                strokeWidth={strokeWidth}
-                strokeLinecap="round"
-                pathLength={100}
-                strokeDasharray={`${drawnPct * 100} ${100 - drawnPct * 100}`}
-                style={{ transition: 'stroke-dasharray 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
-              />
-            </g>
+          <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="relative w-full">
+            <path d={arcPath} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} strokeLinecap="round" opacity={0.5} />
+            <path
+              d={arcPath}
+              fill="none"
+              stroke="var(--good)"
+              strokeWidth={strokeWidth}
+              strokeLinecap="round"
+              pathLength={100}
+              strokeDasharray={100}
+              strokeDashoffset={100 - drawnPct * 100}
+              style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+            />
             {drawnPct > 0 && (
               <circle
                 cx={dotX}
                 cy={dotY}
-                r={6}
+                r={5}
                 fill="var(--good)"
                 stroke="var(--surface)"
                 strokeWidth={2}
@@ -127,13 +126,11 @@ export function IpoProgressGauge({
               />
             )}
           </svg>
-          {/* Centered inside the ring, not below it — HTML overlay rather
-              than SVG <text> so it wraps/truncates normally. */}
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
-            <p className="font-display text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
+          <div className="-mt-1 text-center">
+            <p className="font-display text-xl font-bold" style={{ color: 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}>
               {animatedApplied}/{total}
             </p>
-            <p className="font-display px-4 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+            <p className="font-display text-[11px]" style={{ color: 'var(--ink-muted)' }}>
               applied / active accounts
             </p>
           </div>
@@ -151,6 +148,12 @@ export function IpoProgressGauge({
               {gmpNotes}
             </p>
           </div>
+        )}
+
+        {subscriptionRate && (
+          <p className="font-mono-ipo mt-1 text-center text-xs font-medium" style={{ color: 'var(--accent)' }}>
+            Retail subscription: {subscriptionRate}
+          </p>
         )}
       </div>
 

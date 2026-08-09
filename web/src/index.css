@@ -261,7 +261,12 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--ink-primary);
-  font-family: -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  /* Inter was imported (@fontsource-variable/inter, top of this file) but
+     never actually applied — body fell back to the system stack, which
+     reads visibly different from the IPO Tracker.dc.html reference's
+     `font-family: 'Inter', sans-serif`. This is the real fix, not a
+     per-page override: the reference's font choice is the app's base font. */
+  font-family: 'Inter Variable', -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
