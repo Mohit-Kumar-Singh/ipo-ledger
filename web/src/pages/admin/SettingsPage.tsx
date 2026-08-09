@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
-import { LinkIcon, ShieldCheckIcon } from '@primer/octicons-react'
+import { LinkIcon, PaintbrushIcon, ShieldCheckIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { useTheme } from '../../contexts/ThemeContext'
+import { ThemeToggle } from '../../components/ThemeToggle'
 import type { RegistrarLink } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -28,9 +30,37 @@ export function SettingsPage() {
           Registrar links{isAdmin && ' and the PAN-reveal audit trail'}.
         </p>
       </div>
+      <AppearanceSection />
       <RegistrarLinksSection editable={isAdmin} />
       {isAdmin && <PanAccessLogSection />}
     </div>
+  )
+}
+
+// Moved here from the sidebar identity block — a per-page settings toggle
+// reads more like "settings" than a control living permanently in the nav
+// chrome, and it's one less thing competing for space in the collapsed
+// icon-rail sidebar.
+function AppearanceSection() {
+  const { theme } = useTheme()
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <PaintbrushIcon size={15} fill="var(--accent)" />
+        Appearance
+      </h2>
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+            Theme
+          </p>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Currently {theme === 'dark' ? 'dark' : 'light'}.
+          </p>
+        </div>
+        <ThemeToggle />
+      </div>
+    </section>
   )
 }
 

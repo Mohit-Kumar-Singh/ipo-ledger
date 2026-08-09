@@ -56,12 +56,12 @@ export function AttributionChart({ attribution, compact = false }: { attribution
     <div className="min-w-0">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <p
-          className={`truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
+          className={`font-display truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
           style={{ color: 'var(--ink-primary)' }}
         >
           {companyName}
         </p>
-        <span className="shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        <span className="font-display shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
           {totalApplications} app{totalApplications === 1 ? '' : 's'}
         </span>
       </div>
@@ -121,18 +121,30 @@ export function AttributionChart({ attribution, compact = false }: { attribution
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
           {geometry.map((s, i) => (
-            <div key={s.name} className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
-              />
-              <span
-                className="truncate"
-                style={{ color: 'var(--ink-secondary)' }}
-                title={s.members ? `Other: ${s.members.join(', ')}` : s.name}
-              >
-                {firstName(s.name)} — {formatCount(s.value)}
-              </span>
+            <div key={s.name} className="min-w-0">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
+                />
+                <span className="font-display truncate font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                  {firstName(s.name)} — {formatCount(s.value)}
+                </span>
+              </div>
+              {/* "Other" folds several people into one ring color, but each
+                  of their counts still gets its own readable text line here
+                  — not just a hover tooltip, which is easy to miss and
+                  unreachable on touch. This is what was hiding a real
+                  contributor's application count before. */}
+              {s.members && s.members.length > 0 && (
+                <div className="mt-0.5 ml-3.5 flex flex-col gap-0.5">
+                  {s.members.map((m) => (
+                    <span key={m.name} className="font-display truncate" style={{ color: 'var(--ink-muted)' }}>
+                      {firstName(m.name)} — {formatCount(m.value)}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>

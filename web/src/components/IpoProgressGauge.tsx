@@ -64,13 +64,13 @@ export function IpoProgressGauge({
       <div className="w-full sm:w-[204px] sm:shrink-0">
         <div className="mb-2 flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p
-              className="truncate text-sm font-semibold underline decoration-2 underline-offset-2"
-              style={{ color: 'var(--ink-primary)' }}
-            >
+            {/* Plain weight/color instead of the underline — the underline
+                read as a stray leftover style, not a deliberate affordance
+                (this text isn't a link/toggle). */}
+            <p className="font-display truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {companyName}
             </p>
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            <p className="font-display text-xs" style={{ color: 'var(--ink-muted)' }}>
               {startDate} – {endDate}
             </p>
           </div>
@@ -79,7 +79,7 @@ export function IpoProgressGauge({
             onClick={onToggleExpanded}
             disabled={accountsLeft === 0}
             aria-expanded={expanded}
-            className="badge badge-neutral shrink-0 text-xs disabled:cursor-default"
+            className="font-display badge badge-neutral shrink-0 text-xs disabled:cursor-default"
             style={{ cursor: accountsLeft > 0 ? 'pointer' : undefined }}
           >
             {accountsLeft} left
@@ -124,14 +124,17 @@ export function IpoProgressGauge({
         </div>
 
         <div className="-mt-1 text-center">
-          <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}>
+          <p className="font-display text-lg font-bold" style={{ color: 'var(--ink-primary)' }}>
             {animatedApplied}/{total}
           </p>
-          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+          <p className="font-display text-xs" style={{ color: 'var(--ink-muted)' }}>
             applied / active accounts
           </p>
           {gmpNotes && (
-            <p className="mt-1 truncate text-xs" style={{ color: 'var(--ink-secondary)' }}>
+            <p
+              className="font-display mt-1.5 inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
+              style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+            >
               GMP: {gmpNotes}
             </p>
           )}
@@ -157,14 +160,14 @@ export function IpoProgressGauge({
         }}
       >
         <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }}>
-          <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+          <p className="font-display mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
             Accounts yet to apply ({remainingHolderNames.length})
           </p>
           <ul className="max-h-64 overflow-y-auto">
             {remainingHolderNames.map((name) => (
               <li
                 key={name}
-                className="truncate border-b py-1.5 text-xs last:border-b-0"
+                className="font-display truncate border-b py-1.5 text-xs last:border-b-0"
                 style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
               >
                 {name}

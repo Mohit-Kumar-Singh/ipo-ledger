@@ -20,7 +20,6 @@ import {
 } from '@primer/octicons-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
-import { ThemeToggle } from '../ThemeToggle'
 import { ToastHost } from '../ToastHost'
 import { OnboardingTour } from '../OnboardingTour'
 
@@ -174,9 +173,6 @@ export function AppShell() {
         >
           I
         </div>
-        <span className="text-[15px] font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
-          IPO Ledger
-        </span>
       </div>
 
       {/* Backdrop for mobile drawer */}
@@ -194,57 +190,44 @@ export function AppShell() {
         } ${collapsed ? 'md:w-16' : 'md:w-64'}`}
         style={{
           borderRight: '1px solid var(--border)',
-          boxShadow: navOpen ? 'var(--shadow-floating-large)' : undefined,
+          // Was var(--shadow-floating-large), a token that was never
+          // actually defined anywhere — silently rendered no shadow at all.
+          boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Logo + collapse toggle */}
-        <div className={`flex items-center gap-2 px-5 pt-4 pb-3 ${collapsed ? 'md:justify-center md:px-0' : 'justify-between'}`}>
-          <div className="flex items-center gap-2">
-            <div
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-bold"
-              style={{ background: 'var(--accent)', color: '#ffffff' }}
-            >
-              I
-            </div>
-            {!collapsed && (
-              <span className="text-sm font-semibold tracking-tight" style={{ color: 'var(--header-fg)' }}>
-                IPO Ledger
-              </span>
-            )}
+        {/* Logo + collapse toggle — icon mark only (no wordmark), so this
+            row's own layout never has to change shape between collapsed
+            and expanded, unlike the old text-hiding version. The toggle
+            button itself always stays in this one spot too, rather than
+            jumping to a second location when collapsed — that relocation
+            was a big part of what read as "glitchy." */}
+        <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-3">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-bold"
+            style={{ background: 'var(--accent)', color: '#ffffff' }}
+          >
+            I
           </div>
           {/* Desktop only — mobile uses the off-canvas drawer (navOpen)
               instead of a collapse rail, so this control has no meaning there. */}
-          {!collapsed && (
-            <button
-              type="button"
-              onClick={() => setCollapsed(true)}
-              aria-label="Collapse sidebar"
-              title="Collapse sidebar"
-              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
-              style={{ color: 'var(--header-fg-muted)' }}
-            >
-              <SidebarCollapseIcon size={14} />
-            </button>
-          )}
-        </div>
-        {collapsed && (
           <button
             type="button"
-            onClick={() => setCollapsed(false)}
-            aria-label="Expand sidebar"
-            title="Expand sidebar"
-            className="mx-auto mb-2 hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
             style={{ color: 'var(--header-fg-muted)' }}
           >
-            <SidebarExpandIcon size={14} />
+            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
           </button>
-        )}
+        </div>
 
-        {/* Identity block */}
-        <div
-          className={`mx-3 mb-1.5 flex items-center gap-2.5 rounded-md px-2 py-2 ${collapsed ? 'md:mx-auto md:flex-col md:gap-1.5 md:px-1' : ''}`}
-          style={{ background: 'var(--hover-surface)' }}
-        >
+        {/* Identity block — stays a row in both states (no flex-direction
+            flip, which isn't animatable and was another source of the
+            collapse "snapping" instead of sliding); the name/role text
+            fades+narrows out via .sidebar-fade instead of unmounting, so it
+            shrinks in step with the sidebar's own width transition. */}
+        <div className="mx-3 mb-1.5 flex items-center gap-2.5 rounded-md px-2 py-2" style={{ background: 'var(--hover-surface)' }}>
           <div
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
             style={{ background: 'var(--accent)', color: '#ffffff' }}
@@ -252,17 +235,14 @@ export function AppShell() {
           >
             {initials}
           </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1 md:min-w-0">
-              <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
-                {profile?.full_name ?? '…'}
-              </p>
-              <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
-                {profile?.role ?? '…'}
-              </p>
-            </div>
-          )}
-          <ThemeToggle iconOnly />
+          <div className={`sidebar-fade min-w-0 flex-1 ${collapsed ? 'sidebar-fade-collapsed' : ''}`}>
+            <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
+              {profile?.full_name ?? '…'}
+            </p>
+            <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
+              {profile?.role ?? '…'}
+            </p>
+          </div>
         </div>
 
         {/* Nav */}
@@ -297,13 +277,12 @@ export function AppShell() {
                   <NavList.LeadingVisual>
                     <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
                   </NavList.LeadingVisual>
-                  {/* Still rendered (not omitted) when collapsed, just hidden
-                      — NavList.Item needs real text content for its own
-                      internal layout/accessibility, and this only collapses
-                      on md+ where the icon-rail width leaves no room for it
-                      anyway; the mobile drawer is never in collapsed mode. */}
+                  {/* Always rendered (not conditionally mounted) — fades and
+                      narrows via .sidebar-fade in step with the sidebar's
+                      own width transition instead of instantly vanishing
+                      (md:hidden) while the rail was still visibly wide. */}
                   <span
-                    className={collapsed ? 'md:hidden' : undefined}
+                    className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
                     style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}
                   >
                     {l.label}
@@ -311,7 +290,7 @@ export function AppShell() {
                   {count > 0 && (
                     <NavList.TrailingVisual>
                       <span
-                        className={`inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${collapsed ? 'md:hidden' : ''}`}
+                        className={`sidebar-fade inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
                         style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
                       >
                         {count}
@@ -331,16 +310,17 @@ export function AppShell() {
               <NavList.LeadingVisual>
                 <SignOutIcon size={16} fill="var(--header-fg-muted)" />
               </NavList.LeadingVisual>
-              <span className={collapsed ? 'md:hidden' : undefined} style={{ color: 'var(--header-fg)' }}>
+              <span className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg)' }}>
                 Sign out
               </span>
             </NavList.Item>
           </NavList>
-          {!collapsed && (
-            <p className="px-3 pt-2 text-[11px]" style={{ color: 'var(--header-fg-muted)' }}>
-              v{__APP_VERSION__}
-            </p>
-          )}
+          <p
+            className={`sidebar-fade px-3 pt-2 text-[11px] ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            v{__APP_VERSION__}
+          </p>
         </div>
       </aside>
 

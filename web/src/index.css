@@ -1,5 +1,10 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
+/* Display face for the Dashboard's own chart numbers/headings (IpoProgressGauge,
+   AttributionChart) — distinct from the rest of the app's plain system-font
+   UI, same loading convention (fontsource package, not a Google Fonts <link>)
+   as Inter above. */
+@import "@fontsource-variable/space-grotesk";
 
 /* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
    #fallback) and friends, expecting these to be defined wherever ThemeProvider's
@@ -254,6 +259,15 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* Scoped to the Dashboard's own chart cards (IpoProgressGauge,
+   AttributionChart) — a distinct display face for big numbers/headings,
+   not a site-wide font swap. Tabular figures so digits don't jiggle width
+   as counts animate (useCountUp). */
+.font-display {
+  font-family: 'Space Grotesk Variable', -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
 table {
   font-variant-numeric: tabular-nums;
 }
@@ -384,6 +398,40 @@ table {
 .sidebar-scroll::-webkit-scrollbar-thumb {
   background: var(--header-hover);
   border-radius: 999px;
+}
+
+/* Sidebar collapse — content fades+narrows in step with the aside's own
+   width transition (same duration/easing), instead of the old approach of
+   instantly mounting/unmounting the text (className={!collapsed && ...}) or
+   using Tailwind's md:hidden (an instant display:none with no transition
+   at all). Either of those left the icons "snapping" into their collapsed
+   position while the sidebar was still visibly wide — that mismatch was
+   the actual "glitch." The @media wrapper (not a md: Tailwind prefix,
+   which only generates responsive variants for Tailwind's own utilities,
+   not hand-written classes like this) is what keeps collapse a no-op below
+   the desktop breakpoint, matching the collapse rail itself being
+   desktop-only. */
+.sidebar-fade {
+  overflow: hidden;
+  opacity: 1;
+  max-width: 220px;
+  transition:
+    opacity 0.2s ease,
+    max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    margin-left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (min-width: 768px) {
+  .sidebar-fade-collapsed {
+    opacity: 0;
+    max-width: 0;
+    margin-left: 0;
+    pointer-events: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-fade {
+    transition: none;
+  }
 }
 
 .glass-header {

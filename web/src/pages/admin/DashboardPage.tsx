@@ -400,7 +400,16 @@ export function DashboardPage() {
         )}
       </div>
 
-      <div className={`grid grid-cols-1 gap-6 ${data.ipoProgress.length > 0 ? 'xl:grid-cols-2' : ''}`}>
+      {/* flex, not a 2-col grid — a grid column stretches its section to a
+          fixed 50% share regardless of how many fixed-260px tiles are
+          actually in it, which is exactly what left a dead gap between a
+          half-full IPO-progress column and the credit-by-IPO column
+          starting well to the right of it. A flex row lets each section
+          size to its own content (flex-wrap tiles inside), so the two
+          sections sit right next to each other with just the gap between,
+          and only the last row's leftover space (if any) lands at the far
+          right instead of splitting the two sections apart. */}
+      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
         {data.ipoProgress.length > 0 && (
           <section className="min-w-0">
             <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>

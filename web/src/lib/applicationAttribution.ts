@@ -3,10 +3,13 @@ import type { ApplicationAttributionRow } from '../types/database'
 export interface AttributionSlice {
   name: string
   value: number
-  // Only set on the synthetic "Other" slice — the individual names folded
-  // into it, so hovering "Other" says who it actually is instead of leaving
-  // it looking like a made-up person.
-  members?: string[]
+  // Only set on the synthetic "Other" slice — each individual folded into
+  // it, WITH their own count (not just their name), so the legend can list
+  // "Jigyansh — 1" etc. as real, readable text lines rather than only a
+  // hover tooltip someone could easily miss (and can't reach at all on
+  // touch) — restructured after exactly that complaint: a real
+  // contributor's count was invisible once they fell outside the top N.
+  members?: { name: string; value: number }[]
 }
 
 export interface IpoAttribution {
@@ -96,7 +99,7 @@ export function computeIpoAttribution(
     const top = sorted.slice(0, MAX_DIRECT_SLICES)
     const rest = sorted.slice(MAX_DIRECT_SLICES)
     const restTotal = rest.reduce((s, x) => s + x.value, 0)
-    const slices = restTotal > 0 ? [...top, { name: 'Other', value: restTotal, members: rest.map((x) => x.name) }] : top
+    const slices = restTotal > 0 ? [...top, { name: 'Other', value: restTotal, members: rest }] : top
     return { ipoId, companyName: entry.companyName, openDate: entry.openDate, totalApplications: entry.total, slices }
   })
 }
