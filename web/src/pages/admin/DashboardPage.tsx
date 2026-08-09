@@ -378,10 +378,12 @@ export function DashboardPage() {
         </p>
       </div>
 
-      {/* Fixed 3-column grid (Dashboard.dc.html reference — wraps to two rows
-          for 6 admin tiles rather than a per-role column count), 2 on
-          narrower screens, 1 on phones. */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {/* Sized down (smaller padding/icon/text in StatTile itself) so all of
+          them fit in one row instead of wrapping to a second — a fixed
+          3-col grid wrapped 6 admin tiles to two rows; this scales the
+          column count to however many tiles actually render for the
+          viewer's role instead. */}
+      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
         <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
         <StatTile icon={LawIcon} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         {isAdmin && (
@@ -683,15 +685,18 @@ function StatTile({
   const animated = useCountUp(value)
 
   return (
-    <div className="glass-card tile-hover stagger-item flex flex-col p-5">
-      <div className={`icon-badge icon-badge-${tone} mb-4`} style={{ borderRadius: '0.625rem', boxShadow: toneGlow }}>
-        <Icon size={20} />
+    <div className="glass-card tile-hover stagger-item flex flex-col p-3">
+      <div
+        className={`icon-badge icon-badge-${tone} mb-2.5`}
+        style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', boxShadow: toneGlow }}
+      >
+        <Icon size={15} />
       </div>
-      <p className="mb-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+      <p className="font-display mb-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
         {label}
       </p>
       <p
-        className="text-3xl font-bold tracking-tight"
+        className="font-display truncate text-xl font-bold tracking-tight"
         style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
       >
         {format ? format(animated) : animated}
@@ -773,10 +778,10 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-64" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="glass-card space-y-3 p-5">
-            <Skeleton className="h-11 w-11" />
+          <div key={i} className="glass-card space-y-2.5 p-3">
+            <Skeleton className="h-8 w-8" />
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-8 w-14" />
           </div>
