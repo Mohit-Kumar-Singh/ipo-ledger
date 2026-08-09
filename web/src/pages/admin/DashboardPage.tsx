@@ -378,7 +378,7 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
+      <div className={`grid grid-cols-2 gap-5 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
         <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
         <StatTile icon={LawIcon} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         {isAdmin && (
@@ -397,76 +397,78 @@ export function DashboardPage() {
         )}
       </div>
 
-      {data.ipoProgress.length > 0 && (
-        <section>
-          <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            IPO progress
-          </h2>
-          {/* Flexbox, not CSS grid: a grid item can only grow by spanning
-              whole tracks, which snaps the tile to double width the instant
-              the span changes (before the inner content even starts
-              animating). flex-basis is itself a transitionable property, so
-              switching to flex-wrap lets the expanding tile's width animate
-              smoothly in one continuous motion instead of jump-then-reveal. */}
-          <div className="flex flex-wrap gap-5">
-            {data.ipoProgress.map((p) => {
-              const expanded = expandedIpoId === p.ipoId
-              return (
-                <div
-                  key={p.ipoId}
-                  style={{
-                    // min(…, 100%) — plain px flex-basis with flexShrink:0
-                    // refuses to shrink below that width even when the
-                    // viewport itself is narrower (a phone screen), which is
-                    // exactly what clipped the expanded 500px panel off the
-                    // right edge of a 375px window. Capping the basis at the
-                    // container's own width means there's nothing left to
-                    // overflow, on any screen size.
-                    flexBasis: expanded ? 'min(500px, 100%)' : 'min(260px, 100%)',
-                    flexGrow: 0,
-                    flexShrink: 0,
-                    transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
-                  }}
-                >
-                  <IpoProgressGauge
-                    companyName={p.companyName}
-                    startDate={p.openDate}
-                    endDate={p.endDate}
-                    applied={p.applied}
-                    total={p.totalActive}
-                    gmpNotes={p.gmpNotes}
-                    remainingHolderNames={p.remainingHolderNames}
-                    expanded={expanded}
-                    onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
-                  />
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      <section>
-        <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Application credit by IPO
-        </h2>
-        {data.attribution.length === 0 ? (
-          <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No applications yet.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
-            {data.attribution.map((a) => (
-              <div key={a.ipoId} className="card stagger-item min-w-0 p-4">
-                <AttributionChart attribution={a} />
-              </div>
-            ))}
-          </div>
+      <div className={`grid grid-cols-1 gap-6 ${data.ipoProgress.length > 0 ? 'xl:grid-cols-2' : ''}`}>
+        {data.ipoProgress.length > 0 && (
+          <section className="min-w-0">
+            <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              IPO progress
+            </h2>
+            {/* Flexbox, not CSS grid: a grid item can only grow by spanning
+                whole tracks, which snaps the tile to double width the instant
+                the span changes (before the inner content even starts
+                animating). flex-basis is itself a transitionable property, so
+                switching to flex-wrap lets the expanding tile's width animate
+                smoothly in one continuous motion instead of jump-then-reveal. */}
+            <div className="flex flex-wrap gap-5">
+              {data.ipoProgress.map((p) => {
+                const expanded = expandedIpoId === p.ipoId
+                return (
+                  <div
+                    key={p.ipoId}
+                    style={{
+                      // min(…, 100%) — plain px flex-basis with flexShrink:0
+                      // refuses to shrink below that width even when the
+                      // viewport itself is narrower (a phone screen), which is
+                      // exactly what clipped the expanded 500px panel off the
+                      // right edge of a 375px window. Capping the basis at the
+                      // container's own width means there's nothing left to
+                      // overflow, on any screen size.
+                      flexBasis: expanded ? 'min(500px, 100%)' : 'min(260px, 100%)',
+                      flexGrow: 0,
+                      flexShrink: 0,
+                      transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+                    }}
+                  >
+                    <IpoProgressGauge
+                      companyName={p.companyName}
+                      startDate={p.openDate}
+                      endDate={p.endDate}
+                      applied={p.applied}
+                      total={p.totalActive}
+                      gmpNotes={p.gmpNotes}
+                      remainingHolderNames={p.remainingHolderNames}
+                      expanded={expanded}
+                      onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </section>
         )}
-      </section>
+
+        <section className="min-w-0">
+          <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Application credit by IPO
+          </h2>
+          {data.attribution.length === 0 ? (
+            <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+              No applications yet.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 min-[1600px]:grid-cols-3">
+              {data.attribution.map((a) => (
+                <div key={a.ipoId} className="card stagger-item min-w-0 p-4">
+                  <AttributionChart attribution={a} />
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Section title="IPOs closing within 7 days" empty="Nothing closing soon">
+        <Section title="IPOs closing within 7 days" empty="Nothing closing soon" scrollAfter={6}>
           {data.closingSoon.map((ipo) => (
             <Row key={ipo.id} initial={ipo.company_name[0]} tone="info">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -477,7 +479,7 @@ export function DashboardPage() {
           ))}
         </Section>
 
-        <Section title="Applications awaiting mandate approval" empty="None pending">
+        <Section title="Applications awaiting mandate approval" empty="None pending" scrollAfter={6}>
           {data.pendingMandate.map((r) => (
             <Row key={r.application_id} initial={r.holder_name[0]} tone="warning">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -653,7 +655,7 @@ function StatTile({
   const animated = useCountUp(value)
 
   return (
-    <div className="card stagger-item flex flex-col gap-3 p-4">
+    <div className="card tile-hover stagger-item flex flex-col gap-3 p-4">
       <div className={`icon-badge icon-badge-${tone}`} style={{ boxShadow: toneGlow }}>
         <Icon size={20} />
       </div>
@@ -672,14 +674,32 @@ function StatTile({
   )
 }
 
-function Section({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
-  const hasChildren = Array.isArray(children) ? children.some(Boolean) : Boolean(children)
+function Section({
+  title,
+  empty,
+  children,
+  scrollAfter,
+}: {
+  title: string
+  empty: string
+  children: ReactNode
+  /** Once there are more rows than this, cap the list's height and let it
+   *  scroll internally instead of growing the card indefinitely. Below the
+   *  threshold, height is untouched — no scrollbar for a short list. */
+  scrollAfter?: number
+}) {
+  const items = Array.isArray(children) ? children.filter(Boolean) : children ? [children] : []
+  const hasChildren = items.length > 0
+  const shouldScroll = scrollAfter != null && items.length > scrollAfter
   return (
     <section>
       <h2 className="section-heading mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
         {title}
       </h2>
-      <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+      <div
+        className={`card divide-y ${shouldScroll ? 'overflow-y-auto' : ''}`}
+        style={{ borderColor: 'var(--border)', maxHeight: shouldScroll ? '18rem' : undefined }}
+      >
         {hasChildren ? children : <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>{empty}</p>}
       </div>
     </section>

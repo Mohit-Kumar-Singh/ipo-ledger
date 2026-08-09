@@ -329,11 +329,16 @@ table {
   .btn-primary,
   .btn-secondary,
   .btn-warning,
-  .btn-danger {
+  .btn-danger,
+  .tile-hover {
     transition: none !important;
   }
   .card:hover {
     transform: none;
+  }
+  .tile-hover:hover {
+    transform: none;
+    box-shadow: none;
   }
 }
 
@@ -410,6 +415,22 @@ table {
     @apply rounded-md border;
     border-color: var(--border-strong);
     background: var(--surface);
+  }
+
+  /* Depth-on-hover for the Dashboard stat tiles — lifts + deepens the
+     shadow, using the same tokens/easing as the rest of this app's motion
+     (stagger-item, IpoProgressGauge's transitions) rather than a new one.
+     Deliberate, scoped exception to the "no lift/glow on hover" flat-card
+     convention noted below .card — opt a specific element in via this
+     class instead of changing .card's own hover behavior globally. */
+  .tile-hover {
+    transition:
+      transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .tile-hover:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
   }
 
   /* GitHub label pill (issue/PR labels): tinted bg, no border, fully round */
