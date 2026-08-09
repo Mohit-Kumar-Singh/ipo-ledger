@@ -278,7 +278,14 @@ export function AppShell() {
                   style={{
                     color: isActive ? 'var(--accent)' : 'var(--header-fg)',
                     marginBottom: 4,
-                    borderRadius: 6,
+                    // Left corners square, not the uniform 6px the inactive
+                    // items use — with a rounded corner AND a 3px left
+                    // border together, the border follows the corner's arc
+                    // instead of sitting flush, so it read as a short,
+                    // detached vertical line/shadow floating next to the
+                    // rounded box rather than a clean accent bar flush
+                    // against it.
+                    borderRadius: isActive ? '0 6px 6px 0' : 6,
                     // Left accent bar + background tint on the active item,
                     // not just a text-color swap (KOVAREX retheme).
                     borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',

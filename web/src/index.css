@@ -1,12 +1,10 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
-/* Mono face for the IPOs page redesign (IPO Tracker.dc.html reference) —
-   registrar/price/lot line, dates, issue-size figures. No variable-weight
-   build exists for this family on fontsource, so pull the 3 weights the
-   reference actually uses. */
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-mono/600.css";
+/* Classic serif for numeric/data lines app-wide (IPOs page, IPO progress
+   gauge, pie chart) — was IBM Plex Mono, which read as a code/terminal
+   typeface rather than the "classic" look actually wanted for a ledger
+   app's figures. */
+@import "@fontsource-variable/source-serif-4";
 
 /* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
    #fallback) and friends, expecting these to be defined wherever ThemeProvider's
@@ -266,15 +264,16 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Mono face for numeric/data lines app-wide (IPO Tracker.dc.html
-   reference) — registrar/price/lot line, GMP figures, issue sizes, stage
-   dates, dashboard stat tiles, chart legends. Everything else falls back
-   to the body's own Inter — this used to be split with a second display
-   face (Space Grotesk) for the Dashboard's chart numbers only, which left
-   two different typefaces visibly in play across pages; dropped in favor
-   of one consistent system (Inter for labels/headings, this for data). */
+/* Classic serif for numeric/data lines app-wide — registrar/price/lot
+   line, GMP figures, issue sizes, stage dates, dashboard stat tiles,
+   chart legends. Everything else falls back to the body's own Inter.
+   Went through a monospace (IBM Plex Mono) pass first, matching the IPO
+   Tracker.dc.html reference literally — that read as code/terminal-style
+   rather than the "classic" look wanted for a ledger app's own figures,
+   so this swaps to a serif instead while keeping the same "one face for
+   labels, one for data" split and tabular-nums alignment. */
 .font-mono-ipo {
-  font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  font-family: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
   font-variant-numeric: tabular-nums;
 }
 
