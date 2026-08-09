@@ -5,6 +5,13 @@
    UI, same loading convention (fontsource package, not a Google Fonts <link>)
    as Inter above. */
 @import "@fontsource-variable/space-grotesk";
+/* Mono face for the IPOs page redesign (IPO Tracker.dc.html reference) —
+   registrar/price/lot line, dates, issue-size figures. No variable-weight
+   build exists for this family on fontsource, so pull the 3 weights the
+   reference actually uses. */
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
 /* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
    #fallback) and friends, expecting these to be defined wherever ThemeProvider's
@@ -265,6 +272,15 @@ body {
    as counts animate (useCountUp). */
 .font-display {
   font-family: 'Space Grotesk Variable', -apple-system, 'Segoe UI', sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mono face for the IPOs page (IPO Tracker.dc.html reference) — registrar/
+   price/lot line, GMP figures, issue sizes, stage dates. Scoped to that
+   page's own cards, same "not a site-wide font swap" approach as
+   .font-display above. */
+.font-mono-ipo {
+  font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
 

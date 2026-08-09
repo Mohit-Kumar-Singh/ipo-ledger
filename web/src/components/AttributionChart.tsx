@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
 const SERIES_VARS = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-other']
+const SERIES_GLOW_VARS = ['--glow-series-1', '--glow-series-2', '--glow-series-3', '--glow-series-4']
 
 function formatCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -15,26 +16,13 @@ function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name
 }
 
-interface Dims {
-  viewW: number
-  viewH: number
-  cx: number
-  cy: number
-  rx: number
-  ry: number
-  depth: number
-}
-
-// Hand-rolled "3D" pie (no charting library, same spirit as every other
-// chart in this app) — a tilted ellipse per slice, each with an extruded
-// side wall (a second path, offset straight down by `depth`) shaded darker
-// via CSS filter, giving the beveled/glossy look of a real 3D pie without
-// needing per-color gradient stops computed from the theme's CSS variables.
-// Draw order matters: all the side walls first, then all the top faces on
-// top of them — since the top faces fully cover the elliptical disc, this
-// naturally hides every wall except the sliver that's genuinely part of the
-// pie's visible silhouette, with no per-slice front/back visibility math
-// needed.
+// Hand-rolled glassy donut (stacked stroke-dasharray arcs on a shared
+// circle, same spirit as every other chart in this app — no library). Went
+// through a heavier "3D extruded pie" pass before this; that read as
+// clunky/cartoonish rather than elegant, so this goes back to a ring — just
+// with a soft drop-shadow for lift, a diagonal glass-sheen highlight, and
+// the total app count centered in the hole, none of which the original
+// flat donut had either.
 export function AttributionChart({ attribution, compact = false }: { attribution: IpoAttribution; compact?: boolean }) {
   const { companyName, totalApplications, slices } = attribution
   const [grown, setGrown] = useState(false)
@@ -46,33 +34,22 @@ export function AttributionChart({ attribution, compact = false }: { attribution
 
   if (totalApplications === 0 || slices.length === 0) return null
 
-  const dims: Dims = compact
-    ? { viewW: 170, viewH: 132, cx: 85, cy: 54, rx: 60, ry: 34, depth: 15 }
-    : { viewW: 220, viewH: 170, cx: 110, cy: 70, rx: 78, ry: 44, depth: 20 }
-  const { viewW, viewH, cx, cy, rx, ry, depth } = dims
+  const size = compact ? 108 : 148
+  const strokeWidth = compact ? 16 : 20
+  const r = size / 2 - strokeWidth / 2 - 2
+  const cx = size / 2
+  const cy = size / 2
+  const circumference = 2 * Math.PI * r
+  const gapPct = Math.min(2, 50 / circumference) // ~1.5px surface gap between segments, in path-length %
 
-  let accFrac = 0
+  let accPct = 0
   const geometry = slices.map((s) => {
-    const frac = s.value / totalApplications
-    const startFrac = accFrac
-    accFrac += frac
-    const endFrac = accFrac
-    return { ...s, startFrac, endFrac, pct: frac * 100 }
+    const rawPct = (s.value / totalApplications) * 100
+    const startPct = accPct
+    accPct += rawPct
+    const visiblePct = Math.max(rawPct - gapPct, 0)
+    return { ...s, rawPct, startPct, visiblePct }
   })
-
-  function pointAt(frac: number) {
-    const angle = -Math.PI / 2 + frac * 2 * Math.PI
-    return { x: cx + rx * Math.cos(angle), y: cy + ry * Math.sin(angle) }
-  }
-
-  // A slice spanning the full 100% (only one contributor total) has
-  // identical start/end points — an SVG arc command between two identical
-  // points is degenerate and renders as nothing, not a full ellipse. Nudge
-  // just shy of a full turn so the arc has a real (imperceptibly small)
-  // sweep instead of collapsing.
-  function endPointFor(startFrac: number, endFrac: number) {
-    return pointAt(Math.min(endFrac, startFrac + 0.9999))
-  }
 
   return (
     <div className="min-w-0">
@@ -88,117 +65,124 @@ export function AttributionChart({ attribution, compact = false }: { attribution
         </span>
       </div>
 
-      <svg viewBox={`0 0 ${viewW} ${viewH}`} className="mx-auto block w-full" style={{ maxWidth: viewW }}>
-        {/* Side walls, drawn first so the top faces (below) paint over the
-            part of each that isn't part of the pie's actual silhouette. */}
-        <g>
-          {geometry.map((g, i) => {
-            // A near-zero slice has no visible wall and an emptyish arc —
-            // skip it rather than emit a degenerate/NaN path.
-            if (g.pct <= 0) return null
-            const startFrac = grown ? g.startFrac : 0
-            const endFrac = grown ? g.endFrac : 0
-            const p0 = pointAt(startFrac)
-            const p1 = grown ? endPointFor(startFrac, endFrac) : pointAt(endFrac)
-            const largeArc = g.endFrac - g.startFrac > 0.5 ? 1 : 0
-            const d = [
-              `M ${p0.x} ${p0.y}`,
-              `A ${rx} ${ry} 0 ${largeArc} 1 ${p1.x} ${p1.y}`,
-              `L ${p1.x} ${p1.y + depth}`,
-              `A ${rx} ${ry} 0 ${largeArc} 0 ${p0.x} ${p0.y + depth}`,
-              'Z',
-            ].join(' ')
-            return (
-              <path
-                key={g.name}
-                d={d}
-                fill={`var(${SERIES_VARS[i] ?? '--series-other'})`}
-                stroke="var(--page)"
-                strokeWidth={1}
-                style={{
-                  filter: 'brightness(0.62)',
-                  opacity: grown ? 1 : 0,
-                  transition: `opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.06}s`,
-                }}
-              />
-            )
-          })}
-        </g>
-
-        {/* Top faces — the flat ellipse-slice wedges, brightened slightly
-            so they read as the "lit" face against the darker walls below. */}
-        <g>
-          {geometry.map((g, i) => {
-            if (g.pct <= 0) return null
-            const startFrac = grown ? g.startFrac : 0
-            const endFrac = grown ? g.endFrac : 0
-            const p0 = pointAt(startFrac)
-            const p1 = grown ? endPointFor(startFrac, endFrac) : pointAt(endFrac)
-            const largeArc = endFrac - startFrac > 0.5 ? 1 : 0
-            const d = `M ${cx} ${cy} L ${p0.x} ${p0.y} A ${rx} ${ry} 0 ${largeArc} 1 ${p1.x} ${p1.y} Z`
-            return (
-              <path
-                key={g.name}
-                d={d}
-                fill={`var(${SERIES_VARS[i] ?? '--series-other'})`}
-                stroke="var(--page)"
-                strokeWidth={1}
-                style={{
-                  filter: 'brightness(1.08)',
-                  transition: `d 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.06}s`,
-                }}
-              />
-            )
-          })}
-        </g>
-
-        {/* Glossy highlight — a soft white sheen over the upper-left of the
-            disc, the same trick that sells the "lit from above" look in the
-            reference. Pure decoration (aria-hidden via pointer-events:none
-            is implicit for SVG shapes with no interaction handlers). */}
-        <ellipse
-          cx={cx - rx * 0.28}
-          cy={cy - ry * 0.35}
-          rx={rx * 0.55}
-          ry={ry * 0.4}
-          fill="white"
-          opacity={0.1}
-          style={{ mixBlendMode: 'overlay' }}
-        />
-      </svg>
-
-      {/* Two-column legend grid, name + count only (no percentage) — matches
-          the reference. "Other" folds several small contributors into one
-          slice/color, but each of their own counts still gets its own grid
-          entry here (same dot color as the slice) rather than only a hover
-          tooltip, which is easy to miss and unreachable on touch. */}
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-        {geometry.flatMap((s, i) => {
-          const mainEntry = (
-            <div key={s.name} className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
-              />
-              <span className="font-display truncate font-medium" style={{ color: 'var(--ink-secondary)' }}>
-                {firstName(s.name)} — {formatCount(s.value)}
+      <div className="flex min-w-0 items-center gap-4">
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+          {/* Glow keyed off the largest (first, since slices sort desc)
+              slice's own color — "this chart's accent," not one fixed hue
+              — transparent in light mode. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: `radial-gradient(circle, var(${SERIES_GLOW_VARS[0]}) 0%, transparent 70%)`,
+              filter: 'blur(8px)',
+            }}
+          />
+          <svg
+            width={size}
+            height={size}
+            className="relative shrink-0 overflow-visible"
+            style={{ filter: 'drop-shadow(0 3px 8px rgba(0, 0, 0, 0.25))' }}
+          >
+            <defs>
+              {/* Glass sheen — a soft diagonal highlight masked to the ring
+                  itself (same donut geometry as strokeWidth below), not a
+                  flat overlay square. */}
+              <linearGradient id="attribution-sheen" x1="15%" y1="0%" x2="55%" y2="100%">
+                <stop offset="0%" stopColor="white" stopOpacity="0.35" />
+                <stop offset="45%" stopColor="white" stopOpacity="0" />
+              </linearGradient>
+            </defs>
+            <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} opacity={0.4} />
+            <g transform={`rotate(-90 ${cx} ${cy})`}>
+              {geometry.map((g, i) => (
+                <circle
+                  key={g.name}
+                  cx={cx}
+                  cy={cy}
+                  r={r}
+                  fill="none"
+                  stroke={`var(${SERIES_VARS[i] ?? '--series-other'})`}
+                  strokeWidth={strokeWidth}
+                  strokeLinecap="round"
+                  pathLength={100}
+                  strokeDasharray={grown ? `${g.visiblePct} ${100 - g.visiblePct}` : '0 100'}
+                  strokeDashoffset={-g.startPct}
+                  style={{
+                    transition: `stroke-dasharray 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.08}s`,
+                  }}
+                />
+              ))}
+            </g>
+            {/* Sheen ring — same radius/width as the data ring, drawn last so
+                it sits on top as a highlight rather than tinting the colors
+                underneath. */}
+            <circle
+              cx={cx}
+              cy={cy}
+              r={r}
+              fill="none"
+              stroke="url(#attribution-sheen)"
+              strokeWidth={strokeWidth}
+              style={{ opacity: grown ? 1 : 0, transition: 'opacity 0.5s ease 0.4s' }}
+            />
+          </svg>
+          {/* Total count in the hole — the donut's center was empty dead
+              space before; this gives it a job, same way the reference's
+              own chart leads with a headline number. */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+            <span
+              className="font-display font-bold"
+              style={{ color: 'var(--ink-primary)', fontSize: compact ? 18 : 22, lineHeight: 1 }}
+            >
+              {formatCount(totalApplications)}
+            </span>
+            {!compact && (
+              <span className="text-[10px]" style={{ color: 'var(--ink-muted)' }}>
+                apps
               </span>
-            </div>
-          )
-          if (!s.members || s.members.length === 0) return [mainEntry]
-          const memberEntries = s.members.map((m) => (
-            <div key={m.name} className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})`, opacity: 0.6 }}
-              />
-              <span className="font-display truncate" style={{ color: 'var(--ink-muted)' }}>
-                {firstName(m.name)} — {formatCount(m.value)}
-              </span>
-            </div>
-          ))
-          return [mainEntry, ...memberEntries]
-        })}
+            )}
+          </div>
+        </div>
+
+        {/* Two-column legend grid, name + count only — no percentage.
+            "Other" folds several small contributors into one slice/color,
+            but each of their own counts still gets its own grid entry here
+            (same dot color as the slice, dimmed) rather than only a hover
+            tooltip, which is easy to miss and unreachable on touch. */}
+        {/* Single column, not a 2-col grid — this legend sits beside the
+            ring in a fairly narrow tile, and two columns there left names
+            truncating hard enough to defeat the earlier "Other" breakdown
+            fix (a name goes unreadable again, just via ellipsis instead of
+            a hidden bucket). */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
+          {geometry.flatMap((s, i) => {
+            const mainEntry = (
+              <div key={s.name} className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
+                />
+                <span className="font-display font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
+                  {firstName(s.name)} — {formatCount(s.value)}
+                </span>
+              </div>
+            )
+            if (!s.members || s.members.length === 0) return [mainEntry]
+            const memberEntries = s.members.map((m) => (
+              <div key={m.name} className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})`, opacity: 0.55 }}
+                />
+                <span className="font-display" style={{ color: 'var(--ink-muted)', wordBreak: 'break-word' }}>
+                  {firstName(m.name)} — {formatCount(m.value)}
+                </span>
+              </div>
+            ))
+            return [mainEntry, ...memberEntries]
+          })}
+        </div>
       </div>
     </div>
   )

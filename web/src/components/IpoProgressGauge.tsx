@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useCountUp } from '../lib/useCountUp'
 
-// Hand-rolled half-donut gauge (SVG arc via pathLength/dasharray) — no
-// charting library, same spirit as the other charts in this app. Fill grows
-// with `applied`, so it visibly advances as more accounts apply, and draws
-// in from zero on mount (same trick as AttributionChart's sweep-in: render
+// Hand-rolled full-circle progress ring (SVG circle via pathLength/
+// dasharray, same "rotate -90 so 0% starts at 12 o'clock" trick as
+// AttributionChart's donut) — no charting library, same spirit as every
+// other chart in this app. Fill grows with `applied`, so it visibly
+// advances as more accounts apply, and draws in from zero on mount (render
 // the "before" state first, flip to the real value a frame later so the
 // CSS transition animates it).
 export function IpoProgressGauge({
@@ -39,14 +40,16 @@ export function IpoProgressGauge({
   const accountsLeft = Math.max(total - applied, 0)
   const animatedApplied = useCountUp(applied)
 
-  const size = 160
-  const r = 68
+  const size = 190
+  const r = 78
+  const strokeWidth = 14
   const cx = size / 2
-  const cy = size / 2 + 4
-  const arcPath = `M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`
-  const angle = Math.PI * (1 - drawnPct)
-  const dotX = cx + r * Math.cos(angle)
-  const dotY = cy - r * Math.sin(angle)
+  const cy = size / 2
+  // Same convention as AttributionChart's pointAt(): 0% at 12 o'clock,
+  // sweeping clockwise as it grows.
+  const dotAngle = -Math.PI / 2 + drawnPct * 2 * Math.PI
+  const dotX = cx + r * Math.cos(dotAngle)
+  const dotY = cy + r * Math.sin(dotAngle)
 
   return (
     // flex-col below sm (640px): side-by-side only has room once the left
@@ -86,7 +89,7 @@ export function IpoProgressGauge({
           </button>
         </div>
 
-        <div className="relative">
+        <div className="relative mx-auto" style={{ width: size, maxWidth: '100%' }}>
           {/* Soft radial glow behind the ring, in the gauge's own accent
               color (--glow-good, same token the arc itself is drawn in) —
               transparent in light mode, so this is a no-op there. The
@@ -94,26 +97,29 @@ export function IpoProgressGauge({
           <div
             aria-hidden
             className="pointer-events-none absolute inset-0"
-            style={{ background: 'radial-gradient(circle at 50% 55%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(6px)' }}
+            style={{ background: 'radial-gradient(circle at 50% 50%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(8px)' }}
           />
-          <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="relative w-full">
-            <path d={arcPath} fill="none" stroke="var(--border)" strokeWidth={10} strokeLinecap="round" />
-            <path
-              d={arcPath}
-              fill="none"
-              stroke="var(--good)"
-              strokeWidth={10}
-              strokeLinecap="round"
-              pathLength={100}
-              strokeDasharray={100}
-              strokeDashoffset={100 - drawnPct * 100}
-              style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
-            />
+          <svg viewBox={`0 0 ${size} ${size}`} className="relative w-full">
+            <g transform={`rotate(-90 ${cx} ${cy})`}>
+              <circle cx={cx} cy={cy} r={r} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} opacity={0.5} />
+              <circle
+                cx={cx}
+                cy={cy}
+                r={r}
+                fill="none"
+                stroke="var(--good)"
+                strokeWidth={strokeWidth}
+                strokeLinecap="round"
+                pathLength={100}
+                strokeDasharray={`${drawnPct * 100} ${100 - drawnPct * 100}`}
+                style={{ transition: 'stroke-dasharray 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
+              />
+            </g>
             {drawnPct > 0 && (
               <circle
                 cx={dotX}
                 cy={dotY}
-                r={5}
+                r={6}
                 fill="var(--good)"
                 stroke="var(--surface)"
                 strokeWidth={2}
@@ -121,24 +127,31 @@ export function IpoProgressGauge({
               />
             )}
           </svg>
+          {/* Centered inside the ring, not below it — HTML overlay rather
+              than SVG <text> so it wraps/truncates normally. */}
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+            <p className="font-display text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
+              {animatedApplied}/{total}
+            </p>
+            <p className="font-display px-4 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+              applied / active accounts
+            </p>
+          </div>
         </div>
 
-        <div className="-mt-1 text-center">
-          <p className="font-display text-lg font-bold" style={{ color: 'var(--ink-primary)' }}>
-            {animatedApplied}/{total}
-          </p>
-          <p className="font-display text-xs" style={{ color: 'var(--ink-muted)' }}>
-            applied / active accounts
-          </p>
-          {gmpNotes && (
+        {gmpNotes && (
+          <div className="mt-2 text-center">
+            {/* gmpNotes already carries its own "GMP:" prefix (see
+                AddIpoForm's placeholder/admin-entered value) — prefixing it
+                again here rendered as a literal "GMP: GMP: …" duplicate. */}
             <p
-              className="font-display mt-1.5 inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
+              className="font-display inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
               style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
             >
-              GMP: {gmpNotes}
+              {gmpNotes}
             </p>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Side panel, not a below-the-fold section: max-width 0->210px, timed

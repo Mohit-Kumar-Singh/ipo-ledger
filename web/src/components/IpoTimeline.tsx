@@ -83,7 +83,10 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
           const done = s.date != null && s.date <= todayIso
           return (
             <div key={s.label}>
-              <p className="font-medium tabular-nums" style={{ color: done ? 'var(--ink-primary)' : 'var(--ink-muted)' }}>
+              <p
+                className="font-mono-ipo tabular-nums"
+                style={{ fontWeight: done ? 600 : 400, color: done ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
+              >
                 {formatDate(s.date)}
               </p>
               <p style={{ color: 'var(--ink-muted)' }}>

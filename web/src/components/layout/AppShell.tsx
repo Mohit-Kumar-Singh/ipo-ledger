@@ -85,6 +85,23 @@ export function AppShell() {
     }
   }
 
+  // "f" toggles fullscreen (enter, or exit if already in it) — Esc exiting
+  // is already native browser behavior once in fullscreen, no code needed
+  // for that half. Ignored while modified (avoid stealing Ctrl/Cmd+F find)
+  // or while typing in a field.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() !== 'f' || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return
+      e.preventDefault()
+      toggleFullscreen()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   // Pending demat/bank link requests — RLS already scopes this correctly
   // per viewer (admin sees every pending request, a member sees only their
   // own), so the same query works unmodified for both; no client-side role
@@ -167,12 +184,6 @@ export function AppShell() {
         style={{ background: 'var(--header-bg)', borderColor: 'var(--border)' }}
       >
         <IconButton onClick={() => setNavOpen(true)} aria-label="Open menu" icon={ThreeBarsIcon} variant="invisible" />
-        <div
-          className="flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold"
-          style={{ background: 'var(--accent)', color: '#ffffff' }}
-        >
-          I
-        </div>
       </div>
 
       {/* Backdrop for mobile drawer */}
@@ -195,19 +206,13 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Logo + collapse toggle — icon mark only (no wordmark), so this
-            row's own layout never has to change shape between collapsed
-            and expanded, unlike the old text-hiding version. The toggle
-            button itself always stays in this one spot too, rather than
-            jumping to a second location when collapsed — that relocation
-            was a big part of what read as "glitchy." */}
-        <div className="flex items-center justify-between gap-2 px-5 pt-4 pb-3">
-          <div
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-sm font-bold"
-            style={{ background: 'var(--accent)', color: '#ffffff' }}
-          >
-            I
-          </div>
+        {/* Collapse toggle only — no logo mark/wordmark at all now. Always
+            centered in its own row (never justify-between against a logo
+            that no longer exists), padding shrinks with the rail itself so
+            it never has to reflow/jump. */}
+        <div
+          className={`flex items-center justify-center pt-4 pb-3 transition-[padding] duration-300 ${collapsed ? 'px-2' : 'px-5 md:justify-end'}`}
+        >
           {/* Desktop only — mobile uses the off-canvas drawer (navOpen)
               instead of a collapse rail, so this control has no meaning there. */}
           <button
@@ -226,8 +231,18 @@ export function AppShell() {
             flip, which isn't animatable and was another source of the
             collapse "snapping" instead of sliding); the name/role text
             fades+narrows out via .sidebar-fade instead of unmounting, so it
-            shrinks in step with the sidebar's own width transition. */}
-        <div className="mx-3 mb-1.5 flex items-center gap-2.5 rounded-md px-2 py-2" style={{ background: 'var(--hover-surface)' }}>
+            shrinks in step with the sidebar's own width transition.
+            mx-3/px-2 (24px combined padding+margin per side) never used to
+            shrink for the collapsed 64px rail — with a 32px avatar that's a
+            real overflow (64 − 2×24 = 16px left, less than the avatar
+            itself), not just a squeeze. Smaller margin/padding when
+            collapsed fixes the actual overflow, not just the animation. */}
+        <div
+          className={`mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
+            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 px-2'
+          }`}
+          style={{ background: 'var(--hover-surface)' }}
+        >
           <div
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
             style={{ background: 'var(--accent)', color: '#ffffff' }}

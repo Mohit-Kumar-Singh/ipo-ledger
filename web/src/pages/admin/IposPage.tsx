@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { GraphIcon } from '@primer/octicons-react'
+import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -587,13 +588,13 @@ function IpoCard({
 }) {
   const status = deriveStatus(ipo)
   return (
-    <div className="card stagger-item flex flex-col gap-3 p-4">
+    <div className="card stagger-item flex flex-col gap-3 p-5">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-start gap-2.5">
+        <div className="flex min-w-0 items-start gap-2.5">
           {isAdmin && onToggleSelected && (
             <input
               type="checkbox"
-              className="mt-1"
+              className="mt-1 shrink-0"
               checked={selected ?? false}
               onChange={onToggleSelected}
               aria-label={`Select ${ipo.company_name}`}
@@ -601,53 +602,70 @@ function IpoCard({
           )}
           <div
             className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
-            style={{ width: '2.25rem', height: '2.25rem' }}
+            style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.5625rem' }}
           >
             <GraphIcon size={16} />
           </div>
-          <h3 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            {ipo.company_name}
-          </h3>
+          <div className="min-w-0">
+            <h3 className="truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {ipo.company_name}
+            </h3>
+            <p className="font-mono-ipo truncate text-[13px]" style={{ color: 'var(--ink-muted)' }}>
+              {ipo.registrar}
+              {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
+              {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
+            </p>
+          </div>
         </div>
         <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
       </div>
 
-      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-        {ipo.registrar}
-        {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
-        {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
-      </p>
-
       {(ipo.gmp_notes || isAdmin) && (
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium" style={{ color: 'var(--good)' }}>
+          <p className="font-mono-ipo truncate text-sm font-semibold" style={{ color: 'var(--good)' }}>
             {ipo.gmp_notes}
           </p>
           {isAdmin && (
-            <div className="flex shrink-0 gap-3">
-              <button onClick={onEdit} className="link-accent text-xs font-medium">
-                Edit
+            <div className="flex shrink-0 items-center gap-2.5">
+              <button
+                onClick={onEdit}
+                aria-label={`Edit ${ipo.company_name}`}
+                title="Edit"
+                className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)]"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                <Pencil size={15} />
               </button>
               {onArchive && (
                 <button
                   onClick={onArchive}
-                  className="text-xs font-medium hover:underline"
+                  aria-label={`Archive ${ipo.company_name}`}
+                  title="Archive"
+                  className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)]"
                   style={{ color: 'var(--ink-muted)' }}
                 >
-                  Archive
+                  <Archive size={15} />
                 </button>
               )}
               {onUnarchive && (
-                <button onClick={onUnarchive} className="link-accent text-xs font-medium">
-                  Unarchive
+                <button
+                  onClick={onUnarchive}
+                  aria-label={`Unarchive ${ipo.company_name}`}
+                  title="Unarchive"
+                  className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: 'var(--accent)' }}
+                >
+                  <ArchiveRestore size={15} />
                 </button>
               )}
               <button
                 onClick={onDelete}
-                className="text-xs font-medium hover:underline"
+                aria-label={`Delete ${ipo.company_name}`}
+                title="Delete"
+                className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--critical-tint)]"
                 style={{ color: 'var(--critical)' }}
               >
-                Delete
+                <Trash2 size={15} />
               </button>
             </div>
           )}
@@ -655,7 +673,10 @@ function IpoCard({
       )}
 
       {(ipo.issue_size || ipo.retail_issue_size || ipo.shareholder_issue_size) && (
-        <div className="grid grid-cols-2 gap-2 text-xs">
+        <div
+          className="grid grid-cols-2 gap-3 border-t border-b py-3.5 text-xs"
+          style={{ borderColor: 'var(--border)' }}
+        >
           <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />
           <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
           {ipo.shareholder_issue_size && <Stat label="Shareholder quota" value={ipo.shareholder_issue_size} />}
@@ -663,7 +684,7 @@ function IpoCard({
       )}
 
       {ipo.retail_subscription_rate && (
-        <p className="text-xs font-medium" style={{ color: 'var(--accent)' }}>
+        <p className="font-mono-ipo text-xs font-medium" style={{ color: 'var(--accent)' }}>
           Retail subscription: {ipo.retail_subscription_rate}
         </p>
       )}
@@ -753,8 +774,10 @@ function ImportCard({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p style={{ color: 'var(--ink-muted)' }}>{label}</p>
-      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+      <p className="mb-1" style={{ color: 'var(--ink-muted)' }}>
+        {label}
+      </p>
+      <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>
         {value}
       </p>
     </div>

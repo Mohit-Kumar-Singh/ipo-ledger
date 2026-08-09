@@ -479,15 +479,20 @@ export function DashboardPage() {
             </p>
           ) : (
             // Same flex-wrap + fixed-flexBasis sizing as the IPO progress
-            // tiles above (not a fluid grid) — plus a shared min-height on
-            // both, so a chart's own tile always matches a gauge's own tile,
-            // instead of stretching to a variable grid-track width.
+            // tiles above (not a fluid grid), and the same minHeight — but
+            // a wider flexBasis (320 vs the gauge's 260): this chart's donut
+            // sits beside a legend, not above/below one, and at 260px the
+            // legend names were truncating hard enough to defeat the whole
+            // point of the earlier "Other" breakdown fix (a name goes
+            // unreadable again, just via ellipsis instead of a hidden
+            // bucket). Legibility over exact width-matching between the two
+            // tile types.
             <div className="flex flex-wrap gap-5">
               {data.attribution.map((a) => (
                 <div
                   key={a.ipoId}
                   className="glass-card stagger-item flex min-w-0 flex-col justify-center p-4"
-                  style={{ flexBasis: 'min(260px, 100%)', flexGrow: 0, flexShrink: 0, minHeight: 280 }}
+                  style={{ flexBasis: 'min(320px, 100%)', flexGrow: 0, flexShrink: 0, minHeight: 280 }}
                 >
                   <AttributionChart attribution={a} />
                 </div>
