@@ -431,6 +431,19 @@ table {
   overflow: hidden;
   opacity: 1;
   max-width: 220px;
+  /* Without this, as max-width shrinks toward 0 on collapse the label text
+     WRAPS instead of just getting clipped — "Bank / UPI accounts" wraps
+     into a tall stack of near-single-character lines. overflow:hidden only
+     clips the paint; it doesn't stop NavList.Item's internal CSS Grid
+     from auto-sizing its row to that wrapped content's full intrinsic
+     height, so every nav row silently stretched to match its own label's
+     wrapped height (97px for "IPOs" vs 337px for "Bank / UPI accounts",
+     measured) — a serious, easy-to-miss collapse-mode bug since it's
+     invisible until you check actual element bounds or click near a
+     "row" that's actually 300px tall from unrelated wrapped text. nowrap
+     keeps the text on one line so the max-width transition only ever
+     changes visible width, never height. */
+  white-space: nowrap;
   transition:
     opacity 0.2s ease,
     max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1),
