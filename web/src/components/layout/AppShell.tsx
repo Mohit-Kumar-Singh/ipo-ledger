@@ -70,8 +70,32 @@ export function AppShell() {
     .join('')
     .toUpperCase()
 
+  // No background here on purpose — body already paints var(--page)
+  // globally (index.css), and a solid bg on this positioned wrapper would
+  // paint over the z-index:-1 blobs below (negative z-index only escapes
+  // sibling content, not its own containing block's background).
   return (
-    <div className="min-h-screen md:flex" style={{ background: 'var(--surface)' }}>
+    <div className="relative min-h-screen overflow-hidden md:flex">
+      {/* Ambient background blobs (Dashboard.dc.html reference) — sit behind
+          everything, absolute to this shell so they scroll with the page
+          rather than the viewport. No-op (transparent) in light mode via
+          --blob-1/2/3. */}
+      <div
+        aria-hidden
+        className="bg-blob"
+        style={{ top: -120, left: 220, width: 420, height: 420, background: 'var(--blob-1)' }}
+      />
+      <div
+        aria-hidden
+        className="bg-blob"
+        style={{ top: 280, right: 60, width: 380, height: 380, background: 'var(--blob-2)', animationDirection: 'reverse' }}
+      />
+      <div
+        aria-hidden
+        className="bg-blob"
+        style={{ bottom: -100, left: '40%', width: 340, height: 340, background: 'var(--blob-3)' }}
+      />
+
       <ToastHost />
       <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
@@ -102,11 +126,10 @@ export function AppShell() {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-0 md:z-auto md:h-screen md:w-64 md:translate-x-0 ${
+        className={`glass-header fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-0 md:z-auto md:h-screen md:w-64 md:translate-x-0 ${
           navOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{
-          background: 'var(--header-bg)',
           borderRight: '1px solid var(--border)',
           boxShadow: navOpen ? 'var(--shadow-floating-large)' : undefined,
         }}

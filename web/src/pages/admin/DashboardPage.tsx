@@ -378,7 +378,10 @@ export function DashboardPage() {
         </p>
       </div>
 
-      <div className={`grid grid-cols-2 gap-5 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
+      {/* Fixed 3-column grid (Dashboard.dc.html reference — wraps to two rows
+          for 6 admin tiles rather than a per-role column count), 2 on
+          narrower screens, 1 on phones. */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
         <StatTile icon={LawIcon} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
         {isAdmin && (
@@ -452,13 +455,13 @@ export function DashboardPage() {
             Application credit by IPO
           </h2>
           {data.attribution.length === 0 ? (
-            <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            <p className="glass-card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
               No applications yet.
             </p>
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 min-[1600px]:grid-cols-3">
               {data.attribution.map((a) => (
-                <div key={a.ipoId} className="card stagger-item min-w-0 p-4">
+                <div key={a.ipoId} className="glass-card stagger-item min-w-0 p-4">
                   <AttributionChart attribution={a} />
                 </div>
               ))}
@@ -506,7 +509,7 @@ export function DashboardPage() {
         {isAdmin && (
           <Section title="Pending link requests" empty="None pending">
             {pendingLinkRequests.map((r) => (
-              <div key={`${r.kind}-${r.id}`} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
+              <div key={`${r.kind}-${r.id}`} className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
                 <div
                   className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
                   style={{ width: '2rem', height: '2rem' }}
@@ -563,7 +566,7 @@ export function DashboardPage() {
         {isAdmin && (
           <Section title="Payouts pending" empty="Nothing owed right now">
             {data.pendingPayouts.map((p) => (
-              <div key={p.name} className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm">
+              <div key={p.name} className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
                 <div
                   className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
                   style={{ width: '2rem', height: '2rem' }}
@@ -655,21 +658,19 @@ function StatTile({
   const animated = useCountUp(value)
 
   return (
-    <div className="card tile-hover stagger-item flex flex-col gap-3 p-4">
-      <div className={`icon-badge icon-badge-${tone}`} style={{ boxShadow: toneGlow }}>
+    <div className="glass-card tile-hover stagger-item flex flex-col p-5">
+      <div className={`icon-badge icon-badge-${tone} mb-4`} style={{ borderRadius: '0.625rem', boxShadow: toneGlow }}>
         <Icon size={20} />
       </div>
-      <div>
-        <p className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
-          {label}
-        </p>
-        <p
-          className="mt-1 text-3xl font-semibold"
-          style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
-        >
-          {format ? format(animated) : animated}
-        </p>
-      </div>
+      <p className="mb-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+        {label}
+      </p>
+      <p
+        className="text-3xl font-bold tracking-tight"
+        style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
+      >
+        {format ? format(animated) : animated}
+      </p>
     </div>
   )
 }
@@ -693,15 +694,26 @@ function Section({
   const shouldScroll = scrollAfter != null && items.length > scrollAfter
   return (
     <section>
-      <h2 className="section-heading mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+      <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
         {title}
       </h2>
-      <div
-        className={`card divide-y ${shouldScroll ? 'overflow-y-auto' : ''}`}
-        style={{ borderColor: 'var(--border)', maxHeight: shouldScroll ? '18rem' : undefined }}
-      >
-        {hasChildren ? children : <p className="p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>{empty}</p>}
-      </div>
+      {hasChildren ? (
+        // Individual glass row-cards (Dashboard.dc.html reference), not rows
+        // inside one bordered list — each item is its own card with its own
+        // hover lift. Past scrollAfter, cap height and scroll the stack
+        // instead of the card growing indefinitely; a little right padding
+        // keeps the scrollbar from overlapping the cards' own edge.
+        <div
+          className={`flex flex-col gap-3 ${shouldScroll ? 'overflow-y-auto pr-1' : ''}`}
+          style={{ maxHeight: shouldScroll ? '18rem' : undefined }}
+        >
+          {children}
+        </div>
+      ) : (
+        <p className="glass-card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+          {empty}
+        </p>
+      )}
     </section>
   )
 }
@@ -716,7 +728,7 @@ function Row({
   tone?: 'info' | 'warning' | 'good' | 'critical'
 }) {
   return (
-    <div className="stagger-item flex items-center gap-3 px-4 py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+    <div className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
       <div
         className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
         style={{ width: '2rem', height: '2rem' }}
@@ -736,9 +748,9 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-64" />
       </div>
 
-      <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="card space-y-3 p-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="glass-card space-y-3 p-5">
             <Skeleton className="h-11 w-11" />
             <Skeleton className="h-4 w-28" />
             <Skeleton className="h-8 w-14" />

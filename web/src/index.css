@@ -89,6 +89,19 @@
   --glow-series-4: transparent;
   --header-accent-bar: var(--accent);
 
+  /* Glass-card/blob no-ops for light mode — .glass-card falls back to a
+     plain, solid, unblurred card (same recipe as .card) and the blob divs
+     render fully transparent, so nothing needs a per-theme branch at the
+     call site. */
+  --glass-bg: var(--surface);
+  --glass-border: var(--border-strong);
+  --glass-blur: none;
+  --glass-shadow: var(--shadow-sm);
+  --glass-shadow-hover: var(--shadow-md);
+  --blob-1: transparent;
+  --blob-2: transparent;
+  --blob-3: transparent;
+
   /* Primer's own component CSS reads these var(--x, #fallback) directly —
      BaseStyles is supposed to define them dynamically per color mode, but
      that definition doesn't reliably reach descendants in this setup (Vite
@@ -201,8 +214,30 @@
   --glow-series-4: rgba(244, 114, 182, 0.3);
 
   /* Section-header accent bar, left of the heading text (§ requirement 4)
-     — blue-to-purple, matching the reference's own header treatment. */
-  --header-accent-bar: linear-gradient(180deg, #22d3ee, #8b5cf6);
+     — cyan-to-emerald, matching the Dashboard.dc.html reference's own
+     header treatment (was cyan-to-violet under the first KOVAREX pass). */
+  --header-accent-bar: linear-gradient(180deg, #22d3ee, #34d399);
+
+  /* Glass-card surface (Dashboard.dc.html reference: oklch(1 0 0 / 0.045)
+     over the near-black page, blur(20px)) — a *translucent* card, distinct
+     from the flat --surface every other page's .card still uses. Scoped to
+     Dashboard's own tiles/gauges/donuts/list-rows via .glass-card rather
+     than redefining .card itself, so this doesn't silently reskin every
+     data-dense table/list page in the app. Transparent/no-op in light mode
+     (defined on :root below) — same "no per-component theme branching"
+     pattern as --glow-*. */
+  --glass-bg: rgba(255, 255, 255, 0.045);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-blur: blur(20px);
+  --glass-shadow: 0 8px 24px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --glass-shadow-hover: 0 16px 36px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+  /* Ambient background blobs behind the whole app (AppShell) — large,
+     heavily blurred, slow-floating radial tints. Transparent in light mode
+     so the same three fixed divs render as nothing there. */
+  --blob-1: oklch(0.55 0.14 155 / 0.16);
+  --blob-2: oklch(0.55 0.14 230 / 0.14);
+  --blob-3: oklch(0.6 0.13 80 / 0.1);
 }
 
 body {
@@ -274,6 +309,38 @@ table {
   animation: toast-out 0.2s ease forwards;
 }
 
+@keyframes float-blob {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(20px, -25px) scale(1.08);
+  }
+}
+
+/* Ambient background glow — three large, heavily-blurred, slow-floating
+   radial tints behind the whole app shell (Dashboard.dc.html reference).
+   Transparent in light mode via --blob-1/2/3, so these divs render as
+   nothing there — no visibility toggle needed at the call site. */
+.bg-blob {
+  position: absolute;
+  /* Without this, an absolutely-positioned box with z-index:auto still
+     paints *after* (on top of) its non-positioned in-flow siblings — these
+     divs would sit over the sidebar/content, not behind them. */
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+  animation: float-blob 16s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-blob {
+    animation: none;
+  }
+}
+
 /* Fade+rise each child in, staggered by position — pure CSS, no per-item
    inline delay needed. Caps at 12 items; anything beyond shares the last delay. */
 .stagger-item {
@@ -330,13 +397,16 @@ table {
   .btn-secondary,
   .btn-warning,
   .btn-danger,
-  .tile-hover {
+  .tile-hover,
+  .row-card,
+  .bg-blob {
     transition: none !important;
   }
   .card:hover {
     transform: none;
   }
-  .tile-hover:hover {
+  .tile-hover:hover,
+  .row-card:hover {
     transform: none;
     box-shadow: none;
   }
@@ -425,12 +495,46 @@ table {
      class instead of changing .card's own hover behavior globally. */
   .tile-hover {
     transition:
+      transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .tile-hover:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--glass-shadow-hover);
+  }
+
+  /* Glass surface (Dashboard.dc.html reference) — translucent + blurred in
+     dark mode, a plain solid card in light (see --glass-* tokens). Scoped
+     to Dashboard's tiles/gauges/donuts/row-cards; every other page keeps
+     .card's flat, unblurred look. rounded-2xl (16px) to match the
+     reference, vs .card's 6px. */
+  .glass-card {
+    @apply rounded-2xl border;
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* Individual glass row — the closing-soon/mandate-approval list items in
+     the reference are each their own card (rounded-14, hover lift), not
+     rows inside one bordered list. */
+  .row-card {
+    @apply border;
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+    border-radius: 0.875rem;
+    transition:
       transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
       box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .tile-hover:hover {
-    transform: translateY(-3px);
-    box-shadow: var(--shadow-lg);
+  .row-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--glass-shadow-hover);
   }
 
   /* GitHub label pill (issue/PR labels): tinted bg, no border, fully round */

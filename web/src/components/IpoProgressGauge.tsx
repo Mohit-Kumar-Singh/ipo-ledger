@@ -54,7 +54,7 @@ export function IpoProgressGauge({
     // fit the viewport — on a phone that's ~460px of content in a 375px
     // window, clipping the panel right off-screen. Stacking instead means
     // each piece only has to fit on its own.
-    <div className="card stagger-item flex flex-col gap-4 p-4 sm:flex-row">
+    <div className="glass-card stagger-item flex flex-col gap-4 p-4 sm:flex-row">
       {/* Fixed width on sm+, not flex-1: if this grew/shrank as the side
           panel's width animates, the gauge (which scales to its container)
           would visibly resize mid-animation on top of the tile widening —
