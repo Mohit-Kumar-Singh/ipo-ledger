@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { GraphIcon } from '@primer/octicons-react'
+import { CheckIcon } from '@primer/octicons-react'
 import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -502,7 +502,7 @@ export function IposPage() {
               Everything's archived — see below.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {visibleIpos.map((ipo) => (
                 <IpoCard
                   key={ipo.id}
@@ -524,7 +524,7 @@ export function IposPage() {
 
           {archivedIpos.length > 0 && (
             <ArchivedSection>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 {archivedIpos.map((ipo) => (
                   <IpoCard
                     key={ipo.id}
@@ -600,11 +600,14 @@ function IpoCard({
               aria-label={`Select ${ipo.company_name}`}
             />
           )}
+          {/* Fixed green checkmark tile (IPO Tracker.dc.html reference) —
+              always this color/icon regardless of status; status itself is
+              the separate pill on the right, not this badge. */}
           <div
-            className={`icon-badge ${status.badge.replace('badge-', 'icon-badge-')} shrink-0`}
+            className="icon-badge icon-badge-good shrink-0"
             style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.5625rem' }}
           >
-            <GraphIcon size={16} />
+            <CheckIcon size={16} />
           </div>
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
