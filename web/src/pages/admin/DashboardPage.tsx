@@ -700,11 +700,11 @@ function StatTile({
       >
         <Icon size={15} />
       </div>
-      <p className="font-display mb-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+      <p className="mb-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
         {label}
       </p>
       <p
-        className="font-display truncate text-xl font-bold tracking-tight"
+        className="font-mono-ipo truncate text-xl font-bold tracking-tight"
         style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
       >
         {format ? format(animated) : animated}

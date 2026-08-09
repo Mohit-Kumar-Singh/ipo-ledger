@@ -1,10 +1,5 @@
 @import "tailwindcss";
 @import "@fontsource-variable/inter";
-/* Display face for the Dashboard's own chart numbers/headings (IpoProgressGauge,
-   AttributionChart) — distinct from the rest of the app's plain system-font
-   UI, same loading convention (fontsource package, not a Google Fonts <link>)
-   as Inter above. */
-@import "@fontsource-variable/space-grotesk";
 /* Mono face for the IPOs page redesign (IPO Tracker.dc.html reference) —
    registrar/price/lot line, dates, issue-size figures. No variable-weight
    build exists for this family on fontsource, so pull the 3 weights the
@@ -271,19 +266,13 @@ body {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Scoped to the Dashboard's own chart cards (IpoProgressGauge,
-   AttributionChart) — a distinct display face for big numbers/headings,
-   not a site-wide font swap. Tabular figures so digits don't jiggle width
-   as counts animate (useCountUp). */
-.font-display {
-  font-family: 'Space Grotesk Variable', -apple-system, 'Segoe UI', sans-serif;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Mono face for the IPOs page (IPO Tracker.dc.html reference) — registrar/
-   price/lot line, GMP figures, issue sizes, stage dates. Scoped to that
-   page's own cards, same "not a site-wide font swap" approach as
-   .font-display above. */
+/* Mono face for numeric/data lines app-wide (IPO Tracker.dc.html
+   reference) — registrar/price/lot line, GMP figures, issue sizes, stage
+   dates, dashboard stat tiles, chart legends. Everything else falls back
+   to the body's own Inter — this used to be split with a second display
+   face (Space Grotesk) for the Dashboard's chart numbers only, which left
+   two different typefaces visibly in play across pages; dropped in favor
+   of one consistent system (Inter for labels/headings, this for data). */
 .font-mono-ipo {
   font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-variant-numeric: tabular-nums;
@@ -433,6 +422,12 @@ table {
    the desktop breakpoint, matching the collapse rail itself being
    desktop-only. */
 .sidebar-fade {
+  /* inline-block, not the default (nav labels are <span>s) — max-width has
+     no effect on inline elements, so on a plain <span> this class did
+     nothing at all: it never actually shrank when collapsed, just stayed
+     laid out at full width past the 64px rail (only worked on the identity
+     block's name/role, which happens to be a <div>, i.e. already block). */
+  display: inline-block;
   overflow: hidden;
   opacity: 1;
   max-width: 220px;

@@ -55,12 +55,12 @@ export function AttributionChart({ attribution, compact = false }: { attribution
     <div className="min-w-0">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <p
-          className={`font-display truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
+          className={`truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
           style={{ color: 'var(--ink-primary)' }}
         >
           {companyName}
         </p>
-        <span className="font-display shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        <span className="font-mono-ipo shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
           {totalApplications} app{totalApplications === 1 ? '' : 's'}
         </span>
       </div>
@@ -132,7 +132,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
               own chart leads with a headline number. */}
           <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
             <span
-              className="font-display font-bold"
+              className="font-mono-ipo font-bold"
               style={{ color: 'var(--ink-primary)', fontSize: compact ? 18 : 22, lineHeight: 1 }}
             >
               {formatCount(totalApplications)}
@@ -163,7 +163,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
                   className="inline-block h-2 w-2 shrink-0 rounded-full"
                   style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
                 />
-                <span className="font-display font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
+                <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
                   {firstName(s.name)} — {formatCount(s.value)}
                 </span>
               </div>
@@ -175,7 +175,7 @@ export function AttributionChart({ attribution, compact = false }: { attribution
                   className="inline-block h-2 w-2 shrink-0 rounded-full"
                   style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})`, opacity: 0.55 }}
                 />
-                <span className="font-display" style={{ color: 'var(--ink-muted)', wordBreak: 'break-word' }}>
+                <span className="font-mono-ipo" style={{ color: 'var(--ink-muted)', wordBreak: 'break-word' }}>
                   {firstName(m.name)} — {formatCount(m.value)}
                 </span>
               </div>

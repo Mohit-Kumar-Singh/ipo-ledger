@@ -206,21 +206,35 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Identity block — the collapse toggle now lives at the end of
-            THIS row (next to the name), not in a separate row above it —
-            it used to sit alone up top, disconnected from what it collapses.
-            Stays a row in both states (no flex-direction flip, which isn't
-            animatable and was another source of the collapse "snapping"
-            instead of sliding); the name/role text fades+narrows out via
-            .sidebar-fade instead of unmounting, so it shrinks in step with
-            the sidebar's own width transition. mx-3/px-2 (24px combined
-            padding+margin per side) never used to shrink for the collapsed
-            64px rail — with a 32px avatar that's a real overflow
-            (64 − 2×24 = 16px left, less than the avatar itself), not just a
-            squeeze. Smaller margin/padding when collapsed fixes the actual
-            overflow, not just the animation. */}
+        {/* Collapse toggle — its own row above the identity block, not
+            merged into it. Putting the toggle beside the identity block
+            (avatar + button in one flex row) doesn't fit the math: at the
+            collapsed 64px rail, px-1.5 margin/padding leaves ~52px of
+            content width, but a 32px avatar + 24px button together need
+            56px — the button clipped 6px past the aside's own right edge
+            (visible bug: icons overflowing off the collapsed rail).
+            Keeping this control in a separate, always-centered row avoids
+            that width conflict regardless of collapsed state. */}
+        <div className={`flex items-center justify-center pt-4 pb-1 transition-[padding] duration-300 ${collapsed ? 'px-2' : 'px-5 md:justify-end'}`}>
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
+          </button>
+        </div>
+
+        {/* Identity block — avatar always centered, name/role fades+narrows
+            via .sidebar-fade in step with the sidebar's own width
+            transition instead of unmounting. mx-3/px-2 shrinks to
+            mx-1.5/px-1.5 when collapsed so the avatar alone still fits the
+            64px rail with room either side. */}
         <div
-          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
+          className={`mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
             collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 px-2'
           }`}
           style={{ background: 'var(--hover-surface)' }}
@@ -240,20 +254,6 @@ export function AppShell() {
               {profile?.role ?? '…'}
             </p>
           </div>
-          {/* Desktop only — mobile uses the off-canvas drawer (navOpen)
-              instead of a collapse rail, so this control has no meaning
-              there. Always rendered (not sidebar-fade'd away) so it's still
-              reachable to expand again once collapsed. */}
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
-          </button>
         </div>
 
         {/* Nav */}
