@@ -206,39 +206,21 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Collapse toggle only — no logo mark/wordmark at all now. Always
-            centered in its own row (never justify-between against a logo
-            that no longer exists), padding shrinks with the rail itself so
-            it never has to reflow/jump. */}
+        {/* Identity block — the collapse toggle now lives at the end of
+            THIS row (next to the name), not in a separate row above it —
+            it used to sit alone up top, disconnected from what it collapses.
+            Stays a row in both states (no flex-direction flip, which isn't
+            animatable and was another source of the collapse "snapping"
+            instead of sliding); the name/role text fades+narrows out via
+            .sidebar-fade instead of unmounting, so it shrinks in step with
+            the sidebar's own width transition. mx-3/px-2 (24px combined
+            padding+margin per side) never used to shrink for the collapsed
+            64px rail — with a 32px avatar that's a real overflow
+            (64 − 2×24 = 16px left, less than the avatar itself), not just a
+            squeeze. Smaller margin/padding when collapsed fixes the actual
+            overflow, not just the animation. */}
         <div
-          className={`flex items-center justify-center pt-4 pb-3 transition-[padding] duration-300 ${collapsed ? 'px-2' : 'px-5 md:justify-end'}`}
-        >
-          {/* Desktop only — mobile uses the off-canvas drawer (navOpen)
-              instead of a collapse rail, so this control has no meaning there. */}
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
-          </button>
-        </div>
-
-        {/* Identity block — stays a row in both states (no flex-direction
-            flip, which isn't animatable and was another source of the
-            collapse "snapping" instead of sliding); the name/role text
-            fades+narrows out via .sidebar-fade instead of unmounting, so it
-            shrinks in step with the sidebar's own width transition.
-            mx-3/px-2 (24px combined padding+margin per side) never used to
-            shrink for the collapsed 64px rail — with a 32px avatar that's a
-            real overflow (64 − 2×24 = 16px left, less than the avatar
-            itself), not just a squeeze. Smaller margin/padding when
-            collapsed fixes the actual overflow, not just the animation. */}
-        <div
-          className={`mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
+          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
             collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 px-2'
           }`}
           style={{ background: 'var(--hover-surface)' }}
@@ -258,6 +240,20 @@ export function AppShell() {
               {profile?.role ?? '…'}
             </p>
           </div>
+          {/* Desktop only — mobile uses the off-canvas drawer (navOpen)
+              instead of a collapse rail, so this control has no meaning
+              there. Always rendered (not sidebar-fade'd away) so it's still
+              reachable to expand again once collapsed. */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
+          </button>
         </div>
 
         {/* Nav */}
