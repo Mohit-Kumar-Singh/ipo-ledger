@@ -67,21 +67,32 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
   )
 }
 
-// Displayed without the protocol/trailing slash — WhatsApp still
-// auto-links a bare domain like this, and it reads shorter in a message
-// that's already a multi-line list. Real link-shortening (bit.ly etc.)
-// would mean an external API call and a third-party redirect in front of
-// the portal for no real benefit here — this is a personal-use link in a
-// message already going to someone the sender knows, not a public share.
-const PORTAL_HOST = 'mohit-kumar-singh-ipo-ledger.vercel.app'
+// Full URL, protocol included — a bare domain (tried first, to keep the
+// message shorter) doesn't reliably get auto-linked by WhatsApp's mobile
+// client, so it just sat there as dead text instead of a tappable link.
+const PORTAL_URL = 'https://mohit-kumar-singh-ipo-ledger.vercel.app/'
 
 function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string {
-  const list = card.applications
-    .map((app) => `• ${app.holderName} — ${app.lots} lot${app.lots === 1 ? '' : 's'}${app.upiId ? ` via ${app.upiId}` : ''}`)
-    .join('\n')
+  // Grouped by UPI ID, not one flat list — a funder who paid through two
+  // different UPI IDs for the same IPO needs to see which names went
+  // through which one, not a single undifferentiated list. "No UPI ID"
+  // entries (bank-only, no UPI recorded) get their own group rather than
+  // silently folding into whichever named group happens to sort first.
+  const groups = new Map<string, string[]>()
+  for (const app of card.applications) {
+    const key = app.upiId ?? 'No UPI ID'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(app.holderName)
+  }
+  const body = Array.from(groups.entries())
+    .map(([upi, names]) => `via ${upi} :-\n${names.map((n) => `- ${n}`).join('\n')}`)
+    // Blank line between groups (not just a newline) — same "different UPI
+    // gets visual separation" the source message asked for.
+    .join('\n\n')
+
   return (
-    `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n${list}\n\n` +
-    `Other updates are posted on ${PORTAL_HOST}\n\n— ${signerName}`
+    `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n\n${body}\n\n` +
+    `Other updates are posted on ${PORTAL_URL}\n\n— ${signerName}`
   )
 }
 
