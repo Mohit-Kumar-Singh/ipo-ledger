@@ -688,6 +688,31 @@ function NewApplicationForm({
   // same IPO/bank/category/lots. Editing an existing application is always
   // a single record, so this stays irrelevant there.
   const [dematIds, setDematIds] = useState<string[]>([])
+  // Demat ids that already have an application on the selected IPO — the
+  // (ipo_id, demat_id) unique constraint means picking one of these and
+  // submitting fails outright, previously with no warning until the save
+  // itself errored. Still shown (not filtered out of the list — an admin
+  // may genuinely need to see/confirm who's already in), just flagged.
+  const [alreadyAppliedDematIds, setAlreadyAppliedDematIds] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    if (!ipoId || existing) {
+      setAlreadyAppliedDematIds(new Set())
+      return
+    }
+    let cancelled = false
+    supabase
+      .from('applications')
+      .select('demat_id')
+      .eq('ipo_id', ipoId)
+      .then(({ data }) => {
+        if (cancelled) return
+        setAlreadyAppliedDematIds(new Set((data ?? []).map((r) => r.demat_id)))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ipoId, existing])
   const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
@@ -821,7 +846,12 @@ function NewApplicationForm({
             {selectedAccount?.holder_name ?? existing.demat_accounts?.holder_name}
           </p>
         ) : (
-          <MultiDematSelect accounts={accounts} selected={dematIds} onChange={setDematIds} />
+          <MultiDematSelect
+            accounts={accounts}
+            selected={dematIds}
+            onChange={setDematIds}
+            alreadyAppliedIds={alreadyAppliedDematIds}
+          />
         )}
       </Field>
       <Field label="Bank account used">
@@ -917,10 +947,17 @@ function MultiDematSelect({
   accounts,
   selected,
   onChange,
+  alreadyAppliedIds,
 }: {
   accounts: DematAccount[]
   selected: string[]
   onChange: (ids: string[]) => void
+  // Still selectable, not filtered out of the list — picking one and
+  // submitting will fail (unique(ipo_id, demat_id)), but hiding the name
+  // entirely made it look like the account had vanished rather than
+  // "already applied." Flagging it up front means that's visible before
+  // submitting, not just as a save-time error.
+  alreadyAppliedIds?: Set<string>
 }) {
   const [open, setOpen] = useState(false)
   const active = accounts.filter((a) => a.is_active)
@@ -983,18 +1020,30 @@ function MultiDematSelect({
                       <div className="px-2 py-1.5 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
                         {label}
                       </div>
-                      {list.map((a) => (
-                        <Command.Item
-                          key={a.id}
-                          value={`${a.holder_name}::${a.id}`}
-                          onSelect={() => toggle(a.id)}
-                          className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm data-[selected=true]:bg-[var(--hover-surface)]"
-                          style={{ color: 'var(--ink-primary)' }}
-                        >
-                          <input type="checkbox" readOnly checked={selected.includes(a.id)} className="pointer-events-none" />
-                          <span className="truncate">{a.holder_name}</span>
-                        </Command.Item>
-                      ))}
+                      {list.map((a) => {
+                        const alreadyApplied = alreadyAppliedIds?.has(a.id) ?? false
+                        return (
+                          <Command.Item
+                            key={a.id}
+                            value={`${a.holder_name}::${a.id}`}
+                            onSelect={() => toggle(a.id)}
+                            className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm data-[selected=true]:bg-[var(--hover-surface)]"
+                            style={{ color: 'var(--ink-primary)' }}
+                          >
+                            <input type="checkbox" readOnly checked={selected.includes(a.id)} className="pointer-events-none" />
+                            <span className="min-w-0 flex-1 truncate">{a.holder_name}</span>
+                            {alreadyApplied && (
+                              <span
+                                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                                style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
+                                title="Already has an application on this IPO"
+                              >
+                                Already applied
+                              </span>
+                            )}
+                          </Command.Item>
+                        )
+                      })}
                     </Command.Group>
                   ),
               )}

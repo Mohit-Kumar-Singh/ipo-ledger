@@ -4,6 +4,7 @@ import { XIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
 import { onToast } from '../lib/toast'
 import { useAuth } from '../contexts/AuthContext'
+import { renderMessageBody } from '../lib/notificationTemplates'
 import { Panel } from './Panel'
 import type { Notification } from '../types/database'
 
@@ -17,21 +18,6 @@ interface RenderedToast {
   message: string
 }
 
-// Mirrors the approved template copy in doc 04 §4, filled in with this
-// notification's variables, so the popup previews what would actually be sent.
-const TEMPLATE_PREVIEWS: Record<string, (p: string[]) => string> = {
-  ipo_applied: (p) =>
-    `Hi ${p[0] ?? ''}, I've applied for the ${p[1] ?? ''} IPO from your account using ${p[2] ?? ''} — ${p[3] ?? ''}. You may get a UPI/ASBA mandate request from your bank; please approve it today so the application goes through.`,
-  ipo_allotted: (p) =>
-    `Hi ${p[0] ?? ''}, good news! The ${p[1] ?? ''} IPO applied from your account has been ${p[2] ?? 'ALLOTTED'} 🎉. Listing date: ${p[3] ?? 'TBA'}. Plan: sell on listing day.`,
-}
-
-function renderPreview(templateName: string, variables: unknown): string {
-  const params = (variables as { params?: string[] } | null)?.params ?? []
-  const render = TEMPLATE_PREVIEWS[templateName]
-  return render ? render(params) : `${templateName}: ${params.join(' · ')}`
-}
-
 function notificationToast(n: Notification): RenderedToast {
   const meta =
     n.status === 'SIMULATED'
@@ -39,12 +25,21 @@ function notificationToast(n: Notification): RenderedToast {
       : n.status === 'FAILED'
         ? ({ label: 'WhatsApp send failed', variant: 'danger' } as const)
         : ({ label: 'WhatsApp sent', variant: 'success' } as const)
+  const params = (n.variables as { params?: string[] } | null)?.params ?? []
   return {
     id: `${n.id}-${n.status}-${Date.now()}`,
     labelVariant: meta.variant,
     labelText: meta.label,
     title: `To ${n.to_phone}`,
-    message: renderPreview(n.template_name, n.variables),
+    // Was a separately hand-maintained TEMPLATE_PREVIEWS dict duplicating
+    // renderMessageBody's copy — it had already drifted twice: missing the
+    // 'ipo_applied_bank_holder' (funder) template entirely (fell through to
+    // a raw `templateName: params` fallback) and missing the portal-link
+    // line added to renderMessageBody. Calling the real function means this
+    // preview can't drift from what's actually sent again. "You" as the
+    // signer name here — this is a preview of the message, not the message
+    // itself, and the real signer is filled in at actual send time.
+    message: renderMessageBody(n.template_name, params, 'you'),
   }
 }
 
