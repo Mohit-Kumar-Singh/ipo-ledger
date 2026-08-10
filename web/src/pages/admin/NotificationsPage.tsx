@@ -84,15 +84,22 @@ function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string 
     if (!groups.has(key)) groups.set(key, [])
     groups.get(key)!.push(app.holderName)
   }
+  const total = card.applications.length
   const body = Array.from(groups.entries())
-    .map(([upi, names]) => `via ${upi} :-\n${names.map((n) => `- ${n}`).join('\n')}`)
-    // Blank line between groups (not just a newline) — same "different UPI
-    // gets visual separation" the source message asked for.
+    // _via_ italic, ```UPI ID``` monospace (reads as a distinct account
+    // label, not prose), numbered list (WhatsApp's own "N. " syntax, not a
+    // plain bullet) — every symbol here is one of WhatsApp's documented
+    // formatting shortcuts, not decoration.
+    .map(
+      ([upi, names]) =>
+        `_via_ \`\`\`${upi}\`\`\` :-\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}`,
+    )
     .join('\n\n')
 
   return (
-    `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n\n${body}\n\n` +
-    `Other updates are posted on ${PORTAL_URL}\n\n— ${signerName}`
+    `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:\n\n${body}\n\n` +
+    `\`\`\`Total = ${total}\`\`\`\n\n` +
+    `> Other updates are posted on ${PORTAL_URL}\n\n— ${signerName}`
   )
 }
 
