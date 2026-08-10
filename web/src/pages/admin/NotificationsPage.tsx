@@ -67,11 +67,22 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
   )
 }
 
+// Displayed without the protocol/trailing slash — WhatsApp still
+// auto-links a bare domain like this, and it reads shorter in a message
+// that's already a multi-line list. Real link-shortening (bit.ly etc.)
+// would mean an external API call and a third-party redirect in front of
+// the portal for no real benefit here — this is a personal-use link in a
+// message already going to someone the sender knows, not a public share.
+const PORTAL_HOST = 'mohit-kumar-singh-ipo-ledger.vercel.app'
+
 function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string {
   const list = card.applications
     .map((app) => `• ${app.holderName} — ${app.lots} lot${app.lots === 1 ? '' : 's'}${app.upiId ? ` via ${app.upiId}` : ''}`)
     .join('\n')
-  return `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n${list}\n\n— ${signerName}`
+  return (
+    `Hi ${card.funderName}, here's what you've funded for ${card.ipoName}:\n${list}\n\n` +
+    `Other updates are posted on ${PORTAL_HOST}\n\n— ${signerName}`
+  )
 }
 
 export function NotificationsPage() {
@@ -145,40 +156,47 @@ export function NotificationsPage() {
             IPOs, send each one separately.
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {funderCards.map((c) => (
-              <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.funderName}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName}
-                    </p>
+            {funderCards.map((c) => {
+              const message = buildFunderIpoMessage(c, profile?.full_name ?? 'there')
+              return (
+                <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.funderName}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName}
+                      </p>
+                    </div>
+                    <span className="badge badge-neutral shrink-0 text-xs">
+                      {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
+                    </span>
                   </div>
-                  <span className="badge badge-neutral shrink-0 text-xs">
-                    {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
-                  </span>
+
+                  {/* Exact send preview, not just the summarized list above
+                      — a WhatsApp-bubble-styled block of buildFunderIpoMessage's
+                      own output, so what gets sent is visible before Send is
+                      clicked instead of only after, in the chat itself. */}
+                  <div
+                    className="rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
+                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+                  >
+                    {message}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send on WhatsApp
+                  </button>
                 </div>
-                <ul className="max-h-28 space-y-0.5 overflow-y-auto text-xs" style={{ color: 'var(--ink-secondary)' }}>
-                  {c.applications.map((app, i) => (
-                    <li key={i} className="truncate">
-                      {app.holderName} — {app.lots} lot{app.lots === 1 ? '' : 's'}
-                      {app.upiId ? ` via ${app.upiId}` : ''}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  type="button"
-                  onClick={() => c.phone && sendCustomWhatsapp(c.phone, buildFunderIpoMessage(c, profile?.full_name ?? 'there'))}
-                  disabled={!c.phone}
-                  title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                  className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  Send on WhatsApp
-                </button>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </section>
       )}
