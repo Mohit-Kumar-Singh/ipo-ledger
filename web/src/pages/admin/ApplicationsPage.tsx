@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
 import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
@@ -52,6 +53,7 @@ type ApplicationRow = Application & {
 
 export function ApplicationsPage() {
   const { profile } = useAuth()
+  const location = useLocation()
   const isAdmin = profile?.role === 'admin'
   const [applications, setApplications] = useState<ApplicationRow[]>([])
   const [ipos, setIpos] = useState<Ipo[]>([])
@@ -81,6 +83,13 @@ export function ApplicationsPage() {
   // bank/UPI funded an application on.
   const [revealedPans, setRevealedPans] = useState<Record<string, string>>({})
   const [revealingPan, setRevealingPan] = useState<string | null>(null)
+  const [mandateSaving, setMandateSaving] = useState<string | null>(null)
+  // full_name for whoever last marked a mandate (mandate_marked_by is just a
+  // uuid) — resolved the same narrow way as the funder-only demat rows
+  // above (resolve_profile_names, already granted broadly since a display
+  // name isn't sensitive), not a join, since applications' own RLS grant
+  // doesn't extend to reading arbitrary profiles rows.
+  const [mandateMarkerNames, setMandateMarkerNames] = useState<Map<string, string>>(new Map())
 
   async function revealPan(dematId: string) {
     setRevealingPan(dematId)
@@ -133,6 +142,16 @@ export function ApplicationsPage() {
 
     setApplications(rows)
     setLoading(false)
+
+    const markerIds = Array.from(new Set(rows.map((r) => r.mandate_marked_by).filter((id): id is string => id != null)))
+    if (markerIds.length > 0) {
+      const { data: names } = await supabase.rpc('resolve_profile_names', { p_ids: markerIds })
+      const map = new Map<string, string>()
+      for (const n of (names ?? []) as { id: string; full_name: string }[]) map.set(n.id, n.full_name)
+      setMandateMarkerNames(map)
+    } else {
+      setMandateMarkerNames(new Map())
+    }
   }
 
   // IPOs + demat accounts + bank/UPI accounts are only needed to populate the
@@ -170,6 +189,18 @@ export function ApplicationsPage() {
     }
   }, [])
 
+  // Arriving from the Dashboard's "awaiting mandate approval" list links to
+  // /applications#mandate-<id> — the target row doesn't exist in the DOM
+  // until loadApplications finishes, so a plain in-page anchor (which only
+  // resolves once, at initial render) would silently do nothing. Re-run
+  // whenever loading flips false so it also works on the first load, not
+  // just client-side navigations.
+  useEffect(() => {
+    if (loading || !location.hash) return
+    const el = document.querySelector(location.hash)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [loading, location.hash])
+
   function openForm(backdated = false) {
     setShowForm(true)
     setBackdatedMode(backdated)
@@ -185,6 +216,23 @@ export function ApplicationsPage() {
 
   async function markStatus(id: string, status: Application['status']) {
     await supabase.from('applications').update({ status }).eq('id', id)
+    loadApplications()
+  }
+
+  // Goes through the set_mandate_status RPC (migration 0047), not a direct
+  // table update — a funder only has SELECT on applications, and granting
+  // funders a raw UPDATE just for the 3 mandate_* columns isn't possible
+  // with RLS alone (row-level, not column-level: they'd get every other
+  // column too). The RPC checks admin-or-funder internally and only ever
+  // touches mandate_status/mandate_marked_by/mandate_marked_at.
+  async function setMandateStatus(id: string, status: Application['mandate_status']) {
+    setMandateSaving(id)
+    const { error } = await supabase.rpc('set_mandate_status', { p_application_id: id, p_status: status })
+    setMandateSaving(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
     loadApplications()
   }
 
@@ -330,6 +378,12 @@ export function ApplicationsPage() {
                 {items.map((a, i) => {
                   const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
                   const showFunderHeader = sortMode !== 'recent' && (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
+                  // Items are already sorted by group key within this IPO's
+                  // list, so the run sharing `a`'s key is contiguous — count
+                  // it directly instead of a second full-list filter.
+                  const groupCount = showFunderHeader
+                    ? items.filter((x) => groupKeyFor(x) === groupKeyFor(a)).length
+                    : 0
                   const funderHeader = showFunderHeader && (
                     <div
                       key={`${a.id}-funder-header`}
@@ -337,6 +391,8 @@ export function ApplicationsPage() {
                       style={{ color: 'var(--ink-muted)', background: 'var(--hover-surface)' }}
                     >
                       {sortMode === 'upi' ? `Paid via ${upiIdFor(a)}` : `Funded by ${funderNameFor(a)}`}
+                      {' · '}
+                      {groupCount} application{groupCount === 1 ? '' : 's'}
                     </div>
                   )
 
@@ -377,6 +433,11 @@ export function ApplicationsPage() {
 
                   const funderName = funderNameFor(a)
                   const funderDiffersFromHolder = funderName !== holderName
+                  // "Me and the funder can mark it" — admin, or whoever's
+                  // linked bank/UPI account actually funded this application
+                  // (mirrors set_mandate_status's own server-side check).
+                  const canMarkMandate = isAdmin || a.bank_accounts?.linked_user_id === profile?.id
+                  const mandateMarkerName = a.mandate_marked_by ? mandateMarkerNames.get(a.mandate_marked_by) : undefined
 
                   return (
                     <Fragment key={a.id}>
@@ -444,6 +505,41 @@ export function ApplicationsPage() {
                       )}
 
                       <StatusBadge status={a.status} />
+
+                      <div className="w-36 shrink-0 text-xs" id={`mandate-${a.id}`}>
+                        {a.mandate_status === 'PENDING' ? (
+                          canMarkMandate ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setMandateStatus(a.id, 'APPROVED')}
+                                disabled={mandateSaving === a.id}
+                                className="link-accent font-medium disabled:opacity-50"
+                              >
+                                Mandate approved
+                              </button>
+                              <button
+                                onClick={() => setMandateStatus(a.id, 'CANCELLED')}
+                                disabled={mandateSaving === a.id}
+                                className="font-medium hover:underline disabled:opacity-50"
+                                style={{ color: 'var(--ink-muted)' }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--warning)' }}>Awaiting mandate approval</span>
+                          )
+                        ) : (
+                          <div>
+                            <span style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
+                              Mandate {a.mandate_status === 'APPROVED' ? 'approved' : 'cancelled'}
+                            </span>
+                            {mandateMarkerName && (
+                              <p style={{ color: 'var(--ink-muted)' }}>by {mandateMarkerName}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
                       <div className="min-w-[8rem] flex-1">
                         {a.notifications && a.notifications.length > 0 ? (

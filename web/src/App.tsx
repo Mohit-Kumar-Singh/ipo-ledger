@@ -43,13 +43,12 @@ function PrimerThemeBridge({ children }: { children: ReactNode }) {
     // at play rather than fighting it.
     <PrimerThemeProvider key={theme} colorMode={theme === 'dark' ? 'night' : 'day'}>
       {/* BaseStyles ships its own fontFamily (Primer's default stack) on the
-          wrapper div, which silently overrides body's Inter for every Primer
-          component (NavList, Button, etc.) — the sidebar/nav rendered in a
-          different font than the hand-styled Dashboard/IPO cards even though
-          both "used Inter". Force it here so the whole app (Primer pieces
-          included) matches the IPO Tracker.dc.html reference's `font-family:
-          'Inter', sans-serif` consistently. */}
-      <BaseStyles style={{ fontFamily: "'Inter Variable', -apple-system, 'Segoe UI', sans-serif" }}>
+          wrapper div, which silently overrides body's own font for every
+          Primer component (NavList, Button, etc.) — without this the
+          sidebar/nav would render in a different font than the hand-styled
+          Dashboard/IPO cards even though both intend the same body face.
+          Keep this in sync with body's font-family in index.css. */}
+      <BaseStyles style={{ fontFamily: "'Manrope Variable', -apple-system, 'Segoe UI', sans-serif" }}>
         {children}
       </BaseStyles>
     </PrimerThemeProvider>

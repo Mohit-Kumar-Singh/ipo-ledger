@@ -88,7 +88,12 @@ export interface Application {
   sell_price: number | null
   is_backdated: boolean
   created_by: string | null
+  mandate_status: MandateStatus
+  mandate_marked_by: string | null
+  mandate_marked_at: string | null
 }
+
+export type MandateStatus = 'PENDING' | 'APPROVED' | 'CANCELLED'
 
 export interface Notification {
   id: string
@@ -129,6 +134,7 @@ export interface AllotmentBoardRow {
   upi_id: string | null
   bank_account_holder_name: string | null
   bank_account_phone: string | null
+  mandate_status: MandateStatus
 }
 
 export interface RegistrarLink {

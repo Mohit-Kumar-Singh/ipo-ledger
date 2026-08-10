@@ -7,6 +7,16 @@
 
 export type TemplateName = 'ipo_applied' | 'ipo_allotted' | 'ipo_applied_bank_holder'
 
+// The portal's own origin, appended to every template body below so the
+// recipient has somewhere to go for details beyond what fits in a WhatsApp
+// message (status, mandate approval, etc.) — window.location.origin rather
+// than a hardcoded domain so this stays correct across dev/preview/prod
+// without a separate env var to keep in sync.
+function portalLine(): string {
+  if (typeof window === 'undefined') return ''
+  return `\n\nDetails: ${window.location.origin}`
+}
+
 export function renderMessageBody(templateName: string, params: string[], signerName: string): string {
   const p = (i: number) => params[i] ?? ''
   switch (templateName) {
@@ -14,18 +24,21 @@ export function renderMessageBody(templateName: string, params: string[], signer
       return (
         `Hi ${p(0)}, I've applied for the *${p(1)}* IPO from your account using ${p(2)} — ${p(3)}. ` +
         `You may get a UPI/ASBA mandate request from your bank; please approve it today so the ` +
-        `application goes through. The amount stays blocked in your account until allotment. — ${signerName}`
+        `application goes through. The amount stays blocked in your account until allotment. — ${signerName}` +
+        portalLine()
       )
     case 'ipo_allotted':
       return (
         `Hi ${p(0)}, good news! The *${p(1)}* IPO applied from your account has been *ALLOTTED* 🎉 (${p(2)}). ` +
         `Listing date: *${p(3)}*. Plan: sell on listing day — I'll message you that morning. Shares will be ` +
-        `visible in your demat by listing. — ${signerName}`
+        `visible in your demat by listing. — ${signerName}` +
+        portalLine()
       )
     case 'ipo_applied_bank_holder':
       return (
         `Hi ${p(0)}, heads up — I've used your bank/UPI account for ${p(2)}'s *${p(1)}* IPO application (${p(3)}). ` +
-        `You may get a UPI/ASBA mandate request from your bank; please approve it today. — ${signerName}`
+        `You may get a UPI/ASBA mandate request from your bank; please approve it today. — ${signerName}` +
+        portalLine()
       )
     default:
       return params.join(' · ')

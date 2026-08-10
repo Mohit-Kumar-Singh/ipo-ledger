@@ -307,7 +307,11 @@ export function DashboardPage() {
 
       setData({
         closingSoon: (closingSoon.data ?? []) as Ipo[],
-        pendingMandate: boardRows.filter((r) => r.status === 'APPLIED'),
+        // Real mandate_status (0047/0048), not the previous proxy of "every
+        // still-APPLIED application" — that counted plenty of applications
+        // whose mandate was already approved and were just waiting on
+        // allotment, nothing to do with mandate status at all.
+        pendingMandate: boardRows.filter((r) => r.mandate_status === 'PENDING'),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         failedMessages: (failedMessages.data ?? []) as Notification[],
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
@@ -387,7 +391,13 @@ export function DashboardPage() {
           viewer's role instead. */}
       <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
         <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
-        <StatTile icon={LawIcon} label="Awaiting mandate approval" value={data.pendingMandate.length} tone="warning" />
+        <StatTile
+          icon={LawIcon}
+          label="Awaiting mandate approval"
+          value={data.pendingMandate.length}
+          tone="warning"
+          to="/applications"
+        />
         {isAdmin && (
           <StatTile icon={LinkIcon} label="Pending link requests" value={pendingLinkRequests.length} tone="warning" />
         )}
@@ -519,7 +529,12 @@ export function DashboardPage() {
 
         <Section title="Applications awaiting mandate approval" empty="None pending" scrollAfter={6}>
           {data.pendingMandate.map((r) => (
-            <Row key={r.application_id} initial={r.holder_name[0]} tone="warning">
+            <Row
+              key={r.application_id}
+              initial={r.holder_name[0]}
+              tone="warning"
+              to={`/applications#mandate-${r.application_id}`}
+            >
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
@@ -669,12 +684,18 @@ function StatTile({
   value,
   tone = 'info',
   format,
+  to,
 }: {
   icon: typeof ClockIcon
   label: string
   value: number
   tone?: 'info' | 'warning' | 'good' | 'critical'
   format?: (n: number) => string
+  // Turns the tile into a link (e.g. "Awaiting mandate approval" ->
+  // Applications) instead of a dead-end number — someone reading a count
+  // that says action is needed shouldn't have to go hunt for where to act
+  // on it.
+  to?: string
 }) {
   const toneColor = {
     info: 'var(--accent)',
@@ -691,9 +712,8 @@ function StatTile({
     critical: 'var(--shadow-glow-critical)',
   }[tone]
   const animated = useCountUp(value)
-
-  return (
-    <div className="glass-card tile-hover stagger-item flex flex-col p-3">
+  const inner = (
+    <>
       <div
         className={`icon-badge icon-badge-${tone} mb-2.5`}
         style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', boxShadow: toneGlow }}
@@ -709,8 +729,17 @@ function StatTile({
       >
         {format ? format(animated) : animated}
       </p>
-    </div>
+    </>
   )
+
+  if (to) {
+    return (
+      <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-3">
+        {inner}
+      </Link>
+    )
+  }
+  return <div className="glass-card tile-hover stagger-item flex flex-col p-3">{inner}</div>
 }
 
 function Section({
@@ -760,13 +789,18 @@ function Row({
   children,
   initial,
   tone = 'info',
+  to,
 }: {
   children: ReactNode
   initial: string
   tone?: 'info' | 'warning' | 'good' | 'critical'
+  // e.g. the "awaiting mandate approval" list -> the specific application
+  // on the Applications page, where it can actually be marked, instead of
+  // a dead-end row that just describes the problem.
+  to?: string
 }) {
-  return (
-    <div className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
+  const inner = (
+    <>
       <div
         className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
         style={{ width: '2rem', height: '2rem' }}
@@ -774,8 +808,16 @@ function Row({
         {initial.toUpperCase()}
       </div>
       <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-0.5">{children}</div>
-    </div>
+    </>
   )
+  if (to) {
+    return (
+      <Link to={to} className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
+        {inner}
+      </Link>
+    )
+  }
+  return <div className="row-card stagger-item flex items-center gap-3 p-4 text-sm">{inner}</div>
 }
 
 function DashboardSkeleton() {

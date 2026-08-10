@@ -206,36 +206,17 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Collapse toggle — its own row above the identity block, not
-            merged into it. Putting the toggle beside the identity block
-            (avatar + button in one flex row) doesn't fit the math: at the
-            collapsed 64px rail, px-1.5 margin/padding leaves ~52px of
-            content width, but a 32px avatar + 24px button together need
-            56px — the button clipped 6px past the aside's own right edge
-            (visible bug: icons overflowing off the collapsed rail).
-            Keeping this control in a separate, always-centered row avoids
-            that width conflict regardless of collapsed state. */}
-        <div className={`flex items-center justify-center pt-4 pb-1 transition-[padding] duration-300 ${collapsed ? 'px-2' : 'px-5 md:justify-end'}`}>
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
-          </button>
-        </div>
-
-        {/* Identity block — avatar always centered, name/role fades+narrows
-            via .sidebar-fade in step with the sidebar's own width
-            transition instead of unmounting. mx-3/px-2 shrinks to
-            mx-1.5/px-1.5 when collapsed so the avatar alone still fits the
-            64px rail with room either side. */}
+        {/* Identity block + collapse toggle — one merged section, not a
+            separate row above it. Collapsed (64px rail) can't lay the
+            32px avatar and a 24px button out side by side (only ~52px of
+            content width after margin/padding) — flex-col there instead
+            (avatar, then the toggle beneath it) instead of hiding the
+            toggle or shrinking things past comfortable tap-target size.
+            Expanded, it's the original single row: avatar, name/role,
+            toggle at the end. */}
         <div
-          className={`mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
-            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 px-2'
+          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
+            collapsed ? 'mx-1.5 flex-col gap-1.5 px-1.5' : 'mx-3 px-2'
           }`}
           style={{ background: 'var(--hover-surface)' }}
         >
@@ -254,6 +235,20 @@ export function AppShell() {
               {profile?.role ?? '…'}
             </p>
           </div>
+          {/* Desktop only — mobile uses the off-canvas drawer instead of a
+              collapse rail, so this control has no meaning there. Always
+              rendered (not sidebar-fade'd away) so it stays reachable to
+              expand again once collapsed. */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
+          </button>
         </div>
 
         {/* Nav */}
@@ -275,6 +270,14 @@ export function AppShell() {
                   onClick={() => setNavOpen(false)}
                   aria-current={isActive ? 'page' : undefined}
                   title={collapsed ? l.label : undefined}
+                  // NavList.Item sizes to its own content by default — with
+                  // the label collapsed to ~0 width, that left the item's
+                  // (and its click target's) actual width as just the icon
+                  // column, ~31px out of the 48px row available inside the
+                  // 64px collapsed rail. Most of what visually reads as a
+                  // clickable row wasn't clickable at all. w-full makes the
+                  // hit target match the full row regardless of state.
+                  className="w-full"
                   style={{
                     color: isActive ? 'var(--accent)' : 'var(--header-fg)',
                     marginBottom: 4,

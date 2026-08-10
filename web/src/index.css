@@ -1,10 +1,14 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
-/* Classic serif for numeric/data lines app-wide (IPOs page, IPO progress
-   gauge, pie chart) — was IBM Plex Mono, which read as a code/terminal
-   typeface rather than the "classic" look actually wanted for a ledger
-   app's figures. */
-@import "@fontsource-variable/source-serif-4";
+/* Body/heading face — was Inter, which read as too generic/"default
+   template". Manrope instead: still a clean, professional grotesque, but
+   with more distinctive letterforms (rounder terminals, a lower-contrast
+   'a'/'e') than Inter's very neutral, ubiquitous shapes. */
+@import "@fontsource-variable/manrope";
+/* Data-figure face — was Source Serif 4 before that (and IBM Plex Mono
+   before that), same complaint each time: too generic. Fraunces has real
+   character (high-contrast strokes, a soft/wonky optical-size axis) while
+   staying legible at small sizes for GMP/dates/issue-size figures. */
+@import "@fontsource-variable/fraunces";
 
 /* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
    #fallback) and friends, expecting these to be defined wherever ThemeProvider's
@@ -254,26 +258,24 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--ink-primary);
-  /* Inter was imported (@fontsource-variable/inter, top of this file) but
-     never actually applied — body fell back to the system stack, which
-     reads visibly different from the IPO Tracker.dc.html reference's
-     `font-family: 'Inter', sans-serif`. This is the real fix, not a
-     per-page override: the reference's font choice is the app's base font. */
-  font-family: 'Inter Variable', -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  /* Manrope, not Inter (nor the plain system stack before that) — Inter
+     technically applied fine, but read as too generic/"default template"
+     for the app's own identity. */
+  font-family: 'Manrope Variable', -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Classic serif for numeric/data lines app-wide — registrar/price/lot
+/* Distinctive serif for numeric/data lines app-wide — registrar/price/lot
    line, GMP figures, issue sizes, stage dates, dashboard stat tiles,
-   chart legends. Everything else falls back to the body's own Inter.
-   Went through a monospace (IBM Plex Mono) pass first, matching the IPO
-   Tracker.dc.html reference literally — that read as code/terminal-style
-   rather than the "classic" look wanted for a ledger app's own figures,
-   so this swaps to a serif instead while keeping the same "one face for
-   labels, one for data" split and tabular-nums alignment. */
+   chart legends. Everything else falls back to the body's own Manrope.
+   Went through IBM Plex Mono, then Source Serif 4 first — both got the
+   same "too generic" feedback; Fraunces has more character (high-contrast
+   strokes, a soft/wonky optical-size axis) while staying legible at small
+   sizes, keeping the same "one face for labels, one for data" split and
+   tabular-nums alignment as before. */
 .font-mono-ipo {
-  font-family: 'Source Serif 4 Variable', Georgia, 'Times New Roman', serif;
+  font-family: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
   font-variant-numeric: tabular-nums;
 }
 
