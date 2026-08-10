@@ -48,7 +48,7 @@ function PrimerThemeBridge({ children }: { children: ReactNode }) {
           sidebar/nav would render in a different font than the hand-styled
           Dashboard/IPO cards even though both intend the same body face.
           Keep this in sync with body's font-family in index.css. */}
-      <BaseStyles style={{ fontFamily: "'Manrope Variable', -apple-system, 'Segoe UI', sans-serif" }}>
+      <BaseStyles style={{ fontFamily: "'Inter Variable', -apple-system, 'Segoe UI', sans-serif" }}>
         {children}
       </BaseStyles>
     </PrimerThemeProvider>

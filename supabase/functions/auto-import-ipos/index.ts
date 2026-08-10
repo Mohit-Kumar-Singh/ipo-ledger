@@ -52,6 +52,11 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   let retail_issue_size: string | null = null
   let retail_subscription_rate: string | null = null
   let registrar = 'OTHER'
+  // Only set when the scrape gave a definitive true/false (see
+  // allotmentOutFromText) — stays undefined, not null, for "couldn't tell",
+  // so it's simply omitted from the payload below rather than overwriting
+  // an admin's manual override with "unknown" on the next cron run.
+  let allotment_out: boolean | undefined
 
   try {
     const detail = await fetchDetail(c.source_url)
@@ -61,6 +66,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     retail_issue_size = detail.retail_issue_size
     retail_subscription_rate = detail.retail_subscription_rate
     if (detail.registrar) registrar = detail.registrar
+    if (detail.allotment_out != null) allotment_out = detail.allotment_out
   } catch {
     // Detail fetch failing shouldn't block saving the core list-card fields.
   }
@@ -80,6 +86,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     issue_size,
     retail_issue_size,
     retail_subscription_rate,
+    ...(allotment_out !== undefined ? { allotment_out } : {}),
   }
 
   // .limit(1) instead of .maybeSingle(): if a duplicate ever slips past the

@@ -1,14 +1,17 @@
 @import "tailwindcss";
-/* Body/heading face — was Inter, which read as too generic/"default
-   template". Manrope instead: still a clean, professional grotesque, but
-   with more distinctive letterforms (rounder terminals, a lower-contrast
-   'a'/'e') than Inter's very neutral, ubiquitous shapes. */
-@import "@fontsource-variable/manrope";
-/* Data-figure face — was Source Serif 4 before that (and IBM Plex Mono
-   before that), same complaint each time: too generic. Fraunces has real
-   character (high-contrast strokes, a soft/wonky optical-size axis) while
-   staying legible at small sizes for GMP/dates/issue-size figures. */
-@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/inter";
+/* Mono face for numeric/data lines app-wide (IPO Tracker.dc.html
+   reference) — registrar/price/lot line, GMP figures, issue sizes, stage
+   dates, dashboard stat tiles, chart legends. This went through Source
+   Serif 4 then Manrope+Fraunces after this, each swap chasing "too
+   generic" feedback — reverted back to the original Inter + IBM Plex Mono
+   pairing (the fonts settled on the first time this app matched the IPO
+   Tracker.dc.html reference), not a UI/layout change, just the typefaces
+   back to where they started. No variable-weight build exists for IBM
+   Plex Mono on fontsource, so pull the 3 weights actually used. */
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
 
 /* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
    #fallback) and friends, expecting these to be defined wherever ThemeProvider's
@@ -258,24 +261,16 @@ body {
   margin: 0;
   background: var(--page);
   color: var(--ink-primary);
-  /* Manrope, not Inter (nor the plain system stack before that) — Inter
-     technically applied fine, but read as too generic/"default template"
-     for the app's own identity. */
-  font-family: 'Manrope Variable', -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+  font-family: 'Inter Variable', -apple-system, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-/* Distinctive serif for numeric/data lines app-wide — registrar/price/lot
-   line, GMP figures, issue sizes, stage dates, dashboard stat tiles,
-   chart legends. Everything else falls back to the body's own Manrope.
-   Went through IBM Plex Mono, then Source Serif 4 first — both got the
-   same "too generic" feedback; Fraunces has more character (high-contrast
-   strokes, a soft/wonky optical-size axis) while staying legible at small
-   sizes, keeping the same "one face for labels, one for data" split and
-   tabular-nums alignment as before. */
+/* Mono face for numeric/data lines app-wide — registrar/price/lot line,
+   GMP figures, issue sizes, stage dates, dashboard stat tiles, chart
+   legends. Everything else falls back to the body's own Inter. */
 .font-mono-ipo {
-  font-family: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
 

@@ -1,0 +1,11 @@
+-- ============================================================
+-- "Allotment out" as read from ipoji itself (or a manual admin override),
+-- not purely derived from today >= allotment_date — the scheduled date
+-- frequently slips (registrar delays), so the date-only derivation in
+-- IposPage's deriveStatus was showing "Allotment out" before it actually
+-- was. null = unknown (never scraped a definitive read, or the IPO
+-- predates this column) — deriveStatus falls back to the old date-based
+-- rule only in that case, so this is additive, not a behavior change for
+-- existing rows until the next import (or a manual edit) sets it.
+-- ============================================================
+alter table ipos add column allotment_out boolean;

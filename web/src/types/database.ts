@@ -71,6 +71,9 @@ export interface Ipo {
   retail_subscription_rate: string | null
   created_at: string
   is_archived: boolean
+  // null = unknown (neither "Allotment Out" nor "Allotment Awaited" seen on
+  // ipoji, or never imported from there) — see deriveStatus in IposPage.tsx.
+  allotment_out: boolean | null
 }
 
 export interface Application {

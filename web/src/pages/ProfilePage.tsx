@@ -12,6 +12,7 @@ import type {
   DematAccount,
   DematLinkRequest,
   LinkRequestStatus,
+  Profile,
 } from '../types/database'
 
 const PHONE_RE = /^[0-9]{10}$/
@@ -40,8 +41,25 @@ const requestStatusBadge: Record<LinkRequestStatus, string> = {
   REJECTED: 'badge-critical',
 }
 
+// Unifies demat and bank/UPI link requests into one review list — same
+// decision RPC either way, just a different target account. Moved here
+// from the Dashboard (was a permanent tile + section there; now review
+// happens on Profile instead, with a toast — see ToastHost — replacing
+// the tile as the "something needs attention" signal).
+interface PendingReviewRequest {
+  id: string
+  kind: 'demat' | 'bank'
+  requestedAt: string
+  requesterName: string
+  targetName: string
+}
+
 export function ProfilePage() {
   const { session, profile, refreshProfile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
+  const [pendingReview, setPendingReview] = useState<PendingReviewRequest[]>([])
+  const [loadingReview, setLoadingReview] = useState(true)
+  const [decidingId, setDecidingId] = useState<string | null>(null)
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
   const [phoneDigits, setPhoneDigits] = useState(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
   const [submitting, setSubmitting] = useState(false)
@@ -123,12 +141,78 @@ export function ProfilePage() {
     setLinkedBank((bankRes.data ?? []) as Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[])
   }
 
+  async function loadPendingReview() {
+    setLoadingReview(true)
+    const [dematRes, bankRes] = await Promise.all([
+      supabase
+        .from('demat_link_requests')
+        .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
+        .eq('status', 'PENDING')
+        .order('requested_at', { ascending: false }),
+      supabase
+        .from('bank_link_requests')
+        .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
+        .eq('status', 'PENDING')
+        .order('requested_at', { ascending: false }),
+    ])
+    type DematRow = DematLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; demat_accounts: Pick<DematAccount, 'holder_name'> | null }
+    type BankRow = BankLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; bank_accounts: Pick<BankAccount, 'account_holder_name'> | null }
+    const unified: PendingReviewRequest[] = [
+      ...((dematRes.data ?? []) as DematRow[]).map((r) => ({
+        id: r.id,
+        kind: 'demat' as const,
+        requestedAt: r.requested_at,
+        requesterName: r.profiles?.full_name ?? 'Unknown',
+        targetName: r.demat_accounts?.holder_name ?? 'an account',
+      })),
+      ...((bankRes.data ?? []) as BankRow[]).map((r) => ({
+        id: r.id,
+        kind: 'bank' as const,
+        requestedAt: r.requested_at,
+        requesterName: r.profiles?.full_name ?? 'Unknown',
+        targetName: r.bank_accounts?.account_holder_name ?? 'a bank/UPI account',
+      })),
+    ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+    setPendingReview(unified)
+    setLoadingReview(false)
+  }
+
+  async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
+    setDecidingId(id)
+    const rpcName = kind === 'demat' ? 'decide_demat_link_request' : 'decide_bank_link_request'
+    const { error } = await supabase.rpc(rpcName, { p_request_id: id, p_approve: approve })
+    setDecidingId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    setPendingReview((rows) => rows.filter((r) => r.id !== id))
+  }
+
   useEffect(() => {
     loadMyRequests()
     loadMyBankRequests()
     loadLinkedAccounts()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.id])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    loadPendingReview()
+    // Realtime so a request approved/rejected/cancelled elsewhere (or a
+    // brand new one arriving) doesn't need a manual refresh to disappear/
+    // appear here — both tables are already in the supabase_realtime
+    // publication (see CLAUDE.md).
+    const channel = supabase
+      .channel('profile-pending-review')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'demat_link_requests' }, () => loadPendingReview())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bank_link_requests' }, () => loadPendingReview())
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin])
 
   useEffect(() => {
     let cancelled = false
@@ -347,6 +431,55 @@ export function ProfilePage() {
           Your display name signs off the WhatsApp messages you send.
         </p>
       </div>
+
+      {isAdmin && (
+        <div className="card animate-page-in space-y-3 p-5">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Pending link requests
+          </h2>
+          {loadingReview ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              Loading…
+            </p>
+          ) : pendingReview.length === 0 ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              None pending.
+            </p>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {pendingReview.map((r) => (
+                <div key={`${r.kind}-${r.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {r.requesterName}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      wants to link {r.targetName} <span className="badge badge-neutral ml-1">{r.kind}</span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-3">
+                    <button
+                      onClick={() => decideLinkRequest(r.kind, r.id, true)}
+                      disabled={decidingId === r.id}
+                      className="link-accent text-xs font-medium disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => decideLinkRequest(r.kind, r.id, false)}
+                      disabled={decidingId === r.id}
+                      className="text-xs font-medium hover:underline disabled:opacity-50"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="card animate-page-in space-y-4 p-5">
         <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>

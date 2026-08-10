@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, LinkIcon, CreditCardIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -16,36 +16,10 @@ import { useCountUp } from '../../lib/useCountUp'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
-  BankAccount,
-  BankLinkRequest,
   DematAccount,
-  DematLinkRequest,
   Ipo,
   Notification,
-  Profile,
 } from '../../types/database'
-
-interface LinkRequestRow extends DematLinkRequest {
-  profiles: Pick<Profile, 'full_name'> | null
-  demat_accounts: Pick<DematAccount, 'holder_name'> | null
-}
-
-interface BankLinkRequestRow extends BankLinkRequest {
-  profiles: Pick<Profile, 'full_name'> | null
-  bank_accounts: Pick<BankAccount, 'account_holder_name'> | null
-}
-
-// Unifies demat and bank/UPI link requests into one list for the admin
-// "Pending link requests" panel — same review action either way, just a
-// different target account and decision RPC.
-interface UnifiedLinkRequest {
-  id: string
-  kind: 'demat' | 'bank'
-  status: LinkRequestRow['status']
-  requestedAt: string
-  requesterName: string
-  targetName: string
-}
 
 interface PendingPayoutLine {
   applicationId: string
@@ -91,8 +65,6 @@ interface DashboardData {
   ipoProgress: IpoProgress[]
   highGmpAlerts: HighGmpAlert[]
   pendingPayouts: PendingPayout[]
-  linkRequests: LinkRequestRow[]
-  bankLinkRequests: BankLinkRequestRow[]
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -146,7 +118,6 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
-  const [decidingId, setDecidingId] = useState<string | null>(null)
   const [expandedIpoId, setExpandedIpoId] = useState<string | null>(null)
   // Fires the high-GMP heads-up as a toast once per calendar day, not on
   // every visit to (or realtime-triggered reload of) the Dashboard — a
@@ -155,26 +126,6 @@ export function DashboardPage() {
   // toast on every single visit. localStorage persists across all of that;
   // the guard is "have we already shown it today," not "this mount."
   const hasShownGmpToast = useRef(localStorage.getItem('gmpToastShownDate') === new Date().toISOString().slice(0, 10))
-
-  async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
-    setDecidingId(id)
-    const rpcName = kind === 'demat' ? 'decide_demat_link_request' : 'decide_bank_link_request'
-    const { error } = await supabase.rpc(rpcName, { p_request_id: id, p_approve: approve })
-    setDecidingId(null)
-    if (error) {
-      alert(error.message)
-      return
-    }
-    setData((d) =>
-      d
-        ? {
-            ...d,
-            linkRequests: kind === 'demat' ? d.linkRequests.filter((r) => r.id !== id) : d.linkRequests,
-            bankLinkRequests: kind === 'bank' ? d.bankLinkRequests.filter((r) => r.id !== id) : d.bankLinkRequests,
-          }
-        : d,
-    )
-  }
 
   async function markPayoutPaid(line: PendingPayoutLine) {
     setMarkingPaid(line.applicationId + line.field)
@@ -200,32 +151,22 @@ export function DashboardPage() {
       const todayStr = new Date().toISOString().slice(0, 10)
       const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
 
-      const [closingSoon, allIpos, activeAccounts, board, failedMessages, attributionRes, linkRequests, bankLinkRequests] =
-        await Promise.all([
-          supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
-          supabase.from('ipos').select('*'),
-          supabase.from('demat_accounts').select('id, holder_name').eq('is_active', true),
-          supabase.from('v_allotment_board').select('*'),
-          supabase
-            .from('notifications')
-            .select('*')
-            .eq('status', 'FAILED')
-            .order('created_at', { ascending: false })
-            .limit(20),
-          supabase.from('v_application_attribution').select('*'),
-          supabase
-            .from('demat_link_requests')
-            // demat_link_requests has two FKs into profiles (member_id,
-            // decided_by) — the embed must be disambiguated with !member_id,
-            // or PostgREST can't tell which relationship to follow and the
-            // whole query errors out.
-            .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
-            .order('requested_at', { ascending: false }),
-          supabase
-            .from('bank_link_requests')
-            .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
-            .order('requested_at', { ascending: false }),
-        ])
+      // Link requests moved off the Dashboard entirely (review now lives on
+      // Profile, with a toast on arrival instead of a permanent tile/list
+      // here — see ToastHost) — no longer fetched on this page at all.
+      const [closingSoon, allIpos, activeAccounts, board, failedMessages, attributionRes] = await Promise.all([
+        supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
+        supabase.from('ipos').select('*'),
+        supabase.from('demat_accounts').select('id, holder_name').eq('is_active', true),
+        supabase.from('v_allotment_board').select('*'),
+        supabase
+          .from('notifications')
+          .select('*')
+          .eq('status', 'FAILED')
+          .order('created_at', { ascending: false })
+          .limit(20),
+        supabase.from('v_application_attribution').select('*'),
+      ])
 
       if (cancelled) return
 
@@ -320,8 +261,6 @@ export function DashboardPage() {
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
-        linkRequests: (linkRequests.data ?? []) as LinkRequestRow[],
-        bankLinkRequests: (bankLinkRequests.data ?? []) as BankLinkRequestRow[],
       })
       setLoading(false)
     }
@@ -352,27 +291,6 @@ export function DashboardPage() {
 
   if (loading || !data) return <DashboardSkeleton />
 
-  const unifiedLinkRequests: UnifiedLinkRequest[] = [
-    ...data.linkRequests.map((r) => ({
-      id: r.id,
-      kind: 'demat' as const,
-      status: r.status,
-      requestedAt: r.requested_at,
-      requesterName: r.profiles?.full_name ?? 'Unknown',
-      targetName: r.demat_accounts?.holder_name ?? 'an account',
-    })),
-    ...data.bankLinkRequests.map((r) => ({
-      id: r.id,
-      kind: 'bank' as const,
-      status: r.status,
-      requestedAt: r.requested_at,
-      requesterName: r.profiles?.full_name ?? 'Unknown',
-      targetName: r.bank_accounts?.account_holder_name ?? 'a bank/UPI account',
-    })),
-  ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
-
-  const pendingLinkRequests = unifiedLinkRequests.filter((r) => r.status === 'PENDING')
-
   return (
     <div className="space-y-8">
       <div>
@@ -390,7 +308,7 @@ export function DashboardPage() {
           column count to however many tiles actually render for the
           viewer's role instead. */}
       <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
-        <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" />
+        <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" to="/ipos" />
         <StatTile
           icon={LawIcon}
           label="Awaiting mandate approval"
@@ -398,11 +316,20 @@ export function DashboardPage() {
           tone="warning"
           to="/applications"
         />
-        {isAdmin && (
-          <StatTile icon={LinkIcon} label="Pending link requests" value={pendingLinkRequests.length} tone="warning" />
-        )}
-        <StatTile icon={CheckCircleIcon} label="Allotted, not sold" value={data.allottedNotSold.length} tone="good" />
-        <StatTile icon={AlertIcon} label="Failed messages" value={data.failedMessages.length} tone="critical" />
+        <StatTile
+          icon={CheckCircleIcon}
+          label="Allotted, not sold"
+          value={data.allottedNotSold.length}
+          tone="good"
+          to="/allotment"
+        />
+        <StatTile
+          icon={AlertIcon}
+          label="Failed messages"
+          value={data.failedMessages.length}
+          tone="critical"
+          to="/notifications"
+        />
         {isAdmin && (
           <StatTile
             icon={CreditCardIcon}
@@ -410,6 +337,7 @@ export function DashboardPage() {
             value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
             tone="warning"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
+            to="/applications"
           />
         )}
       </div>
@@ -422,8 +350,20 @@ export function DashboardPage() {
           size to its own content (flex-wrap tiles inside), so the two
           sections sit right next to each other with just the gap between,
           and only the last row's leftover space (if any) lands at the far
-          right instead of splitting the two sections apart. */}
-      <div className="flex flex-col gap-6 xl:flex-row xl:items-start">
+          right instead of splitting the two sections apart.
+          lg:, not xl: — Tailwind breakpoints match the whole browser
+          viewport, not this column's own available width, which is
+          viewport minus the ~256px sidebar. At xl (1280px) that meant a
+          1280-1400px-wide laptop window (256px sidebar + ~1000-1150px of
+          actual content) fell just short of qualifying, so it rendered in
+          the flex-col (stacked) fallback — but with each section's own
+          content still only as wide as its cards, that stacked layout put
+          the (narrower) IPO-progress column on top with a big swath of
+          unused width beside it, exactly like the wide gap this was
+          originally meant to fix. lg (1024px) accounts for the sidebar
+          eating real width so row layout actually kicks in on ordinary
+          laptop screens, not just very wide monitors. */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         {data.ipoProgress.length > 0 && (
           <section className="min-w-0">
             <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
@@ -518,7 +458,7 @@ export function DashboardPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="IPOs closing within 7 days" empty="Nothing closing soon" scrollAfter={6}>
           {data.closingSoon.map((ipo) => (
-            <Row key={ipo.id} initial={ipo.company_name[0]} tone="info">
+            <Row key={ipo.id} initial={ipo.company_name[0]} tone="info" to="/ipos">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {ipo.company_name}
               </span>
@@ -545,7 +485,7 @@ export function DashboardPage() {
 
         <Section title="Allotted, not yet sold" empty="Nothing outstanding">
           {data.allottedNotSold.map((r) => (
-            <Row key={r.application_id} initial={r.holder_name[0]} tone="good">
+            <Row key={r.application_id} initial={r.holder_name[0]} tone="good" to="/allotment">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
@@ -555,63 +495,6 @@ export function DashboardPage() {
             </Row>
           ))}
         </Section>
-
-        {isAdmin && (
-          <Section title="Pending link requests" empty="None pending">
-            {pendingLinkRequests.map((r) => (
-              <div key={`${r.kind}-${r.id}`} className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
-                <div
-                  className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
-                  style={{ width: '2rem', height: '2rem' }}
-                >
-                  {r.requesterName[0]?.toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.requesterName}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    wants to link {r.targetName} <span className="badge badge-neutral ml-1">{r.kind}</span>
-                  </p>
-                </div>
-                <div className="flex shrink-0 gap-3">
-                  <button
-                    onClick={() => decideLinkRequest(r.kind, r.id, true)}
-                    disabled={decidingId === r.id}
-                    className="link-accent text-xs font-medium disabled:opacity-50"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => decideLinkRequest(r.kind, r.id, false)}
-                    disabled={decidingId === r.id}
-                    className="text-xs font-medium hover:underline disabled:opacity-50"
-                    style={{ color: 'var(--critical)' }}
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </Section>
-        )}
-
-        {!isAdmin && (
-          <Section title="Your link requests" empty="No link requests yet">
-            {unifiedLinkRequests.map((r) => (
-              <Row
-                key={`${r.kind}-${r.id}`}
-                initial={r.targetName[0]}
-                tone={r.status === 'APPROVED' ? 'good' : r.status === 'REJECTED' ? 'critical' : 'warning'}
-              >
-                <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {r.targetName} <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>({r.kind})</span>
-                </span>
-                <span style={{ color: 'var(--ink-muted)' }}>{r.status}</span>
-              </Row>
-            ))}
-          </Section>
-        )}
 
         {isAdmin && (
           <Section title="Payouts pending" empty="Nothing owed right now">
@@ -658,7 +541,7 @@ export function DashboardPage() {
 
         <Section title="Failed messages" empty="No failures">
           {data.failedMessages.map((n) => (
-            <Row key={n.id} initial={n.template_name[0]} tone="critical">
+            <Row key={n.id} initial={n.template_name[0]} tone="critical" to="/notifications">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {n.template_name}
               </span>

@@ -3,6 +3,7 @@ import { Label, IconButton } from '@primer/react'
 import { XIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
 import { onToast } from '../lib/toast'
+import { useAuth } from '../contexts/AuthContext'
 import { Panel } from './Panel'
 import type { Notification } from '../types/database'
 
@@ -60,6 +61,8 @@ const toneMeta: Record<string, { variant: LabelVariant; label: string }> = {
  *  (e.g. a low-GMP warning when adding an IPO). RLS scopes which
  *  notification rows each viewer receives here. */
 export function ToastHost() {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const [toasts, setToasts] = useState<RenderedToast[]>([])
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
 
@@ -77,12 +80,51 @@ export function ToastHost() {
     }, 200)
   }
 
+  function pushToast(toast: RenderedToast, ttlMs: number) {
+    setToasts((t) => [...t, toast])
+    setTimeout(() => removeToast(toast.id), ttlMs)
+  }
+
+  // A new demat/bank link request used to get a permanent "pending link
+  // requests" tile + list on the Dashboard — moved to a one-off toast plus
+  // review on Profile instead (same lightweight "something needs your
+  // attention" signal the high-GMP alert already uses), so it doesn't sit
+  // around as a standing dashboard fixture once seen. Admin-only: a member
+  // has no review action to take on someone else's link request anyway.
+  useEffect(() => {
+    if (!isAdmin) return
+    async function announceLinkRequest(kind: 'demat' | 'bank', memberId: string) {
+      const { data } = await supabase.rpc('resolve_profile_names', { p_ids: [memberId] })
+      const name = (data as { id: string; full_name: string }[] | null)?.[0]?.full_name ?? 'Someone'
+      pushToast(
+        {
+          id: `link-request-${kind}-${memberId}-${Date.now()}`,
+          labelVariant: 'accent',
+          labelText: 'New link request',
+          message: `${name} requested to link a ${kind === 'demat' ? 'demat' : 'bank/UPI'} account — review on your Profile.`,
+        },
+        15000,
+      )
+    }
+
+    const linkChannel = supabase
+      .channel('link-requests-toast')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'demat_link_requests' }, (payload) => {
+        announceLinkRequest('demat', (payload.new as { member_id: string }).member_id)
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'bank_link_requests' }, (payload) => {
+        announceLinkRequest('bank', (payload.new as { member_id: string }).member_id)
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(linkChannel)
+    }
+  }, [isAdmin])
+
   useEffect(() => {
     function pushNotification(notification: Notification) {
       if (notification.status === 'QUEUED') return
-      const toast = notificationToast(notification)
-      setToasts((t) => [...t, toast])
-      setTimeout(() => removeToast(toast.id), 15000)
+      pushToast(notificationToast(notification), 15000)
     }
 
     const channel = supabase

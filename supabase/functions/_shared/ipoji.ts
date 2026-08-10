@@ -46,6 +46,30 @@ export interface Detail {
   registrar: RegistrarCode | null
   registrar_name: string | null
   retail_subscription_rate: string | null
+  // Whether ipoji itself is reporting allotment as actually finalized
+  // ("Allotment Out"), not just that today >= allotment_date — the
+  // scheduled date frequently slips (registrar delays), so deriving
+  // "Allotment out" purely from the calendar reads as done a day or more
+  // before it actually is. null when ipoji shows neither "Allotment Out"
+  // nor "Allotment Awaited" (e.g. before the IPO has even closed) — treat
+  // that as "unknown", not "not yet", so it doesn't override a manual
+  // admin edit either way. See allotmentOutFromText below.
+  allotment_out: boolean | null
+}
+
+// ipoji shows "Allotment Out" once results are actually published, and
+// "Allotment Awaited" while still pending — as plain text next to/inside a
+// fact-item, not a distinctly-classed badge (confirmed by inspection, not
+// guessed), so this scans full text content rather than chasing a selector
+// that isn't there. Whole-page text, not a specific element, since the
+// wording's exact container isn't stable enough to pin down from outside a
+// real browser session — same "text over classes" tradeoff already made in
+// this file for the subscription table below.
+export function allotmentOutFromText(pageText: string): boolean | null {
+  const t = pageText.toLowerCase()
+  if (t.includes('allotment out')) return true
+  if (t.includes('allotment awaited')) return false
+  return null
 }
 
 // ipoji shows the registrar's full name (e.g. "Kfin Technologies Ltd.") —
@@ -181,6 +205,7 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
     registrar: null,
     registrar_name: null,
     retail_subscription_rate: null,
+    allotment_out: allotmentOutFromText(doc.body?.textContent ?? ''),
   }
 
   // deno-lint-ignore no-explicit-any

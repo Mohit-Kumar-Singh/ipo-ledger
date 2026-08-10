@@ -50,6 +50,7 @@ interface ImportDetail {
   registrar: Registrar | null
   registrar_name: string | null
   retail_subscription_rate: string | null
+  allotment_out: boolean | null
 }
 
 function isEligible(c: ImportCandidate): boolean {
@@ -59,7 +60,19 @@ function isEligible(c: ImportCandidate): boolean {
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
   const today = new Date().toISOString().slice(0, 10)
   if (ipo.listing_date && today >= ipo.listing_date) return { label: 'Listed', badge: 'badge-violet' }
-  if (ipo.allotment_date && today >= ipo.allotment_date) return { label: 'Allotment out', badge: 'badge-warning' }
+  // ipoji's own "Allotment Out"/"Allotment Awaited" read, when we have it
+  // (allotment_out non-null — either scraped or set by an admin edit), wins
+  // over the scheduled allotment_date: the date is when allotment is
+  // *supposed* to run, but registrars delay it often enough that deriving
+  // "Allotment out" purely from today >= allotment_date reads as done
+  // before it actually is.
+  if (ipo.allotment_out === true) return { label: 'Allotment out', badge: 'badge-warning' }
+  if (ipo.allotment_out === false && ipo.allotment_date && today >= ipo.allotment_date) {
+    return { label: 'Allotment awaited', badge: 'badge-info' }
+  }
+  if (ipo.allotment_out == null && ipo.allotment_date && today >= ipo.allotment_date) {
+    return { label: 'Allotment out', badge: 'badge-warning' }
+  }
   if (today > ipo.close_date) return { label: 'Closed', badge: 'badge-neutral' }
   if (today >= ipo.open_date) return { label: 'Open', badge: 'badge-good' }
   return { label: 'Upcoming', badge: 'badge-info' }
@@ -262,6 +275,10 @@ export function IposPage() {
         issue_size: detail?.issue_size ?? c.issue_size,
         retail_issue_size: detail?.retail_issue_size ?? null,
         retail_subscription_rate: detail?.retail_subscription_rate ?? null,
+        // Omitted entirely (not set to null) when ipoji shows neither
+        // "Allotment Out" nor "Allotment Awaited" yet — a re-import
+        // shouldn't stomp a manual admin correction with "unknown".
+        ...(detail?.allotment_out != null ? { allotment_out: detail.allotment_out } : {}),
       })
 
       if (error) {
@@ -804,6 +821,12 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
   const [retailSubscriptionRate, setRetailSubscriptionRate] = useState(existing?.retail_subscription_rate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
   const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
+  // 'unknown' means "don't touch it" (submitted as null) — not the same as
+  // explicitly saying awaited/not-out. Manual override for when ipoji's own
+  // scrape hasn't caught a delayed/early allotment yet (see deriveStatus).
+  const [allotmentOut, setAllotmentOut] = useState<'unknown' | 'awaited' | 'out'>(
+    existing?.allotment_out === true ? 'out' : existing?.allotment_out === false ? 'awaited' : 'unknown',
+  )
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -829,6 +852,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       retail_issue_size: retailIssueSize || null,
       shareholder_issue_size: shareholderIssueSize || null,
       retail_subscription_rate: retailSubscriptionRate || null,
+      allotment_out: allotmentOut === 'unknown' ? null : allotmentOut === 'out',
     }
 
     // Editing a known row updates it directly by id; otherwise fall back to
@@ -880,6 +904,17 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       </Field>
       <Field label="Allotment date">
         <input type="date" value={allotmentDate} onChange={(e) => setAllotmentDate(e.target.value)} className="input" />
+      </Field>
+      <Field label="Allotment status">
+        <select
+          value={allotmentOut}
+          onChange={(e) => setAllotmentOut(e.target.value as 'unknown' | 'awaited' | 'out')}
+          className="input"
+        >
+          <option value="unknown">Auto (from date / next import)</option>
+          <option value="awaited">Awaited (delayed past date)</option>
+          <option value="out">Out — override, mark done now</option>
+        </select>
       </Field>
       <Field label="Listing date">
         <input type="date" value={listingDate} onChange={(e) => setListingDate(e.target.value)} className="input" />
