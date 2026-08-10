@@ -239,9 +239,9 @@ export function ApplicationsPage() {
   async function dispatchNotification(n: ApplicationRow['notifications'][number]) {
     setDispatching(n.id)
     if (isAdmin) {
-      await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
+      await dispatchAdminWhatsapp(n.id)
     } else {
-      await openWhatsAppForNotification(n, profile?.full_name ?? 'there')
+      await openWhatsAppForNotification(n)
     }
     setDispatching(null)
     loadApplications()

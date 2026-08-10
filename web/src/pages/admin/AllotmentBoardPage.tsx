@@ -124,9 +124,9 @@ export function AllotmentBoardPage() {
   async function dispatchNotification(n: AllottedNotif) {
     setDispatching(n.id)
     if (isAdmin) {
-      await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
+      await dispatchAdminWhatsapp(n.id)
     } else {
-      await openWhatsAppForNotification(n, profile?.full_name ?? 'there')
+      await openWhatsAppForNotification(n)
     }
     setDispatching(null)
     loadBoard(selectedIpoId)
@@ -541,7 +541,6 @@ function payoutMessage(
   row: AllotmentBoardRow,
   result: ReturnType<typeof computeProfitSplit>,
   kind: 'cut' | 'share',
-  signerName: string,
 ): string {
   const shares = row.lot_size * row.lots
   const price = (row.sell_price ?? 0).toFixed(2)
@@ -572,8 +571,7 @@ function payoutMessage(
       `₹${profit.toLocaleString('en-IN')} × ${cutPct}% = ₹${cutAmount.toLocaleString('en-IN')}\n\n` +
       `*Total to send back:*\n` +
       `₹${invested.toLocaleString('en-IN')} + ₹${remaining.toLocaleString('en-IN')} = ₹${sendBack.toLocaleString('en-IN')}\n\n` +
-      `I'll share UPI details for the transfer.\n\n` +
-      `— ${signerName}`
+      `I'll share UPI details for the transfer.`
     )
   }
 
@@ -583,8 +581,7 @@ function payoutMessage(
     saleLine(`${row.holder_name}:- `) +
     `after ${row.holder_name} (${cutPct}%):${profit}-${cutPct}%=${remaining}\n\n` +
     `Here's your share of the profit:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n` +
-    `Total = ${invested}+${funderShare}=${payout}\n\n` +
-    `— ${signerName}`
+    `Total = ${invested}+${funderShare}=${payout}`
   )
 }
 
@@ -628,7 +625,7 @@ function SoldBreakdown({
               onMarkPaid={() => onMarkPaid('demat_cut_paid')}
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
               phone={row.phone_e164}
-              onMessage={() => sendCustomWhatsapp(row.phone_e164, payoutMessage(row, result, 'cut', profitPersonName))}
+              onMessage={() => sendCustomWhatsapp(row.phone_e164, payoutMessage(row, result, 'cut'))}
             />
           )}
           {result.funderShare > 0 && (
@@ -640,7 +637,7 @@ function SoldBreakdown({
               phone={row.bank_account_phone}
               onMessage={
                 row.bank_account_phone
-                  ? () => sendCustomWhatsapp(row.bank_account_phone!, payoutMessage(row, result, 'share', profitPersonName))
+                  ? () => sendCustomWhatsapp(row.bank_account_phone!, payoutMessage(row, result, 'share'))
                   : undefined
               }
             />

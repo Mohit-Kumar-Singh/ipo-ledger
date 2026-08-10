@@ -72,7 +72,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
 // client, so it just sat there as dead text instead of a tappable link.
 const PORTAL_URL = 'https://mohit-kumar-singh-ipo-ledger.vercel.app/'
 
-function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string {
+function buildFunderIpoMessage(card: FunderIpoCard): string {
   // Grouped by UPI ID, not one flat list — a funder who paid through two
   // different UPI IDs for the same IPO needs to see which names went
   // through which one, not a single undifferentiated list. "No UPI ID"
@@ -99,7 +99,7 @@ function buildFunderIpoMessage(card: FunderIpoCard, signerName: string): string 
   return (
     `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:\n\n${body}\n\n` +
     `\`\`\`Total = ${total}\`\`\`\n\n` +
-    `> Other updates are posted on ${PORTAL_URL}\n\n— ${signerName}`
+    `> Other updates are posted on ${PORTAL_URL}`
   )
 }
 
@@ -145,9 +145,9 @@ export function NotificationsPage() {
   async function dispatch(n: Notification) {
     setRetrying(n.id)
     if (isAdmin) {
-      await dispatchAdminWhatsapp(n.id, profile?.full_name ?? 'there')
+      await dispatchAdminWhatsapp(n.id)
     } else {
-      await openWhatsAppForNotification(n, profile?.full_name ?? 'there')
+      await openWhatsAppForNotification(n)
     }
     setRetrying(null)
     load()
@@ -175,7 +175,7 @@ export function NotificationsPage() {
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {funderCards.map((c) => {
-              const message = buildFunderIpoMessage(c, profile?.full_name ?? 'there')
+              const message = buildFunderIpoMessage(c)
               return (
                 <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
                   <div className="flex items-start justify-between gap-2">
@@ -195,9 +195,14 @@ export function NotificationsPage() {
                   {/* Exact send preview, not just the summarized list above
                       — a WhatsApp-bubble-styled block of buildFunderIpoMessage's
                       own output, so what gets sent is visible before Send is
-                      clicked instead of only after, in the chat itself. */}
+                      clicked instead of only after, in the chat itself. Capped
+                      height + its own scroll, not unbounded — a funder with
+                      several UPI groups (each its own numbered list) made this
+                      block push the card taller than its neighbors in the
+                      grid, and taller than the card's own edit/send controls
+                      staying reachable without scrolling the whole page. */}
                   <div
-                    className="rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
+                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
                     style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
                   >
                     {message}

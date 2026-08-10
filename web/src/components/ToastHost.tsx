@@ -36,10 +36,8 @@ function notificationToast(n: Notification): RenderedToast {
     // 'ipo_applied_bank_holder' (funder) template entirely (fell through to
     // a raw `templateName: params` fallback) and missing the portal-link
     // line added to renderMessageBody. Calling the real function means this
-    // preview can't drift from what's actually sent again. "You" as the
-    // signer name here — this is a preview of the message, not the message
-    // itself, and the real signer is filled in at actual send time.
-    message: renderMessageBody(n.template_name, params, 'you'),
+    // preview can't drift from what's actually sent again.
+    message: renderMessageBody(n.template_name, params),
   }
 }
 

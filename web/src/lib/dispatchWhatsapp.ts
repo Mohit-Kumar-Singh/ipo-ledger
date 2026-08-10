@@ -26,10 +26,9 @@ function openWhatsApp(url: string) {
 //    unloads for a new-tab popup.
 export async function openWhatsAppForNotification(
   notification: Pick<Notification, 'id' | 'to_phone' | 'template_name' | 'variables'>,
-  signerName: string,
 ): Promise<void> {
   const params = (notification.variables as { params?: string[] } | null)?.params ?? []
-  const text = renderMessageBody(notification.template_name, params, signerName)
+  const text = renderMessageBody(notification.template_name, params)
   const url = buildWaMeLink(notification.to_phone, text)
   const markSent = () =>
     supabase.from('notifications').update({ status: 'SENT', updated_at: new Date().toISOString() }).eq('id', notification.id)
@@ -57,7 +56,7 @@ export function sendCustomWhatsapp(phone: string, text: string): void {
 // comes back SENT/FAILED rather than SIMULATED, so there's no flag to
 // remember to flip back once Meta setup is done. (Desktop never falls back —
 // the Cloud API result, real or SIMULATED, is just shown via the toast.)
-export async function dispatchAdminWhatsapp(notificationId: string, signerName: string): Promise<void> {
+export async function dispatchAdminWhatsapp(notificationId: string): Promise<void> {
   await supabase.functions.invoke('send-whatsapp', { body: { notification_id: notificationId } })
 
   if (!isMobileDevice()) return
@@ -69,5 +68,5 @@ export async function dispatchAdminWhatsapp(notificationId: string, signerName: 
     .single()
   if (fresh?.status !== 'SIMULATED') return
 
-  await openWhatsAppForNotification(fresh, signerName)
+  await openWhatsAppForNotification(fresh)
 }
