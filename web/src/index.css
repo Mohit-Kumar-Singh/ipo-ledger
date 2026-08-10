@@ -466,6 +466,70 @@ table {
   box-shadow: var(--shadow-sm);
 }
 
+/* "Hot GMP" hype ring (IposPage, gmp% > 45) — a soft rotating glow behind
+   the card, not a fixed brand color: var(--warning)/var(--critical) are
+   the same "needs attention" tokens used everywhere else in the app, so
+   this stays on-theme (and near-invisible in light mode, where the glow
+   tokens are already muted) without a color override of its own. The
+   glow sits behind the card (negative z-index via stacking context from
+   position:relative + isolation) and blurred, so it reads as an aura, not
+   a hard ring — the card itself is untouched, just wrapped. */
+.aura {
+  position: relative;
+  isolation: isolate;
+  border-radius: inherit;
+  /* IpoCard's grid (sm:grid-cols-2) stretches items to fill the row
+     height by default — as a direct grid child, .aura stretched to match
+     its tallest sibling instead of the actual card's own height, and the
+     glow ring below (sized off .aura's box via inset) inflated along with
+     it, spilling far past the visible card. fit-content keeps this
+     wrapper sized to its one child (the card), same as the card itself
+     already was before this wrapper existed. */
+  height: fit-content;
+}
+/* Registers --aura-angle as an animatable <angle>, so the animation below
+   can rotate the gradient's OWN angle rather than the element. Rotating
+   the element itself (transform: rotate()) was tried first — a rotated
+   RECTANGLE's on-screen bounding box is bigger than the rectangle (the
+   corners sweep outward, up to half the diagonal at 45°), which is what
+   made the ring balloon into a huge diamond spilling well past the card.
+   Animating the gradient's angle keeps the element's own box static. */
+@property --aura-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+.aura::before {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  z-index: -1;
+  border-radius: inherit;
+  background: conic-gradient(from var(--aura-angle), var(--warning), var(--critical), var(--warning));
+  /* conic-gradient fills its ENTIRE box, not just a ring around the edge
+     — without this mask it painted a solid blurred rectangle behind the
+     whole card. padding + a content-box/xor mask keeps only the outer
+     ~3px band, so blurring it afterward reads as a halo hugging the
+     card's edge instead of a filled block. */
+  padding: 3px;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  filter: blur(6px);
+  opacity: 0.8;
+  animation: aura-spin 6s linear infinite;
+}
+@keyframes aura-spin {
+  to {
+    --aura-angle: 360deg;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aura::before {
+    animation: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-page-in,
   .animate-toast-in,

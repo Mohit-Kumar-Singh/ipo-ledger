@@ -357,6 +357,14 @@ export function IposPage() {
   const existingNames = new Set(ipos.map((i) => i.company_name.toLowerCase()))
   const visibleIpos = ipos.filter((i) => !i.is_archived)
   const archivedIpos = ipos.filter((i) => i.is_archived)
+  // Bidding-closed-but-nothing-else-happening-yet IPOs (deriveStatus's
+  // plain "Closed" label — not Allotment out/awaited or Listed, which are
+  // still worth seeing up top since there's an actual next step on them)
+  // sink below a divider instead of sitting mixed into the same grid as
+  // still-open/upcoming ones. sortIpos already put them last within
+  // visibleIpos, so this is a stable split, not a re-sort.
+  const currentIpos = visibleIpos.filter((i) => deriveStatus(i).label !== 'Closed')
+  const closedIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Closed')
 
   return (
     <div className="space-y-5">
@@ -519,24 +527,62 @@ export function IposPage() {
               Everything's archived — see below.
             </p>
           ) : (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {visibleIpos.map((ipo) => (
-                <IpoCard
-                  key={ipo.id}
-                  ipo={ipo}
-                  isAdmin={isAdmin}
-                  selected={selectedIpos.has(ipo.id)}
-                  onToggleSelected={() => toggleIpoSelected(ipo.id)}
-                  onEdit={() => {
-                    setEditingIpo(ipo)
-                    setShowAddForm(false)
-                    setShowImport(false)
-                  }}
-                  onDelete={() => deleteIpo(ipo)}
-                  onArchive={() => setArchived(ipo, true)}
-                />
-              ))}
-            </div>
+            <>
+              {currentIpos.length > 0 && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  {currentIpos.map((ipo) => (
+                    <IpoCard
+                      key={ipo.id}
+                      ipo={ipo}
+                      isAdmin={isAdmin}
+                      selected={selectedIpos.has(ipo.id)}
+                      onToggleSelected={() => toggleIpoSelected(ipo.id)}
+                      onEdit={() => {
+                        setEditingIpo(ipo)
+                        setShowAddForm(false)
+                        setShowImport(false)
+                      }}
+                      onDelete={() => deleteIpo(ipo)}
+                      onArchive={() => setArchived(ipo, true)}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {closedIpos.length > 0 && (
+                <>
+                  {/* Divider line, not another card/section heading — a
+                      plain horizontal rule with "Closed" centered on it,
+                      the same visual language a printed ledger would use
+                      to mark where the closed entries start. */}
+                  <div className="flex items-center gap-3 py-1" aria-hidden>
+                    <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+                    <span className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+                      Closed
+                    </span>
+                    <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    {closedIpos.map((ipo) => (
+                      <IpoCard
+                        key={ipo.id}
+                        ipo={ipo}
+                        isAdmin={isAdmin}
+                        selected={selectedIpos.has(ipo.id)}
+                        onToggleSelected={() => toggleIpoSelected(ipo.id)}
+                        onEdit={() => {
+                          setEditingIpo(ipo)
+                          setShowAddForm(false)
+                          setShowImport(false)
+                        }}
+                        onDelete={() => deleteIpo(ipo)}
+                        onArchive={() => setArchived(ipo, true)}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           {archivedIpos.length > 0 && (
@@ -604,7 +650,13 @@ function IpoCard({
   onUnarchive?: () => void
 }) {
   const status = deriveStatus(ipo)
-  return (
+  // Hot-GMP hype ring — a rotating conic-gradient glow around the card,
+  // amber into red (var(--warning)/var(--critical), same tokens the app
+  // already uses for "needs attention" elsewhere), not a fixed brand color,
+  // so it stays on-theme in both light and dark without its own overrides.
+  const gmpPercent = parseGmpPercent(ipo.gmp_notes)
+  const isHotGmp = gmpPercent != null && gmpPercent > 45
+  const card = (
     <div className="card stagger-item flex flex-col gap-3 p-5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2.5">
@@ -717,6 +769,9 @@ function IpoCard({
       />
     </div>
   )
+
+  if (!isHotGmp) return card
+  return <div className="aura">{card}</div>
 }
 
 function ImportCard({
