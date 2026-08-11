@@ -229,7 +229,9 @@ export function DashboardPage() {
         // No point showing a progress tile for an IPO nobody has applied to
         // yet — it's not "in progress," there's nothing to track.
         .filter((p) => p.applied > 0)
-        .sort((a, b) => a.endDate.localeCompare(b.endDate))
+        // Most recently opened first, not soonest-closing first — the
+        // latest IPO is what someone's actually here to check on.
+        .sort((a, b) => b.openDate.localeCompare(a.openDate))
 
       // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
       // heads-up (2 days / 1 day before open) — shown here so it's visible
@@ -373,14 +375,14 @@ export function DashboardPage() {
           <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             IPOs
           </h2>
-          {/* auto-fill grid, not flex-wrap — each card is now self-contained
-              (header + both charts + its own expand panel) rather than two
-              separate fixed-width tile types that had to be manually kept
-              in width/height sync with each other. minmax(360px, 1fr) gives
-              the donut+legend+ring pair inside enough room to sit side by
-              side without truncating, while still wrapping to one column on
-              a phone. */}
-          <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
+          {/* One card per row, stacked — not a multi-column grid. Each card
+              already carries a lot (header + donut+legend + ring side by
+              side + its own expand panel); wrapping several of those into
+              columns left the donut/legend pair cramped for width. Full
+              width per card gives the pie chart and progress ring room to
+              sit adjacent to each other without competing with a neighbor
+              column for space. */}
+          <div className="space-y-5">
             {data.ipoProgress.map((p) => (
               <IpoDashboardCard
                 key={p.ipoId}
