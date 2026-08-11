@@ -29,16 +29,24 @@ const MAX_DIRECT_SLICES = 4
 // A raw bank-account holder_name ("Mohit") and a resolved profile full_name
 // ("Mohit Kumar Singh") can both refer to the same real person without ever
 // matching exactly — there's no link between an unlinked bank/UPI account
-// and a profile beyond the name someone typed in. First-token comparison is
-// the same "close enough" identity heuristic already used to display these
-// names (see AttributionChart's firstName truncation) — good enough at this
-// app's scale (a small, known set of family/friends) to stop e.g. "Mohit"
-// (a personal UPI's raw label) and "Mohit Kumar Singh" (the resolved
-// creator) from reading as two different people and splitting credit with
-// himself.
+// and a profile beyond the name someone typed in.
+//
+// Match rule: same first token, AND the shorter name's tokens are a strict
+// prefix of the longer one's ("Avinash" vs "Avinash Sir", "Mohit" vs "Mohit
+// Kumar Singh"). First-token-ALONE was tried first and is a real, confirmed
+// bug: this app's own real data has two different people who share a first
+// name ("Harsh Gandhi" and "Harsh Verma", both real funders on record) —
+// matching on first token only would have silently merged those two
+// distinct people into one slice. Requiring the rest of the shorter name to
+// prefix-match the longer one keeps the legitimate "nickname vs full name"
+// merge (one name has no second token to conflict with) while refusing to
+// merge two full names that happen to start the same way.
 function sameIdentity(a: string, b: string): boolean {
-  const firstToken = (s: string) => s.trim().toLowerCase().split(/\s+/)[0]
-  return firstToken(a) === firstToken(b)
+  const ta = a.trim().toLowerCase().split(/\s+/)
+  const tb = b.trim().toLowerCase().split(/\s+/)
+  if (ta[0] !== tb[0]) return false
+  const [shorter, longer] = ta.length <= tb.length ? [ta, tb] : [tb, ta]
+  return shorter.every((tok, i) => tok === longer[i])
 }
 
 // Per application: credit splits 0.5 to whoever funded it (the bank/UPI
@@ -54,25 +62,22 @@ function sameIdentity(a: string, b: string): boolean {
 // they're different people, whether or not the funder also happens to be
 // the demat holder. Falls back to full credit for the demat holder only
 // when there's no bank/UPI account on file to attribute funding to at all.
-// Summing into a name-keyed map is what makes every one-person-did-
-// everything case collapse to a plain 1 with no special-casing.
-// Grouping key for the credits map — first-token identity, same rule
-// sameIdentity() already used for the funder-vs-creator comparison below,
-// but applied here too so it also collapses two DIFFERENT unlinked bank
-// accounts that both belong to the same real person. Real bug this fixes:
-// funderName for an unlinked bank/UPI account (funder_user_id null) came
-// straight from that ONE bank_account row's own account_holder_name — if
-// the same person had two bank/UPI accounts on file with different
-// spellings ("Avinash" on one UPI, "Avinash sir" on another), each spelling
-// was previously used as its own literal map key, so credit for the same
-// person split across two separate slices instead of summing into one —
-// and if neither spelling's total cleared the top-4 cutoff on its own,
-// both silently fell into "Other" even though the person, correctly
-// counted, would have been a real named slice.
-function identityKey(name: string): string {
-  return name.trim().toLowerCase().split(/\s+/)[0] ?? name
-}
-
+// Summing into a name-matched list is what makes every one-person-did-
+// everything case collapse to a plain 1 with no special-casing. A plain
+// array + linear sameIdentity() scan, not a Map keyed by a cheap string —
+// there is no O(1) key that captures "same real person, spelled two ways"
+// correctly (see sameIdentity's own comment on why first-token-only was
+// wrong); this app's per-IPO contributor count is small (a known set of
+// family/friends), so the O(n) scan per add is irrelevant in practice.
+// Real bug this whole identity-matching path fixes: funderName for an
+// unlinked bank/UPI account (funder_user_id null) came straight from that
+// ONE bank_account row's own account_holder_name — if the same person had
+// two bank/UPI accounts on file with different spellings ("Avinash" on one
+// UPI, "Avinash sir" on another), each spelling used to be its own literal
+// entry, so credit for the same person split across two separate slices
+// instead of summing into one — and if neither spelling's total cleared
+// the top-4 cutoff alone, both could silently fall into "Other" even
+// though the person, correctly summed, would have been a real named slice.
 export function computeIpoAttribution(
   rows: ApplicationAttributionRow[],
   nameById: Map<string, string>,
@@ -81,27 +86,26 @@ export function computeIpoAttribution(
 
   const byIpo = new Map<
     string,
-    { companyName: string; openDate: string; credits: Map<string, { name: string; value: number }>; total: number }
+    { companyName: string; openDate: string; credits: { name: string; value: number }[]; total: number }
   >()
 
   for (const r of rows) {
     if (!byIpo.has(r.ipo_id)) {
-      byIpo.set(r.ipo_id, { companyName: r.company_name, openDate: r.open_date, credits: new Map(), total: 0 })
+      byIpo.set(r.ipo_id, { companyName: r.company_name, openDate: r.open_date, credits: [], total: 0 })
     }
     const entry = byIpo.get(r.ipo_id)!
     entry.total += 1
     const add = (name: string, amount: number) => {
-      const key = identityKey(name)
-      const existing = entry.credits.get(key)
+      const existing = entry.credits.find((c) => sameIdentity(c.name, name))
       if (existing) {
         existing.value += amount
         // Prefer the fuller name as the canonical display — a resolved
         // profile full_name ("Mohit Kumar Singh") over a bare UPI-account
         // label ("Mohit"), so the legend doesn't downgrade to whichever
-        // spelling happened to be added to the map first.
+        // spelling happened to be added to the list first.
         if (name.length > existing.name.length) existing.name = name
       } else {
-        entry.credits.set(key, { name, value: amount })
+        entry.credits.push({ name, value: amount })
       }
     }
 
@@ -121,7 +125,16 @@ export function computeIpoAttribution(
   }
 
   return Array.from(byIpo.entries()).map(([ipoId, entry]) => {
-    const sorted = Array.from(entry.credits.values()).sort((a, b) => b.value - a.value)
+    // Tie-break alphabetically, not left to whatever order they happened to
+    // land in the array — with 0.5/0.5 funder/creator splits, several
+    // contributors easily end up with an equal total (two people funding 2
+    // applications each both sit at 1.0), and sort() isn't guaranteed
+    // stable-on-ties across engines. Without a tie-break, which of two
+    // equal contributors made the top-4 cut vs which fell into "Other"
+    // could be effectively arbitrary and change between renders — not a
+    // real identity bug, but reads as one ("why is this person suddenly in
+    // Other now").
+    const sorted = [...entry.credits].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))
     const top = sorted.slice(0, MAX_DIRECT_SLICES)
     const rest = sorted.slice(MAX_DIRECT_SLICES)
     const restTotal = rest.reduce((s, x) => s + x.value, 0)

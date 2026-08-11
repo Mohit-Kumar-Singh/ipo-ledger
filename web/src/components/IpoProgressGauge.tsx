@@ -77,6 +77,12 @@ export function IpoProgressGauge({ applied, total }: { applied: number; total: n
         <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
           applied / active accounts
         </p>
+        {/* Was its own badge up in the card header — moved down here, right
+            under the ratio it's derived from, since "accounts left" is a
+            reading of this same ring, not a separate fact about the card. */}
+        {total - applied > 0 && (
+          <span className="badge badge-neutral mt-1.5 inline-block text-xs">{total - applied} left</span>
+        )}
       </div>
     </div>
   )
