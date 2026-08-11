@@ -56,6 +56,23 @@ function sameIdentity(a: string, b: string): boolean {
 // when there's no bank/UPI account on file to attribute funding to at all.
 // Summing into a name-keyed map is what makes every one-person-did-
 // everything case collapse to a plain 1 with no special-casing.
+// Grouping key for the credits map — first-token identity, same rule
+// sameIdentity() already used for the funder-vs-creator comparison below,
+// but applied here too so it also collapses two DIFFERENT unlinked bank
+// accounts that both belong to the same real person. Real bug this fixes:
+// funderName for an unlinked bank/UPI account (funder_user_id null) came
+// straight from that ONE bank_account row's own account_holder_name — if
+// the same person had two bank/UPI accounts on file with different
+// spellings ("Avinash" on one UPI, "Avinash sir" on another), each spelling
+// was previously used as its own literal map key, so credit for the same
+// person split across two separate slices instead of summing into one —
+// and if neither spelling's total cleared the top-4 cutoff on its own,
+// both silently fell into "Other" even though the person, correctly
+// counted, would have been a real named slice.
+function identityKey(name: string): string {
+  return name.trim().toLowerCase().split(/\s+/)[0] ?? name
+}
+
 export function computeIpoAttribution(
   rows: ApplicationAttributionRow[],
   nameById: Map<string, string>,
@@ -64,7 +81,7 @@ export function computeIpoAttribution(
 
   const byIpo = new Map<
     string,
-    { companyName: string; openDate: string; credits: Map<string, number>; total: number }
+    { companyName: string; openDate: string; credits: Map<string, { name: string; value: number }>; total: number }
   >()
 
   for (const r of rows) {
@@ -74,7 +91,18 @@ export function computeIpoAttribution(
     const entry = byIpo.get(r.ipo_id)!
     entry.total += 1
     const add = (name: string, amount: number) => {
-      entry.credits.set(name, (entry.credits.get(name) ?? 0) + amount)
+      const key = identityKey(name)
+      const existing = entry.credits.get(key)
+      if (existing) {
+        existing.value += amount
+        // Prefer the fuller name as the canonical display — a resolved
+        // profile full_name ("Mohit Kumar Singh") over a bare UPI-account
+        // label ("Mohit"), so the legend doesn't downgrade to whichever
+        // spelling happened to be added to the map first.
+        if (name.length > existing.name.length) existing.name = name
+      } else {
+        entry.credits.set(key, { name, value: amount })
+      }
     }
 
     const funderName = r.funder_user_id ? nameFor(r.funder_user_id) : r.funder_name
@@ -93,9 +121,7 @@ export function computeIpoAttribution(
   }
 
   return Array.from(byIpo.entries()).map(([ipoId, entry]) => {
-    const sorted = Array.from(entry.credits.entries())
-      .map(([name, value]) => ({ name, value }))
-      .sort((a, b) => b.value - a.value)
+    const sorted = Array.from(entry.credits.values()).sort((a, b) => b.value - a.value)
     const top = sorted.slice(0, MAX_DIRECT_SLICES)
     const rest = sorted.slice(MAX_DIRECT_SLICES)
     const restTotal = rest.reduce((s, x) => s + x.value, 0)

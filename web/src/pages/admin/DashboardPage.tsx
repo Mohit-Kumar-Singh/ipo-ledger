@@ -4,8 +4,7 @@ import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon } from '
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
-import { AttributionChart } from '../../components/AttributionChart'
-import { IpoProgressGauge } from '../../components/IpoProgressGauge'
+import { IpoDashboardCard } from '../../components/IpoDashboardCard'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
@@ -39,6 +38,9 @@ interface IpoProgress {
   companyName: string
   openDate: string
   endDate: string
+  closeDate: string
+  allotmentDate: string | null
+  listingDate: string | null
   applied: number
   totalActive: number
   gmpNotes: string | null
@@ -118,7 +120,19 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
-  const [expandedIpoId, setExpandedIpoId] = useState<string | null>(null)
+  // A Set, not a single "currently expanded" id — each IpoDashboardCard
+  // owns its own expand state and several can be open across the grid at
+  // once, independent of each other, not a single shared panel that only
+  // one card at a time can claim.
+  const [expandedIpoIds, setExpandedIpoIds] = useState<Set<string>>(new Set())
+  function toggleExpanded(ipoId: string) {
+    setExpandedIpoIds((s) => {
+      const next = new Set(s)
+      if (next.has(ipoId)) next.delete(ipoId)
+      else next.add(ipoId)
+      return next
+    })
+  }
   // Fires the high-GMP heads-up as a toast once per calendar day, not on
   // every visit to (or realtime-triggered reload of) the Dashboard — a
   // plain useRef only survives while this component stays mounted, so
@@ -202,6 +216,9 @@ export function DashboardPage() {
             companyName: ipo.company_name,
             openDate: ipo.open_date,
             endDate: ipo.listing_date ?? ipo.close_date,
+            closeDate: ipo.close_date,
+            allotmentDate: ipo.allotment_date,
+            listingDate: ipo.listing_date,
             applied: appliedIds.size,
             totalActive,
             gmpNotes: ipo.gmp_notes,
@@ -291,6 +308,15 @@ export function DashboardPage() {
 
   if (loading || !data) return <DashboardSkeleton />
 
+  // Attribution is computed from a separately-scoped set of rows (top-8
+  // most-recently-opened IPOs — see topRecentIpoAttributionRows) than
+  // ipoProgress (every currently-live IPO with at least one application),
+  // so the two lists don't always cover exactly the same IPOs. Looked up
+  // per card rather than assumed present — IpoDashboardCard already treats
+  // a missing attribution as "no donut for this one" (still renders the
+  // progress ring), not an error.
+  const attributionByIpoId = new Map(data.attribution.map((a) => [a.ipoId, a]))
+
   return (
     <div className="space-y-8">
       <div>
@@ -342,118 +368,40 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* flex, not a 2-col grid — a grid column stretches its section to a
-          fixed 50% share regardless of how many fixed-260px tiles are
-          actually in it, which is exactly what left a dead gap between a
-          half-full IPO-progress column and the credit-by-IPO column
-          starting well to the right of it. A flex row lets each section
-          size to its own content (flex-wrap tiles inside), so the two
-          sections sit right next to each other with just the gap between,
-          and only the last row's leftover space (if any) lands at the far
-          right instead of splitting the two sections apart.
-          lg:, not xl: — Tailwind breakpoints match the whole browser
-          viewport, not this column's own available width, which is
-          viewport minus the ~256px sidebar. At xl (1280px) that meant a
-          1280-1400px-wide laptop window (256px sidebar + ~1000-1150px of
-          actual content) fell just short of qualifying, so it rendered in
-          the flex-col (stacked) fallback — but with each section's own
-          content still only as wide as its cards, that stacked layout put
-          the (narrower) IPO-progress column on top with a big swath of
-          unused width beside it, exactly like the wide gap this was
-          originally meant to fix. lg (1024px) accounts for the sidebar
-          eating real width so row layout actually kicks in on ordinary
-          laptop screens, not just very wide monitors. */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        {data.ipoProgress.length > 0 && (
-          <section className="min-w-0">
-            <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              IPO progress
-            </h2>
-            {/* Flexbox, not CSS grid: a grid item can only grow by spanning
-                whole tracks, which snaps the tile to double width the instant
-                the span changes (before the inner content even starts
-                animating). flex-basis is itself a transitionable property, so
-                switching to flex-wrap lets the expanding tile's width animate
-                smoothly in one continuous motion instead of jump-then-reveal. */}
-            <div className="flex flex-wrap gap-5">
-              {data.ipoProgress.map((p) => {
-                const expanded = expandedIpoId === p.ipoId
-                return (
-                  <div
-                    key={p.ipoId}
-                    style={{
-                      // min(…, 100%) — plain px flex-basis with flexShrink:0
-                      // refuses to shrink below that width even when the
-                      // viewport itself is narrower (a phone screen), which is
-                      // exactly what clipped the expanded 500px panel off the
-                      // right edge of a 375px window. Capping the basis at the
-                      // container's own width means there's nothing left to
-                      // overflow, on any screen size.
-                      flexBasis: expanded ? 'min(500px, 100%)' : 'min(260px, 100%)',
-                      flexGrow: 0,
-                      flexShrink: 0,
-                      // Matches the Application-credit tiles' own minHeight
-                      // (§ same-size request) so a gauge and a donut card
-                      // always line up, not just in width. display:flex so
-                      // the glass-card child (a normal block by default)
-                      // actually stretches to fill this height instead of
-                      // leaving blank space below a shorter card.
-                      display: 'flex',
-                      minHeight: 280,
-                      transition: 'flex-basis 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
-                    }}
-                  >
-                    <IpoProgressGauge
-                      companyName={p.companyName}
-                      startDate={p.openDate}
-                      endDate={p.endDate}
-                      applied={p.applied}
-                      total={p.totalActive}
-                      gmpNotes={p.gmpNotes}
-                      subscriptionRate={p.subscriptionRate}
-                      remainingHolderNames={p.remainingHolderNames}
-                      expanded={expanded}
-                      onToggleExpanded={() => setExpandedIpoId((id) => (id === p.ipoId ? null : p.ipoId))}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </section>
-        )}
-
-        <section className="min-w-0">
+      {data.ipoProgress.length > 0 && (
+        <section>
           <h2 className="section-heading mb-3 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Application credit by IPO
+            IPOs
           </h2>
-          {data.attribution.length === 0 ? (
-            <p className="glass-card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
-              No applications yet.
-            </p>
-          ) : (
-            // Same flex-wrap + fixed-flexBasis sizing as the IPO progress
-            // tiles above (not a fluid grid), and the same minHeight — but
-            // a wider flexBasis (320 vs the gauge's 260): this chart's donut
-            // sits beside a legend, not above/below one, and at 260px the
-            // legend names were truncating hard enough to defeat the whole
-            // point of the earlier "Other" breakdown fix (a name goes
-            // unreadable again, just via ellipsis instead of a hidden
-            // bucket). Legibility over exact width-matching between the two
-            // tile types.
-            <div className="flex flex-wrap gap-5">
-              {data.attribution.map((a) => (
-                <div
-                  key={a.ipoId}
-                  className="glass-card stagger-item flex min-w-0 flex-col justify-center p-4"
-                  style={{ flexBasis: 'min(320px, 100%)', flexGrow: 0, flexShrink: 0, minHeight: 280 }}
-                >
-                  <AttributionChart attribution={a} />
-                </div>
-              ))}
-            </div>
-          )}
+          {/* auto-fill grid, not flex-wrap — each card is now self-contained
+              (header + both charts + its own expand panel) rather than two
+              separate fixed-width tile types that had to be manually kept
+              in width/height sync with each other. minmax(360px, 1fr) gives
+              the donut+legend+ring pair inside enough room to sit side by
+              side without truncating, while still wrapping to one column on
+              a phone. */}
+          <div className="grid gap-5" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))' }}>
+            {data.ipoProgress.map((p) => (
+              <IpoDashboardCard
+                key={p.ipoId}
+                companyName={p.companyName}
+                openDate={p.openDate}
+                closeDate={p.closeDate}
+                allotmentDate={p.allotmentDate}
+                listingDate={p.listingDate}
+                gmpNotes={p.gmpNotes}
+                subscriptionRate={p.subscriptionRate}
+                applied={p.applied}
+                totalActive={p.totalActive}
+                remainingHolderNames={p.remainingHolderNames}
+                attribution={attributionByIpoId.get(p.ipoId)}
+                expanded={expandedIpoIds.has(p.ipoId)}
+                onToggleExpanded={() => toggleExpanded(p.ipoId)}
+              />
+            ))}
+          </div>
         </section>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Section title="IPOs closing within 7 days" empty="Nothing closing soon" scrollAfter={6}>

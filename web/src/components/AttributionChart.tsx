@@ -23,7 +23,19 @@ function firstName(name: string): string {
 // with a soft drop-shadow for lift, a diagonal glass-sheen highlight, and
 // the total app count centered in the hole, none of which the original
 // flat donut had either.
-export function AttributionChart({ attribution, compact = false }: { attribution: IpoAttribution; compact?: boolean }) {
+export function AttributionChart({
+  attribution,
+  compact = false,
+  hideHeader = false,
+}: {
+  attribution: IpoAttribution
+  compact?: boolean
+  // The unified Dashboard IPO card (IpoDashboardCard) already shows the
+  // company name in its own header — without this, that name (and the "N
+  // apps" count) rendered a second time immediately above the donut.
+  // ProfilePage's standalone usage keeps the header (default false).
+  hideHeader?: boolean
+}) {
   const { companyName, totalApplications, slices } = attribution
   const [grown, setGrown] = useState(false)
 
@@ -53,17 +65,19 @@ export function AttributionChart({ attribution, compact = false }: { attribution
 
   return (
     <div className="min-w-0">
-      <div className="mb-2 flex items-baseline justify-between gap-2">
-        <p
-          className={`truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
-          style={{ color: 'var(--ink-primary)' }}
-        >
-          {companyName}
-        </p>
-        <span className="font-mono-ipo shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          {totalApplications} app{totalApplications === 1 ? '' : 's'}
-        </span>
-      </div>
+      {!hideHeader && (
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <p
+            className={`truncate ${compact ? 'text-sm font-medium' : 'text-sm font-semibold'}`}
+            style={{ color: 'var(--ink-primary)' }}
+          >
+            {companyName}
+          </p>
+          <span className="font-mono-ipo shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            {totalApplications} app{totalApplications === 1 ? '' : 's'}
+          </span>
+        </div>
+      )}
 
       <div className="flex min-w-0 items-center gap-4">
         <div className="relative shrink-0" style={{ width: size, height: size }}>
