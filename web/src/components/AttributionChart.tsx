@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
+// Cycled via modulo, not capped — every funder gets a real slice now (no
+// "Other" bucket to absorb anyone past a fixed count), so with more than 4
+// contributors on one IPO the palette repeats rather than running out.
 const SERIES_VARS = ['--series-1', '--series-2', '--series-3', '--series-4', '--series-other']
 const SERIES_GLOW_VARS = ['--glow-series-1', '--glow-series-2', '--glow-series-3', '--glow-series-4']
 
@@ -8,13 +11,6 @@ function formatCount(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
-// First token of the name only ("Mohit Kumar Singh" -> "Mohit") — the
-// legend needs to fit name + count in a two-column grid, and the count
-// matters more there than the full name (full name is still shown as the
-// tile/page's own heading context elsewhere).
-function firstName(name: string): string {
-  return name.trim().split(/\s+/)[0] ?? name
-}
 
 // Hand-rolled glassy donut (stacked stroke-dasharray arcs on a shared
 // circle, same spirit as every other chart in this app — no library). Went
@@ -116,7 +112,7 @@ export function AttributionChart({
                   cy={cy}
                   r={r}
                   fill="none"
-                  stroke={`var(${SERIES_VARS[i] ?? '--series-other'})`}
+                  stroke={`var(${SERIES_VARS[i % SERIES_VARS.length]})`}
                   strokeWidth={strokeWidth}
                   strokeLinecap="round"
                   pathLength={100}
@@ -159,43 +155,22 @@ export function AttributionChart({
           </div>
         </div>
 
-        {/* Two-column legend grid, name + count only — no percentage.
-            "Other" folds several small contributors into one slice/color,
-            but each of their own counts still gets its own grid entry here
-            (same dot color as the slice, dimmed) rather than only a hover
-            tooltip, which is easy to miss and unreachable on touch. */}
-        {/* Single column, not a 2-col grid — this legend sits beside the
-            ring in a fairly narrow tile, and two columns there left names
-            truncating hard enough to defeat the earlier "Other" breakdown
-            fix (a name goes unreadable again, just via ellipsis instead of
-            a hidden bucket). */}
+        {/* Single column, not a 2-col grid — narrow tile, and two columns
+            there left names truncating hard. Every funder gets a real
+            legend line now — no "Other" bucket, so no separate dimmed
+            "member" sub-entries either; this is just the full slice list. */}
         <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
-          {geometry.flatMap((s, i) => {
-            const mainEntry = (
-              <div key={s.name} className="flex min-w-0 items-center gap-1.5">
-                <span
-                  className="inline-block h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})` }}
-                />
-                <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
-                  {firstName(s.name)} — {formatCount(s.value)}
-                </span>
-              </div>
-            )
-            if (!s.members || s.members.length === 0) return [mainEntry]
-            const memberEntries = s.members.map((m) => (
-              <div key={m.name} className="flex min-w-0 items-center gap-1.5">
-                <span
-                  className="inline-block h-2 w-2 shrink-0 rounded-full"
-                  style={{ background: `var(${SERIES_VARS[i] ?? '--series-other'})`, opacity: 0.55 }}
-                />
-                <span className="font-mono-ipo" style={{ color: 'var(--ink-muted)', wordBreak: 'break-word' }}>
-                  {firstName(m.name)} — {formatCount(m.value)}
-                </span>
-              </div>
-            ))
-            return [mainEntry, ...memberEntries]
-          })}
+          {geometry.map((s, i) => (
+            <div key={s.name} className="flex min-w-0 items-center gap-1.5">
+              <span
+                className="inline-block h-2 w-2 shrink-0 rounded-full"
+                style={{ background: `var(${SERIES_VARS[i % SERIES_VARS.length]})` }}
+              />
+              <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
+                {s.name} — {formatCount(s.value)}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

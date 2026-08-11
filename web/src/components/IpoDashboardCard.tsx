@@ -4,14 +4,12 @@ import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
 // One self-contained card per IPO — company name/GMP/subscription/dates up
-// top, the attribution donut and the progress ring side by side below,
-// click-anywhere-on-the-card to reveal that IPO's own "accounts yet to
-// apply" list. Previously these were two separately-laid-out pieces (a
-// gauge tile in one section, a donut tile in a different section entirely)
-// that only lined up by accident of matching widths/heights — genuinely
-// two different DOM subtrees for the same IPO, with only the gauge side
-// having any expand behavior at all. This is the single card the
-// Dashboard's grid renders per IPO now.
+// top, the attribution donut and the progress ring side by side below.
+// Clicking specifically the "N left" badge inside the gauge (not the card
+// at large) reveals that IPO's own "accounts yet to apply" list — the
+// whole card used to be one big click target, which meant clicking
+// anywhere near the donut/legend/dates to, say, read a name also toggled
+// the expand panel as an unwanted side effect.
 export function IpoDashboardCard({
   companyName,
   openDate,
@@ -45,23 +43,7 @@ export function IpoDashboardCard({
   const canExpand = accountsLeft > 0
 
   return (
-    <div
-      className={`glass-card stagger-item p-4 ${canExpand ? 'cursor-pointer' : ''}`}
-      role={canExpand ? 'button' : undefined}
-      tabIndex={canExpand ? 0 : undefined}
-      aria-expanded={canExpand ? expanded : undefined}
-      onClick={canExpand ? onToggleExpanded : undefined}
-      onKeyDown={
-        canExpand
-          ? (e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                onToggleExpanded()
-              }
-            }
-          : undefined
-      }
-    >
+    <div className="glass-card stagger-item p-4">
       {/* "N left" used to sit here as its own badge — moved down into
           IpoProgressGauge itself, directly under the applied/total ratio
           it's derived from, since it's a reading of the ring, not a
@@ -95,7 +77,12 @@ export function IpoDashboardCard({
         style={{ borderColor: 'var(--border)' }}
       >
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
-        <IpoProgressGauge applied={applied} total={totalActive} />
+        <IpoProgressGauge
+          applied={applied}
+          total={totalActive}
+          expanded={canExpand ? expanded : undefined}
+          onToggleExpanded={canExpand ? onToggleExpanded : undefined}
+        />
 
         {/* max-width + max-height, not conditional mounting — animates
             open/closed instead of snapping, same technique the old side

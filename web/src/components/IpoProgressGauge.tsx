@@ -13,7 +13,21 @@ import { useCountUp } from '../lib/useCountUp'
 // which now owns the whole per-IPO card: header, both charts side by side,
 // and the shared expand panel), keeping them here just duplicated what the
 // card already renders itself.
-export function IpoProgressGauge({ applied, total }: { applied: number; total: number }) {
+export function IpoProgressGauge({
+  applied,
+  total,
+  expanded,
+  onToggleExpanded,
+}: {
+  applied: number
+  total: number
+  // Only present when there's something to expand — the "N left" badge is
+  // the ONLY click target that opens the card's "accounts yet to apply"
+  // panel now (the whole card used to be clickable, which made clicking
+  // near the donut/legend/dates to read something also toggle it).
+  expanded?: boolean
+  onToggleExpanded?: () => void
+}) {
   const [grown, setGrown] = useState(false)
   useEffect(() => {
     const raf = requestAnimationFrame(() => setGrown(true))
@@ -79,9 +93,18 @@ export function IpoProgressGauge({ applied, total }: { applied: number; total: n
         </p>
         {/* Was its own badge up in the card header — moved down here, right
             under the ratio it's derived from, since "accounts left" is a
-            reading of this same ring, not a separate fact about the card. */}
-        {total - applied > 0 && (
-          <span className="badge badge-neutral mt-1.5 inline-block text-xs">{total - applied} left</span>
+            reading of this same ring, not a separate fact about the card.
+            The only click target for the "accounts yet to apply" panel —
+            see IpoDashboardCard/IpoProgressGauge prop comments. */}
+        {total - applied > 0 && onToggleExpanded && (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            aria-expanded={expanded}
+            className="badge badge-neutral mt-1.5 inline-block cursor-pointer text-xs"
+          >
+            {total - applied} left
+          </button>
         )}
       </div>
     </div>

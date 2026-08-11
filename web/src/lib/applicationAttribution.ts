@@ -3,13 +3,6 @@ import type { ApplicationAttributionRow } from '../types/database'
 export interface AttributionSlice {
   name: string
   value: number
-  // Only set on the synthetic "Other" slice — each individual folded into
-  // it, WITH their own count (not just their name), so the legend can list
-  // "Jigyansh — 1" etc. as real, readable text lines rather than only a
-  // hover tooltip someone could easily miss (and can't reach at all on
-  // touch) — restructured after exactly that complaint: a real
-  // contributor's count was invisible once they fell outside the top N.
-  members?: { name: string; value: number }[]
 }
 
 export interface IpoAttribution {
@@ -17,14 +10,8 @@ export interface IpoAttribution {
   companyName: string
   openDate: string
   totalApplications: number
-  slices: AttributionSlice[] // sorted desc, capped at top N + "Other"
+  slices: AttributionSlice[] // sorted desc — every funder, no "Other" cap
 }
-
-// 4, not the reference palette's full categorical set — validated via the
-// dataviz skill against this app's --series-* tokens on the adjacent-pair
-// gate (the relevant one for a legend-labeled donut, not the stricter
-// all-pairs gate that only applies to scatter/choropleth-style charts).
-const MAX_DIRECT_SLICES = 4
 
 // A raw bank-account holder_name ("Mohit") and a resolved profile full_name
 // ("Mohit Kumar Singh") can both refer to the same real person without ever
@@ -125,20 +112,13 @@ export function computeIpoAttribution(
   }
 
   return Array.from(byIpo.entries()).map(([ipoId, entry]) => {
-    // Tie-break alphabetically, not left to whatever order they happened to
-    // land in the array — with 0.5/0.5 funder/creator splits, several
-    // contributors easily end up with an equal total (two people funding 2
-    // applications each both sit at 1.0), and sort() isn't guaranteed
-    // stable-on-ties across engines. Without a tie-break, which of two
-    // equal contributors made the top-4 cut vs which fell into "Other"
-    // could be effectively arbitrary and change between renders — not a
-    // real identity bug, but reads as one ("why is this person suddenly in
-    // Other now").
-    const sorted = [...entry.credits].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))
-    const top = sorted.slice(0, MAX_DIRECT_SLICES)
-    const rest = sorted.slice(MAX_DIRECT_SLICES)
-    const restTotal = rest.reduce((s, x) => s + x.value, 0)
-    const slices = restTotal > 0 ? [...top, { name: 'Other', value: restTotal, members: rest }] : top
+    // Every funder gets a real, named slice — no "Other" bucket to fold
+    // anyone into. Tie-break alphabetically, not left to whatever order
+    // they happened to land in the array — with 0.5/0.5 funder/creator
+    // splits, several contributors easily end up with an equal total (two
+    // people funding 2 applications each both sit at 1.0), and sort()
+    // isn't guaranteed stable-on-ties across engines.
+    const slices = [...entry.credits].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name))
     return { ipoId, companyName: entry.companyName, openDate: entry.openDate, totalApplications: entry.total, slices }
   })
 }
