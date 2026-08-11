@@ -135,7 +135,7 @@ export function AllotmentBoardPage() {
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
   const registrarUrl = selectedIpo?.registrar_url || registrarLinks[selectedIpo?.registrar ?? '']
 
-  async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED') {
+  async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
     await supabase.from('applications').update({ status }).eq('id', applicationId)
     loadBoard(selectedIpoId)
   }
@@ -324,6 +324,16 @@ export function AllotmentBoardPage() {
                           Awaiting allotment
                         </span>
                       ))}
+                    {row.status === 'NOT_ALLOTTED' && (
+                      <button
+                        onClick={() => markStatus(row.application_id, 'APPLIED')}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--ink-muted)' }}
+                        title="Revert back to Applied"
+                      >
+                        Undo
+                      </button>
+                    )}
                   </td>
                 </tr>
                 )
@@ -352,6 +362,7 @@ export function AllotmentBoardPage() {
           onMarkPaid={markPaid}
           markingPaid={markingPaid}
           profitPersonName={profile?.full_name ?? ''}
+          onUndo={(id) => markStatus(id, 'APPLIED')}
         />
       )}
     </div>
@@ -369,6 +380,7 @@ function SoldPayoutsSection({
   onMarkPaid,
   markingPaid,
   profitPersonName,
+  onUndo,
 }: {
   rows: AllotmentBoardRow[]
   soldForms: Record<string, SoldFormState>
@@ -380,6 +392,11 @@ function SoldPayoutsSection({
   onMarkPaid: (applicationId: string, field: 'demat_cut_paid' | 'funder_share_paid') => void
   markingPaid: string | null
   profitPersonName: string
+  // Marking ALLOTTED (or NOT_ALLOTTED) used to be a one-way door — a
+  // mis-click had no way back short of editing the DB row directly. Only
+  // offered for ALLOTTED, not SOLD: reverting a sale needs unwinding the
+  // sell_price/payout-paid fields too, which this button doesn't touch.
+  onUndo: (applicationId: string) => void
 }) {
   return (
     <div className="space-y-3">
@@ -417,6 +434,16 @@ function SoldPayoutsSection({
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
                         {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && (
+                      <button
+                        onClick={() => onUndo(row.application_id)}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--ink-muted)' }}
+                        title="Revert back to Applied"
+                      >
+                        Undo
                       </button>
                     )}
                   </div>

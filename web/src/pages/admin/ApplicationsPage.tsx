@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode 
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -727,8 +727,31 @@ export function ApplicationsPage() {
                           </>
                         )}
                         {isOwner && a.status === 'ALLOTTED' && (
-                          <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
-                            Mark sold
+                          <>
+                            <button onClick={() => markStatus(a.id, 'SOLD')} className="link-accent text-xs font-medium">
+                              Mark sold
+                            </button>
+                            <button
+                              onClick={() => markStatus(a.id, 'APPLIED')}
+                              className="text-xs font-medium hover:underline"
+                              style={{ color: 'var(--ink-muted)' }}
+                              title="Revert back to Applied"
+                            >
+                              Undo
+                            </button>
+                          </>
+                        )}
+                        {/* A mis-click here (or on the Allotment board) used to
+                            have no way back short of editing the DB row
+                            directly. */}
+                        {isOwner && a.status === 'NOT_ALLOTTED' && (
+                          <button
+                            onClick={() => markStatus(a.id, 'APPLIED')}
+                            className="text-xs font-medium hover:underline"
+                            style={{ color: 'var(--ink-muted)' }}
+                            title="Revert back to Applied"
+                          >
+                            Undo
                           </button>
                         )}
                         {isOwner && (
@@ -1085,8 +1108,14 @@ function MultiDematSelect({
   alreadyAppliedIds?: Set<string>
 }) {
   const [open, setOpen] = useState(false)
-  const active = accounts.filter((a) => a.is_active)
-  const inactive = accounts.filter((a) => !a.is_active)
+  // Not-yet-applied accounts first within each group — the whole point of
+  // picking from this list for a new application is finding who still
+  // needs to apply, so they shouldn't be mixed in alphabetically behind
+  // names that are already done. .sort is stable (holder_name order was
+  // already applied server-side), so ties keep their original ordering.
+  const notYetApplied = (a: DematAccount) => !(alreadyAppliedIds?.has(a.id) ?? false)
+  const active = accounts.filter((a) => a.is_active).sort((a, b) => Number(notYetApplied(b)) - Number(notYetApplied(a)))
+  const inactive = accounts.filter((a) => !a.is_active).sort((a, b) => Number(notYetApplied(b)) - Number(notYetApplied(a)))
 
   function toggle(id: string) {
     onChange(selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id])
@@ -1158,12 +1187,8 @@ function MultiDematSelect({
                             <input type="checkbox" readOnly checked={selected.includes(a.id)} className="pointer-events-none" />
                             <span className="min-w-0 flex-1 truncate">{a.holder_name}</span>
                             {alreadyApplied && (
-                              <span
-                                className="shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
-                                style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
-                                title="Already has an application on this IPO"
-                              >
-                                Already applied
+                              <span className="shrink-0" title="Already has an application on this IPO">
+                                <CheckIcon size={14} fill="var(--good)" />
                               </span>
                             )}
                           </Command.Item>
