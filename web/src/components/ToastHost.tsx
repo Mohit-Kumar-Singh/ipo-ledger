@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Label, IconButton } from '@primer/react'
 import { XIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
 import { onToast } from '../lib/toast'
@@ -8,7 +7,17 @@ import { renderMessageBody } from '../lib/notificationTemplates'
 import { Panel } from './Panel'
 import type { Notification } from '../types/database'
 
+// Same tone names Primer's <Label variant> used — kept as the vocabulary
+// this file already speaks, mapped onto this app's own .badge-* classes
+// instead of importing @primer/react for one small pill.
 type LabelVariant = 'accent' | 'attention' | 'success' | 'danger' | 'secondary'
+const LABEL_BADGE_CLASS: Record<LabelVariant, string> = {
+  accent: 'badge-info',
+  attention: 'badge-warning',
+  success: 'badge-good',
+  danger: 'badge-critical',
+  secondary: 'badge-neutral',
+}
 
 interface RenderedToast {
   id: string
@@ -174,18 +183,28 @@ export function ToastHost() {
         <Panel
           key={t.id}
           className={`p-4 ${leavingIds.has(t.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
-          style={{ boxShadow: 'var(--shadow-floating-large)' }}
+          // Was var(--shadow-floating-large) — same never-defined-token bug
+          // AppShell's own aside shadow had, silently rendering no shadow at all.
+          style={{ boxShadow: 'var(--shadow-lg)' }}
         >
           <div className="flex items-start justify-between gap-2">
-            <Label variant={t.labelVariant}>{t.labelText}</Label>
-            <IconButton onClick={() => dismiss(t.id)} aria-label="Dismiss" icon={XIcon} variant="invisible" size="small" />
+            <span className={`badge ${LABEL_BADGE_CLASS[t.labelVariant]}`}>{t.labelText}</span>
+            <button
+              type="button"
+              onClick={() => dismiss(t.id)}
+              aria-label="Dismiss"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
+              style={{ color: 'var(--ink-muted)' }}
+            >
+              <XIcon size={14} />
+            </button>
           </div>
           {t.title && (
-            <p className="mt-2 text-xs font-medium" style={{ color: 'var(--fgColor-muted)' }}>
+            <p className="mt-2 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
               {t.title}
             </p>
           )}
-          <p className="mt-1 text-sm" style={{ color: 'var(--fgColor-default)' }}>
+          <p className="mt-1 text-sm" style={{ color: 'var(--ink-primary)' }}>
             {t.message}
           </p>
         </Panel>

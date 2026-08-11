@@ -8,6 +8,7 @@ import { showToast } from '../../lib/toast'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { ArchivedSection } from '../../components/ArchivedSection'
 
 const LOW_GMP_THRESHOLD = 10
 
@@ -608,25 +609,6 @@ export function IposPage() {
         </>
       )}
     </div>
-  )
-}
-
-// Collapsed by default — archived IPOs are still fully real (applications on
-// them keep working exactly as before), just out of the way of the main list.
-function ArchivedSection({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <section className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="text-sm font-medium hover:underline"
-        style={{ color: 'var(--ink-muted)' }}
-      >
-        {open ? '▾' : '▸'} Archived
-      </button>
-      {open && children}
-    </section>
   )
 }
 

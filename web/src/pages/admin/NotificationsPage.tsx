@@ -5,6 +5,7 @@ import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp 
 import { isLiveIpo } from '../../lib/ipoStatus'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { ArchivedSection } from '../../components/ArchivedSection'
 
 interface FunderApplicationDetail {
   holderName: string
@@ -153,6 +154,9 @@ export function NotificationsPage() {
     load()
   }
 
+  const visibleNotifications = notifications.filter((n) => !n.is_archived)
+  const archivedNotifications = notifications.filter((n) => n.is_archived)
+
   return (
     <div className="space-y-5">
       <div>
@@ -227,64 +231,109 @@ export function NotificationsPage() {
       {loading ? (
         <InlineSpinner />
       ) : (
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
-              <tr>
-                <th className="px-4 py-2.5 font-medium">Sent</th>
-                <th className="px-4 py-2.5 font-medium">To</th>
-                <th className="px-4 py-2.5 font-medium">Template</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Error</th>
-                <th className="px-4 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {notifications.map((n) => (
-                <tr key={n.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-                  <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
-                    {new Date(n.created_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-2.5">{n.to_phone}</td>
-                  <td className="px-4 py-2.5">{n.template_name}</td>
-                  <td className="px-4 py-2.5">
-                    <StatusBadge status={n.status} />
-                  </td>
-                  <td className="px-4 py-2.5" style={{ color: 'var(--critical)' }}>
-                    {n.error_detail ?? ''}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {(n.status === 'QUEUED' || n.status === 'FAILED') && (
-                      <button
-                        onClick={() => dispatch(n)}
-                        disabled={retrying === n.id}
-                        className="link-accent text-xs font-medium disabled:opacity-50"
-                      >
-                        {retrying === n.id
-                          ? isAdmin
-                            ? 'Sending…'
-                            : 'Opening…'
-                          : isAdmin
-                            ? n.status === 'FAILED'
-                              ? 'Retry'
-                              : 'Send'
-                            : 'Open WhatsApp'}
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {notifications.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
-                    No messages sent yet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <NotificationsTable
+            notifications={visibleNotifications}
+            emptyLabel="No messages sent yet."
+            isAdmin={isAdmin}
+            retrying={retrying}
+            onDispatch={dispatch}
+          />
+
+          {/* Notifications for an application whose IPO ended up NOT_ALLOTTED
+              (or never got an allotment status at all) more than 3 days past
+              the IPO's own allotment_date archive themselves here on their
+              own (daily cron sweep, migration 0050) — same "out of the way,
+              never deleted" pattern as archived IPOs. */}
+          {archivedNotifications.length > 0 && (
+            <ArchivedSection>
+              <NotificationsTable
+                notifications={archivedNotifications}
+                emptyLabel="Nothing archived."
+                isAdmin={isAdmin}
+                retrying={retrying}
+                onDispatch={dispatch}
+              />
+            </ArchivedSection>
+          )}
+        </>
       )}
+    </div>
+  )
+}
+
+// Extracted so the same table renders both the active list and the
+// collapsed archived one, instead of two copies of the same markup.
+function NotificationsTable({
+  notifications,
+  emptyLabel,
+  isAdmin,
+  retrying,
+  onDispatch,
+}: {
+  notifications: Notification[]
+  emptyLabel: string
+  isAdmin: boolean
+  retrying: string | null
+  onDispatch: (n: Notification) => void
+}) {
+  return (
+    <div className="card overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
+          <tr>
+            <th className="px-4 py-2.5 font-medium">Sent</th>
+            <th className="px-4 py-2.5 font-medium">To</th>
+            <th className="px-4 py-2.5 font-medium">Template</th>
+            <th className="px-4 py-2.5 font-medium">Status</th>
+            <th className="px-4 py-2.5 font-medium">Error</th>
+            <th className="px-4 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
+          {notifications.map((n) => (
+            <tr key={n.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
+              <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
+                {new Date(n.created_at).toLocaleString()}
+              </td>
+              <td className="px-4 py-2.5">{n.to_phone}</td>
+              <td className="px-4 py-2.5">{n.template_name}</td>
+              <td className="px-4 py-2.5">
+                <StatusBadge status={n.status} />
+              </td>
+              <td className="px-4 py-2.5" style={{ color: 'var(--critical)' }}>
+                {n.error_detail ?? ''}
+              </td>
+              <td className="px-4 py-2.5">
+                {(n.status === 'QUEUED' || n.status === 'FAILED') && (
+                  <button
+                    onClick={() => onDispatch(n)}
+                    disabled={retrying === n.id}
+                    className="link-accent text-xs font-medium disabled:opacity-50"
+                  >
+                    {retrying === n.id
+                      ? isAdmin
+                        ? 'Sending…'
+                        : 'Opening…'
+                      : isAdmin
+                        ? n.status === 'FAILED'
+                          ? 'Retry'
+                          : 'Send'
+                        : 'Open WhatsApp'}
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+          {notifications.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                {emptyLabel}
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   )
 }

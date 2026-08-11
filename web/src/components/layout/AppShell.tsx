@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { IconButton, NavList } from '@primer/react'
 import {
   BellIcon,
   ChecklistIcon,
@@ -164,26 +163,20 @@ export function AppShell() {
       <ToastHost />
       <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
-      {/* Fullscreen toggle — small icon, fixed top-right corner, same spot
-          on every page (video-player convention). Lives outside the aside
-          so it's reachable regardless of sidebar collapse state. */}
-      <button
-        type="button"
-        onClick={toggleFullscreen}
-        aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        className="fixed top-3 right-3 z-50 flex h-8 w-8 items-center justify-center rounded-md transition-colors"
-        style={{ background: 'var(--hover-surface)', color: 'var(--header-fg-muted)' }}
-      >
-        {isFullscreen ? <ScreenNormalIcon size={16} /> : <ScreenFullIcon size={16} />}
-      </button>
-
       {/* Mobile-only slim top bar — the sidebar below is off-canvas until opened */}
       <div
         className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 md:hidden"
         style={{ background: 'var(--header-bg)', borderColor: 'var(--border)' }}
       >
-        <IconButton onClick={() => setNavOpen(true)} aria-label="Open menu" icon={ThreeBarsIcon} variant="invisible" />
+        <button
+          type="button"
+          onClick={() => setNavOpen(true)}
+          aria-label="Open menu"
+          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
+          style={{ color: 'var(--header-fg-muted)' }}
+        >
+          <ThreeBarsIcon size={16} />
+        </button>
       </div>
 
       {/* Backdrop for mobile drawer */}
@@ -251,91 +244,125 @@ export function AppShell() {
           </button>
         </div>
 
-        {/* Nav */}
+        {/* Fullscreen toggle — moved in from a fixed top-right floating
+            button outside the sidebar entirely. Its own row (not squeezed
+            into the identity row above) so it doesn't reopen the same
+            64px-collapsed-rail width fight that row's own comment already
+            documents — one centered icon, full row width, needs no
+            special-casing between collapsed/expanded beyond the row's own
+            margin/padding, which already shrinks the same way every other
+            row here does. */}
+        <div
+          className={`mb-1.5 flex items-center rounded-md py-1.5 transition-[margin,padding] duration-300 ${
+            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 justify-start px-2'
+          }`}
+        >
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            {isFullscreen ? <ScreenNormalIcon size={14} /> : <ScreenFullIcon size={14} />}
+          </button>
+          <span className={`sidebar-fade ml-2 text-xs font-medium ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg-muted)' }}>
+            {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+          </span>
+        </div>
+
+        {/* Nav — plain NavLink rows, not @primer/react's NavList/ActionList
+            (removed app-wide: pulled in the whole primer/react +
+            styled-components runtime for components this app already had
+            hand-rolled Tailwind equivalents for everywhere else). A side
+            effect worth noting: NavList.Item sized to its own content by
+            default, which is what forced the w-full hack below it used to
+            need (the label collapsing to ~0 width shrank the item's actual
+            click target down to just the icon column) — a plain block-level
+            NavLink doesn't have that problem to begin with, so that
+            workaround is gone too, not just relocated. */}
         <nav className="sidebar-scroll flex-1 overflow-y-auto px-2 pt-1">
-          <NavList>
-            {links.map((l) => {
-              const Icon = l.icon
-              const isActive = l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)
-              // Only the Dashboard link has a natural home for this count
-              // today — pending link requests surface and get approved
-              // there, not on a dedicated page of their own.
-              const count = l.to === '/' ? pendingCount : 0
-              return (
-                <NavList.Item
-                  key={l.to}
-                  as={NavLink}
-                  to={l.to}
-                  data-tour={l.to}
-                  onClick={() => setNavOpen(false)}
-                  aria-current={isActive ? 'page' : undefined}
-                  title={collapsed ? l.label : undefined}
-                  // NavList.Item sizes to its own content by default — with
-                  // the label collapsed to ~0 width, that left the item's
-                  // (and its click target's) actual width as just the icon
-                  // column, ~31px out of the 48px row available inside the
-                  // 64px collapsed rail. Most of what visually reads as a
-                  // clickable row wasn't clickable at all. w-full makes the
-                  // hit target match the full row regardless of state.
-                  className="w-full"
-                  style={{
-                    color: isActive ? 'var(--accent)' : 'var(--header-fg)',
-                    marginBottom: 4,
-                    // Left corners square, not the uniform 6px the inactive
-                    // items use — with a rounded corner AND a 3px left
-                    // border together, the border follows the corner's arc
-                    // instead of sitting flush, so it read as a short,
-                    // detached vertical line/shadow floating next to the
-                    // rounded box rather than a clean accent bar flush
-                    // against it.
-                    borderRadius: isActive ? '0 6px 6px 0' : 6,
-                    // Left accent bar + background tint on the active item,
-                    // not just a text-color swap (KOVAREX retheme).
-                    borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
-                    background: isActive ? 'var(--accent-tint)' : undefined,
-                  }}
+          {links.map((l) => {
+            const Icon = l.icon
+            const isActive = l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)
+            // Only the Dashboard link has a natural home for this count
+            // today — pending link requests surface and get approved
+            // there, not on a dedicated page of their own.
+            const count = l.to === '/' ? pendingCount : 0
+            return (
+              <NavLink
+                key={l.to}
+                to={l.to}
+                data-tour={l.to}
+                onClick={() => setNavOpen(false)}
+                aria-current={isActive ? 'page' : undefined}
+                title={collapsed ? l.label : undefined}
+                className="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
+                style={{
+                  color: isActive ? 'var(--accent)' : 'var(--header-fg)',
+                  // Left corners square, not the uniform 6px the inactive
+                  // items use — with a rounded corner AND a 3px left
+                  // border together, the border follows the corner's arc
+                  // instead of sitting flush, so it read as a short,
+                  // detached vertical line/shadow floating next to the
+                  // rounded box rather than a clean accent bar flush
+                  // against it.
+                  borderRadius: isActive ? '0 6px 6px 0' : 6,
+                  // Left accent bar + background tint on the active item,
+                  // not just a text-color swap (KOVAREX retheme).
+                  borderLeft: isActive ? '3px solid var(--accent)' : '3px solid transparent',
+                  background: isActive ? 'var(--accent-tint)' : undefined,
+                }}
+              >
+                <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
+                {/* Always rendered (not conditionally mounted) — fades and
+                    narrows via .sidebar-fade in step with the sidebar's
+                    own width transition instead of instantly vanishing
+                    (md:hidden) while the rail was still visibly wide. */}
+                <span
+                  className={`sidebar-fade min-w-0 flex-1 truncate ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
+                  style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}
                 >
-                  <NavList.LeadingVisual>
-                    <Icon size={16} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
-                  </NavList.LeadingVisual>
-                  {/* Always rendered (not conditionally mounted) — fades and
-                      narrows via .sidebar-fade in step with the sidebar's
-                      own width transition instead of instantly vanishing
-                      (md:hidden) while the rail was still visibly wide. */}
+                  {l.label}
+                </span>
+                {count > 0 && (
                   <span
-                    className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
-                    style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg)' }}
+                    // Two real, caught-via-verification overflow bugs here,
+                    // not one: (1) min-width always wins over max-width in
+                    // CSS, so sidebar-fade-collapsed's max-width:0 couldn't
+                    // shrink this badge past its own min-w-[1.25rem] (20px);
+                    // (2) even after removing that, padding never shrinks
+                    // below its specified value just because max-width caps
+                    // the box smaller — px-1.5 py-0.5 (12px horizontal)
+                    // alone still overflowed the collapsed rail on its own.
+                    // Both min-width AND padding need to be conditional on
+                    // collapsed, not just max-width.
+                    className={`sidebar-fade inline-flex shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${collapsed ? 'sidebar-fade-collapsed px-0 py-0' : 'min-w-[1.25rem] px-1.5 py-0.5'}`}
+                    style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
                   >
-                    {l.label}
+                    {count}
                   </span>
-                  {count > 0 && (
-                    <NavList.TrailingVisual>
-                      <span
-                        className={`sidebar-fade inline-flex min-w-[1.25rem] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
-                        style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
-                      >
-                        {count}
-                      </span>
-                    </NavList.TrailingVisual>
-                  )}
-                </NavList.Item>
-              )
-            })}
-          </NavList>
+                )}
+              </NavLink>
+            )
+          })}
         </nav>
 
         {/* Logout + version */}
         <div className="px-2 pt-1 pb-3">
-          <NavList>
-            <NavList.Item as="button" onClick={signOut} title={collapsed ? 'Sign out' : undefined} style={{ color: 'var(--header-fg)' }}>
-              <NavList.LeadingVisual>
-                <SignOutIcon size={16} fill="var(--header-fg-muted)" />
-              </NavList.LeadingVisual>
-              <span className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg)' }}>
-                Sign out
-              </span>
-            </NavList.Item>
-          </NavList>
+          <button
+            type="button"
+            onClick={signOut}
+            title={collapsed ? 'Sign out' : undefined}
+            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
+            style={{ color: 'var(--header-fg)' }}
+          >
+            <SignOutIcon size={16} fill="var(--header-fg-muted)" />
+            <span className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg)' }}>
+              Sign out
+            </span>
+          </button>
           <p
             className={`sidebar-fade px-3 pt-2 text-[11px] ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
             style={{ color: 'var(--header-fg-muted)' }}

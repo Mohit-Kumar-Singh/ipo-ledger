@@ -18,9 +18,9 @@ export function Panel({
     <div
       className={className}
       style={{
-        background: 'var(--bgColor-default)',
-        border: '1px solid var(--borderColor-default)',
-        borderColor: danger ? 'var(--borderColor-danger-emphasis)' : undefined,
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderColor: danger ? 'var(--critical)' : undefined,
         borderRadius: 6,
         ...style,
       }}

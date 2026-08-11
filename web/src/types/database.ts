@@ -9,7 +9,7 @@ export type Registrar =
   | 'SKYLINE'
   | 'MAASHITLA'
   | 'OTHER'
-export type NotificationType = 'APPLIED' | 'ALLOTTED' | 'SELL_REMINDER' | 'CUSTOM' | 'GMP_ALERT'
+export type NotificationType = 'APPLIED' | 'ALLOTTED' | 'SELL_REMINDER' | 'CUSTOM' | 'GMP_ALERT' | 'ROLLUP'
 export type NotificationStatus = 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'SIMULATED'
 
 export interface Profile {
@@ -112,6 +112,7 @@ export interface Notification {
   error_detail: string | null
   created_at: string
   updated_at: string
+  is_archived: boolean
 }
 
 export interface AllotmentBoardRow {

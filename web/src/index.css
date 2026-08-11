@@ -13,15 +13,6 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
 
-/* Primer React's component CSS (TextInput, Button, etc.) reads var(--bgColor-default,
-   #fallback) and friends, expecting these to be defined wherever ThemeProvider's
-   [data-color-mode]/[data-light-theme]/[data-dark-theme] wrapper div sits — but
-   @primer/react doesn't pull in @primer/primitives' actual token CSS as a side
-   effect, so nothing ever defined them and every component fell back to its
-   light-mode default even in dark mode. Importing both explicitly is the real fix. */
-@import "@primer/primitives/dist/css/functional/themes/light.css";
-@import "@primer/primitives/dist/css/functional/themes/dark.css";
-
 :root {
   color-scheme: light;
 
@@ -114,25 +105,6 @@
   --blob-2: transparent;
   --blob-3: transparent;
 
-  /* Primer's own component CSS reads these var(--x, #fallback) directly —
-     BaseStyles is supposed to define them dynamically per color mode, but
-     that definition doesn't reliably reach descendants in this setup (Vite
-     + Tailwind v4's @layer ordering vs. Primer's runtime-injected styles),
-     so components like TextInput fell through to their light-mode fallback
-     even in dark mode. Defining the same names here directly guarantees a
-     real value is always present, regardless of that. */
-  --bgColor-default: var(--surface);
-  --bgColor-muted: var(--header-bg);
-  --bgColor-inset: var(--page);
-  --bgColor-accent-emphasis: var(--accent);
-  --bgColor-neutral-muted: var(--hover-surface);
-  --fgColor-default: var(--ink-primary);
-  --fgColor-muted: var(--ink-secondary);
-  --fgColor-accent: var(--accent);
-  --fgColor-onEmphasis: #ffffff;
-  --borderColor-default: var(--border);
-  --control-borderColor-rest: var(--border);
-  --shadow-resting-medium: var(--shadow-md);
 }
 
 :root[data-theme='dark'] {

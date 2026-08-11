@@ -71,6 +71,41 @@ async function handleDispatch(req: Request, notificationId: string): Promise<Res
   return new Response('ok', { status: 200, headers: cors })
 }
 
+interface BankRow {
+  account_holder_name?: string | null
+  bank_name?: string | null
+  last4?: string | null
+  upi_id?: string | null
+  phone_e164?: string | null
+}
+
+// The demat holder no longer gets notified at all — only whoever actually
+// funded the application (paid via their bank/UPI account). If that's the
+// same real person as the demat holder (no bank/UPI account on file, or
+// one on file with no separate phone/holder identity), there is no
+// "funder" distinct from the holder — that one person gets exactly one
+// message addressed to them directly, not a special "you funded your own
+// application" branch. Falls back to the demat holder's own phone only in
+// that same-person case, since there's nowhere else to send it.
+function resolveFunder(
+  holderName: string,
+  holderPhone: string,
+  b: BankRow | null,
+): { phone: string; name: string; sameAsHolder: boolean } {
+  const bankName = b?.account_holder_name || null
+  const bankPhone = b?.phone_e164 || null
+  const sameAsHolder = !bankName || bankName === holderName
+  if (sameAsHolder || !bankPhone) {
+    return { phone: holderPhone, name: holderName, sameAsHolder: true }
+  }
+  return { phone: bankPhone, name: bankName, sameAsHolder: false }
+}
+
+function formatBankDetail(b: BankRow | null): string {
+  if (!b) return ''
+  return [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ')
+}
+
 // Builds the message content and inserts it as QUEUED. No network call — the
 // admin sends it explicitly afterward via dispatchNotification().
 async function queueForApplication(applicationId: string, templateKind: TemplateKind) {
@@ -94,63 +129,34 @@ async function queueForApplication(applicationId: string, templateKind: Template
   if (!app) return
 
   const holderName = app.demat_accounts.holder_name as string
-  const phone = app.demat_accounts.phone_e164 as string
+  const holderPhone = app.demat_accounts.phone_e164 as string
   const companyName = app.ipos.company_name as string
-  const b = app.bank_accounts as
-    | {
-        account_holder_name?: string | null
-        bank_name?: string | null
-        last4?: string | null
-        upi_id?: string | null
-        phone_e164?: string | null
-      }
-    | null
-  // Bank/UPI accounts are no longer tied to a single demat holder — a bank
-  // account can belong to someone other than the demat account this
-  // application is on, so name whoever's bank/UPI it is when that differs
-  // from the demat holder, rather than assuming it's always their own.
-  const bankDetail = b
-    ? [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ')
-    : ''
-  const bank = b
-    ? b.account_holder_name && b.account_holder_name !== holderName
-      ? `${bankDetail || 'bank/UPI'} (${b.account_holder_name}'s)`
-      : bankDetail || 'your linked bank'
-    : 'your linked bank'
+  const b = app.bank_accounts as BankRow | null
+  const funder = resolveFunder(holderName, holderPhone, b)
+  const bankDetail = formatBankDetail(b)
+  const bankLabel = funder.sameAsHolder ? bankDetail || 'your linked bank' : bankDetail || 'their bank/UPI'
 
+  // Same body copy either way — who it's addressed to and whether the
+  // demat holder is named as a third party ("for X's account") is the only
+  // thing that changes based on funder.sameAsHolder, not a second template.
   const variables =
     templateKind === 'ipo_applied'
-      ? [holderName, companyName, bank, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`]
-      : [holderName, companyName, 'ALLOTTED', (app.ipos.listing_date as string | null) ?? 'TBA']
+      ? funder.sameAsHolder
+        ? [holderName, companyName, bankLabel, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`]
+        : [funder.name, companyName, holderName, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`]
+      : funder.sameAsHolder
+        ? [holderName, companyName, 'ALLOTTED', (app.ipos.listing_date as string | null) ?? 'TBA']
+        : [funder.name, companyName, holderName, (app.ipos.listing_date as string | null) ?? 'TBA']
 
   await admin.from('notifications').insert({
     application_id: applicationId,
     demat_id: app.demat_id,
     type: notifType,
-    to_phone: phone,
-    template_name: templateKind,
+    to_phone: funder.phone,
+    template_name: funder.sameAsHolder ? templateKind : `${templateKind}_funder`,
     variables: { params: variables },
     status: 'QUEUED',
   })
-
-  // On apply, also notify whoever's bank/UPI was actually used — if it's a
-  // different person than the demat holder and they gave a phone number.
-  // (Not done on allotment: that message is about the demat holder's
-  // shares, not the funds that were debited.)
-  if (templateKind === 'ipo_applied' && b?.phone_e164 && b.phone_e164 !== phone) {
-    const bankHolderName = b.account_holder_name || 'there'
-    await admin.from('notifications').insert({
-      application_id: applicationId,
-      demat_id: app.demat_id,
-      type: notifType,
-      to_phone: b.phone_e164,
-      template_name: 'ipo_applied_bank_holder',
-      variables: {
-        params: [bankHolderName, companyName, holderName, `${app.lots} lot(s) / ₹${app.bid_amount ?? '—'}`],
-      },
-      status: 'QUEUED',
-    })
-  }
 }
 
 // Actually sends (or simulates) a QUEUED/FAILED notification and updates its status.

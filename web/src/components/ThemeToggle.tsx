@@ -1,4 +1,3 @@
-import { IconButton, Button } from '@primer/react'
 import { SunIcon, MoonIcon } from '@primer/octicons-react'
 import { useTheme } from '../contexts/ThemeContext'
 
@@ -6,29 +5,32 @@ export function ThemeToggle({ iconOnly = false }: { iconOnly?: boolean }) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
   const label = isDark ? 'Switch to light theme' : 'Switch to dark theme'
+  const Icon = isDark ? SunIcon : MoonIcon
 
   if (iconOnly) {
     return (
-      <IconButton
+      <button
+        type="button"
         onClick={toggleTheme}
         aria-label={label}
         title={label}
-        icon={isDark ? SunIcon : MoonIcon}
-        variant="invisible"
-        size="small"
-      />
+        className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
+        style={{ color: 'var(--ink-muted)' }}
+      >
+        <Icon size={16} />
+      </button>
     )
   }
 
   return (
-    <Button
+    <button
+      type="button"
       onClick={toggleTheme}
       aria-label={label}
-      leadingVisual={isDark ? SunIcon : MoonIcon}
-      variant="invisible"
-      size="small"
+      className="btn-secondary flex items-center gap-1.5 text-sm"
     >
+      <Icon size={16} />
       {isDark ? 'Light' : 'Dark'}
-    </Button>
+    </button>
   )
 }

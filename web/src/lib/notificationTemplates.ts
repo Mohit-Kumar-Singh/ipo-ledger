@@ -5,7 +5,15 @@
 // is already going out from the sender's own WhatsApp number/contact card,
 // so appending their name again on every single message was redundant.
 
-export type TemplateName = 'ipo_applied' | 'ipo_allotted' | 'ipo_applied_bank_holder'
+export type TemplateName =
+  | 'ipo_applied'
+  | 'ipo_allotted'
+  | 'ipo_applied_funder'
+  | 'ipo_allotted_funder'
+  // Old name for ipo_applied_funder, kept only so historic notification
+  // rows created before this rename still render instead of falling
+  // through to the raw params-joined default.
+  | 'ipo_applied_bank_holder'
 
 // The portal's own origin, appended to every template body below so the
 // recipient has somewhere to go for details beyond what fits in a WhatsApp
@@ -34,12 +42,26 @@ export function renderMessageBody(templateName: string, params: string[]): strin
         `visible in your demat by listing.` +
         portalLine()
       )
+    case 'ipo_applied_funder':
     case 'ipo_applied_bank_holder':
       return (
         `Hi ${p(0)}, heads up — I've used your bank/UPI account for ${p(2)}'s *${p(1)}* IPO application (${p(3)}). ` +
         `You may get a UPI/ASBA mandate request from your bank; please approve it today.` +
         portalLine()
       )
+    case 'ipo_allotted_funder':
+      return (
+        `Hi ${p(0)}, good news! ${p(2)}'s *${p(1)}* IPO, funded through your account, has been *ALLOTTED* 🎉. ` +
+        `Listing date: *${p(3)}*.` +
+        portalLine()
+      )
+    case 'ipo_close_rollup':
+      // Body built server-side in full (grouped by application date, one
+      // line per demat account) — passed through as a single param rather
+      // than positional pieces, since the shape (N accounts, each on its
+      // own date) doesn't fit the fixed p(0)/p(1)/p(2)/p(3) slots every
+      // other template uses.
+      return `${p(0)}${portalLine()}`
     default:
       return params.join(' · ')
   }

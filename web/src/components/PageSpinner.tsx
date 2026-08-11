@@ -1,8 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Spinner as PrimerSpinner } from '@primer/react'
 
+// Hand-rolled spinner (a spinning ring via Tailwind's animate-spin), not
+// @primer/react's <Spinner> — that pulled in the whole primer/react +
+// styled-components runtime (~150KB+ of the app's eager main bundle) for
+// what's a single rotating circle, when every other visual in this app is
+// already plain Tailwind + this app's own CSS custom properties.
 export function Spinner({ size = 16 }: { size?: number }) {
-  return <PrimerSpinner size={size < 20 ? 'small' : 'medium'} />
+  return (
+    <div
+      className="animate-spin rounded-full border-2"
+      style={{ width: size, height: size, borderColor: 'var(--border-strong)', borderTopColor: 'var(--accent)' }}
+      role="status"
+      aria-label="Loading"
+    />
+  )
 }
 
 // True once a spinner has been mounted for a few seconds — long enough that
@@ -22,13 +33,10 @@ function useIsTakingAWhile(delayMs = 4000) {
 export function PageSpinner() {
   const slow = useIsTakingAWhile()
   return (
-    <div
-      className="flex min-h-screen flex-col items-center justify-center gap-3 px-4"
-      style={{ background: 'var(--bgColor-default)' }}
-    >
-      <PrimerSpinner size="large" />
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-4" style={{ background: 'var(--page)' }}>
+      <Spinner size={32} />
       {slow && (
-        <p className="max-w-xs text-center text-sm" style={{ color: 'var(--fgColor-muted)' }}>
+        <p className="max-w-xs text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           Still loading — if this app has been idle a few days, the free-tier database takes up to 30s to
           wake up. It'll be fast again after this.
         </p>
@@ -44,9 +52,9 @@ export function Skeleton({ className = '' }: { className?: string }) {
 export function InlineSpinner({ label = 'Loading…' }: { label?: string }) {
   const slow = useIsTakingAWhile()
   return (
-    <div className="flex flex-col gap-1 py-2 text-sm" style={{ color: 'var(--fgColor-muted)' }}>
+    <div className="flex flex-col gap-1 py-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
       <div className="flex items-center gap-2">
-        <PrimerSpinner size="small" />
+        <Spinner size={14} />
         {label}
       </div>
       {slow && (

@@ -1,8 +1,7 @@
-import { Suspense, lazy, type ReactNode } from 'react'
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { ThemeProvider as PrimerThemeProvider, BaseStyles } from '@primer/react'
 import { AuthProvider } from './contexts/AuthContext'
-import { ThemeProvider, useTheme } from './contexts/ThemeContext'
+import { ThemeProvider } from './contexts/ThemeContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { AppShell } from './components/layout/AppShell'
 import { ConfigBanner } from './components/ConfigBanner'
@@ -30,61 +29,34 @@ const NotificationsPage = lazy(() =>
 const SettingsPage = lazy(() => import('./pages/admin/SettingsPage').then((m) => ({ default: m.SettingsPage })))
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
-// Bridges this app's own light/dark toggle (ThemeContext, drives `data-theme`
-// on <html> for the existing custom CSS) into Primer's own color mode, so
-// there's one source of truth for theme instead of two independent toggles.
-function PrimerThemeBridge({ children }: { children: ReactNode }) {
-  const { theme } = useTheme()
-  return (
-    // key={theme} forces a full remount on toggle — Primer's ThemeProvider
-    // doesn't reliably recompute its injected styles from a changed
-    // colorMode prop alone (components like TextInput stayed light-styled
-    // after toggling), so this sidesteps whatever internal memoization is
-    // at play rather than fighting it.
-    <PrimerThemeProvider key={theme} colorMode={theme === 'dark' ? 'night' : 'day'}>
-      {/* BaseStyles ships its own fontFamily (Primer's default stack) on the
-          wrapper div, which silently overrides body's own font for every
-          Primer component (NavList, Button, etc.) — without this the
-          sidebar/nav would render in a different font than the hand-styled
-          Dashboard/IPO cards even though both intend the same body face.
-          Keep this in sync with body's font-family in index.css. */}
-      <BaseStyles style={{ fontFamily: "'Inter Variable', -apple-system, 'Segoe UI', sans-serif" }}>
-        {children}
-      </BaseStyles>
-    </PrimerThemeProvider>
-  )
-}
-
 function App() {
   return (
     <ErrorBoundary>
       <ThemeProvider>
-        <PrimerThemeBridge>
-          <BrowserRouter>
-            <AuthProvider>
-              <ConfigBanner />
-              <Suspense fallback={<PageSpinner />}>
-                <Routes>
-                  <Route path="/login" element={<LoginPage />} />
+        <BrowserRouter>
+          <AuthProvider>
+            <ConfigBanner />
+            <Suspense fallback={<PageSpinner />}>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
 
-                  <Route element={<ProtectedRoute />}>
-                    <Route element={<AppShell />}>
-                      <Route path="/" element={<DashboardPage />} />
-                      <Route path="/accounts" element={<AccountsPage />} />
-                      <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                      <Route path="/ipos" element={<IposPage />} />
-                      <Route path="/applications" element={<ApplicationsPage />} />
-                      <Route path="/allotment" element={<AllotmentBoardPage />} />
-                      <Route path="/notifications" element={<NotificationsPage />} />
-                      <Route path="/settings" element={<SettingsPage />} />
-                      <Route path="/profile" element={<ProfilePage />} />
-                    </Route>
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<AppShell />}>
+                    <Route path="/" element={<DashboardPage />} />
+                    <Route path="/accounts" element={<AccountsPage />} />
+                    <Route path="/bank-accounts" element={<BankAccountsPage />} />
+                    <Route path="/ipos" element={<IposPage />} />
+                    <Route path="/applications" element={<ApplicationsPage />} />
+                    <Route path="/allotment" element={<AllotmentBoardPage />} />
+                    <Route path="/notifications" element={<NotificationsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="/profile" element={<ProfilePage />} />
                   </Route>
-                </Routes>
-              </Suspense>
-            </AuthProvider>
-          </BrowserRouter>
-        </PrimerThemeBridge>
+                </Route>
+              </Routes>
+            </Suspense>
+          </AuthProvider>
+        </BrowserRouter>
       </ThemeProvider>
     </ErrorBoundary>
   )

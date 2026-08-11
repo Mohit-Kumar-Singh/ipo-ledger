@@ -1,6 +1,5 @@
-import { useState, type FormEvent } from 'react'
+import { useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
-import { Button, FormControl, TextInput, Flash } from '@primer/react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ThemeToggle } from '../components/ThemeToggle'
@@ -82,9 +81,9 @@ export function LoginPage() {
           <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
         </div>
 
-        <Button onClick={handleGoogle} block>
+        <button type="button" onClick={handleGoogle} className="btn-secondary w-full">
           Continue with Google
-        </Button>
+        </button>
 
         <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
           Creating an account gives you your own portal — add your demat/PAN and bank/UPI accounts and start
@@ -92,6 +91,45 @@ export function LoginPage() {
         </p>
       </div>
     </div>
+  )
+}
+
+// Plain label + .input, not @primer/react's FormControl/TextInput —
+// removed app-wide (see AppShell.tsx's own note): this app already has
+// .input everywhere else (IposPage, ApplicationsPage forms, ...), so this
+// was the one holdout still pulling in Primer for a text field.
+function Field({
+  label,
+  caption,
+  children,
+}: {
+  label: string
+  caption?: string
+  children: ReactNode
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+        {label}
+      </span>
+      {children}
+      {caption && (
+        <span className="mt-1 block text-xs" style={{ color: 'var(--ink-muted)' }}>
+          {caption}
+        </span>
+      )}
+    </label>
+  )
+}
+
+// Same shape as the error card ApplicationsPage/NotificationsPage already
+// use for load errors — a flat tinted line, not Primer's <Flash>.
+function InlineMessage({ tone, children }: { tone: 'danger' | 'success'; children: ReactNode }) {
+  const color = tone === 'danger' ? 'var(--critical)' : 'var(--good)'
+  return (
+    <p className="rounded-md border px-3 py-2 text-sm" style={{ borderColor: color, color }}>
+      {children}
+    </p>
   )
 }
 
@@ -112,24 +150,30 @@ function EmailSignInForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <FormControl required>
-        <FormControl.Label>Email</FormControl.Label>
-        <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" block />
-      </FormControl>
-      <FormControl required>
-        <FormControl.Label>Password</FormControl.Label>
-        <TextInput
+      <Field label="Email">
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          className="input"
+        />
+      </Field>
+      <Field label="Password">
+        <input
           type="password"
+          required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="current-password"
-          block
+          className="input"
         />
-      </FormControl>
-      {error && <Flash variant="danger">{error}</Flash>}
-      <Button type="submit" variant="primary" disabled={submitting} block>
+      </Field>
+      {error && <InlineMessage tone="danger">{error}</InlineMessage>}
+      <button type="submit" disabled={submitting} className="btn-primary w-full">
         {submitting ? 'Signing in…' : 'Sign in'}
-      </Button>
+      </button>
     </form>
   )
 }
@@ -178,41 +222,45 @@ function EmailRegisterForm() {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <FormControl required>
-        <FormControl.Label>Full name</FormControl.Label>
-        <TextInput value={fullName} onChange={(e) => setFullName(e.target.value)} block />
-      </FormControl>
-      <FormControl required>
-        <FormControl.Label>Email</FormControl.Label>
-        <TextInput type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" block />
-      </FormControl>
-      <FormControl required>
-        <FormControl.Label>Password</FormControl.Label>
-        <FormControl.Caption>8+ characters</FormControl.Caption>
-        <TextInput
+      <Field label="Full name">
+        <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
+      </Field>
+      <Field label="Email">
+        <input
+          type="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          autoComplete="email"
+          className="input"
+        />
+      </Field>
+      <Field label="Password" caption="8+ characters">
+        <input
           type="password"
+          required
           minLength={8}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"
-          block
+          className="input"
         />
-      </FormControl>
-      <FormControl required>
-        <FormControl.Label>Confirm password</FormControl.Label>
-        <TextInput
+      </Field>
+      <Field label="Confirm password">
+        <input
           type="password"
+          required
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           autoComplete="new-password"
-          block
+          className="input"
         />
-      </FormControl>
-      {error && <Flash variant="danger">{error}</Flash>}
-      {notice && <Flash variant="success">{notice}</Flash>}
-      <Button type="submit" variant="primary" disabled={submitting} block>
+      </Field>
+      {error && <InlineMessage tone="danger">{error}</InlineMessage>}
+      {notice && <InlineMessage tone="success">{notice}</InlineMessage>}
+      <button type="submit" disabled={submitting} className="btn-primary w-full">
         {submitting ? 'Creating account…' : 'Create account'}
-      </Button>
+      </button>
     </form>
   )
 }
