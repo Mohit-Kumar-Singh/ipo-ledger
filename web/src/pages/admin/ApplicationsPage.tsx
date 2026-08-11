@@ -40,6 +40,21 @@ function upiIdFor(a: ApplicationRow): string {
 
 type SortMode = 'recent' | 'funder' | 'upi'
 
+// Same eligibility rule the existing single-row "Not allotted" button
+// already used (owner + still APPLIED + allotment_date actually passed) —
+// extracted so the bulk "select all eligible in this IPO" checkbox can
+// compute the same set the per-row checkboxes are individually gated by,
+// without the two ever silently disagreeing.
+function isEligibleForNotAllotted(
+  a: ApplicationRow,
+  isAdmin: boolean,
+  profileId: string | undefined,
+  todayStr: string,
+): boolean {
+  const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profileId
+  return isOwner && a.status === 'APPLIED' && !!a.ipos.allotment_date && a.ipos.allotment_date <= todayStr
+}
+
 type ApplicationRow = Application & {
   ipos: Pick<Ipo, 'company_name' | 'allotment_date'>
   // null when RLS withholds the full row — that only happens for a
@@ -90,6 +105,12 @@ export function ApplicationsPage() {
   // name isn't sensitive), not a join, since applications' own RLS grant
   // doesn't extend to reading arbitrary profiles rows.
   const [mandateMarkerNames, setMandateMarkerNames] = useState<Map<string, string>>(new Map())
+  // Bulk "mark not allotted" — select several accounts (within one IPO's
+  // group, via its own "select all eligible" checkbox, or mixed across
+  // groups) and mark them all NOT_ALLOTTED in one action instead of
+  // clicking "Not allotted" on every row individually.
+  const [selectedForNotAllotted, setSelectedForNotAllotted] = useState<Set<string>>(new Set())
+  const [bulkMarking, setBulkMarking] = useState(false)
 
   async function revealPan(dematId: string) {
     setRevealingPan(dematId)
@@ -219,6 +240,34 @@ export function ApplicationsPage() {
     loadApplications()
   }
 
+  function toggleSelectedForNotAllotted(id: string) {
+    setSelectedForNotAllotted((s) => {
+      const next = new Set(s)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // One update per selected id rather than a single `.in('id', [...])`
+  // call — applications' own RLS write policy (p_apps_member_write) scopes
+  // by demat ownership per row, which a batched `.in()` update still
+  // respects, but a per-row result means one denied/failed row doesn't
+  // silently swallow the rest of a mixed-eligibility selection.
+  async function bulkMarkNotAllotted() {
+    if (selectedForNotAllotted.size === 0) return
+    setBulkMarking(true)
+    const ids = Array.from(selectedForNotAllotted)
+    const results = await Promise.all(
+      ids.map((id) => supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).eq('id', id))
+    )
+    setBulkMarking(false)
+    const failed = results.filter((r) => r.error).length
+    if (failed > 0) alert(`${failed} of ${ids.length} couldn't be updated.`)
+    setSelectedForNotAllotted(new Set())
+    loadApplications()
+  }
+
   // Goes through the set_mandate_status RPC (migration 0047), not a direct
   // table update — a funder only has SELECT on applications, and granting
   // funders a raw UPDATE just for the 3 mandate_* columns isn't possible
@@ -337,6 +386,38 @@ export function ApplicationsPage() {
         </div>
       )}
 
+      {/* Sticky, not inline in the flow — with several IPO groups on the
+          page, a selection made low down would otherwise scroll the action
+          bar out of view along with the rows it applies to. */}
+      {selectedForNotAllotted.size > 0 && (
+        <div
+          className="card sticky top-2 z-10 flex flex-wrap items-center justify-between gap-3 p-3 text-sm"
+          style={{ borderColor: 'var(--border-strong)' }}
+        >
+          <span style={{ color: 'var(--ink-primary)' }}>
+            {selectedForNotAllotted.size} account{selectedForNotAllotted.size === 1 ? '' : 's'} selected
+          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setSelectedForNotAllotted(new Set())}
+              className="text-xs font-medium hover:underline"
+              style={{ color: 'var(--ink-muted)' }}
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={bulkMarkNotAllotted}
+              disabled={bulkMarking}
+              className="btn-secondary text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {bulkMarking ? 'Marking…' : `Mark ${selectedForNotAllotted.size} not allotted`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {showForm && formDataLoading && <InlineSpinner label="Loading form…" />}
 
       {showForm && !formDataLoading && (
@@ -369,11 +450,44 @@ export function ApplicationsPage() {
         </p>
       ) : (
         <div className="space-y-6">
-          {groupedApplications.map(({ ipoName, items }) => (
+          {groupedApplications.map(({ ipoName, items }) => {
+            const eligibleIdsInGroup = items
+              .filter((a) => isEligibleForNotAllotted(a, isAdmin, profile?.id, todayStr))
+              .map((a) => a.id)
+            const allEligibleSelected =
+              eligibleIdsInGroup.length > 0 && eligibleIdsInGroup.every((id) => selectedForNotAllotted.has(id))
+
+            return (
             <div key={items[0].ipo_id}>
-              <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-                {ipoName}
-              </h2>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                  {ipoName}
+                </h2>
+                {/* Only shows once at least one application in this IPO's
+                    group is actually eligible for the bulk action — no point
+                    offering "select all" over a group with nothing to
+                    select. */}
+                {eligibleIdsInGroup.length > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    <input
+                      type="checkbox"
+                      checked={allEligibleSelected}
+                      onChange={() =>
+                        setSelectedForNotAllotted((s) => {
+                          const next = new Set(s)
+                          if (allEligibleSelected) {
+                            for (const id of eligibleIdsInGroup) next.delete(id)
+                          } else {
+                            for (const id of eligibleIdsInGroup) next.add(id)
+                          }
+                          return next
+                        })
+                      }
+                    />
+                    Select all not-allotted-eligible
+                  </label>
+                )}
+              </div>
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
                   const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
@@ -438,11 +552,21 @@ export function ApplicationsPage() {
                   // (mirrors set_mandate_status's own server-side check).
                   const canMarkMandate = isAdmin || a.bank_accounts?.linked_user_id === profile?.id
                   const mandateMarkerName = a.mandate_marked_by ? mandateMarkerNames.get(a.mandate_marked_by) : undefined
+                  const eligibleForNotAllotted = isEligibleForNotAllotted(a, isAdmin, profile?.id, todayStr)
 
                   return (
                     <Fragment key={a.id}>
                       {funderHeader}
                       <div className="stagger-item flex flex-wrap items-center gap-3 p-4">
+                      {eligibleForNotAllotted && (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${holderName} for bulk not-allotted`}
+                          checked={selectedForNotAllotted.has(a.id)}
+                          onChange={() => toggleSelectedForNotAllotted(a.id)}
+                          className="shrink-0"
+                        />
+                      )}
                       <div
                         className={`icon-badge icon-badge-${tone} shrink-0 text-xs font-semibold`}
                         style={{ width: '2.25rem', height: '2.25rem' }}
@@ -634,7 +758,8 @@ export function ApplicationsPage() {
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </div>
