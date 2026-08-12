@@ -129,6 +129,12 @@ export function NotificationsPage() {
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
+  // Notification rows only ever stored a raw phone number ("To") — useless
+  // for recognizing who a message actually went to at a glance. Built once
+  // from whatever demat/bank accounts RLS already lets this viewer see (no
+  // new grant, same rows the rest of the app already exposes to them), not
+  // stored on the notification itself.
+  const [phoneNames, setPhoneNames] = useState<Map<string, string>>(new Map())
   // Filters the funder cards below to only the applications entered today —
   // for the common case of "I just added a batch of applications this
   // morning, tell the funder about those specifically" instead of resending
@@ -137,7 +143,7 @@ export function NotificationsPage() {
 
   async function load() {
     setLoading(true)
-    const [notifRes, fundersRes] = await Promise.all([
+    const [notifRes, fundersRes, dematRes, bankRes] = await Promise.all([
       supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(200),
       isAdmin
         ? supabase
@@ -147,6 +153,8 @@ export function NotificationsPage() {
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
+      supabase.from('demat_accounts').select('phone_e164, holder_name'),
+      supabase.from('bank_accounts').select('phone_e164, account_holder_name'),
     ])
     if (notifRes.error) {
       alert(`Couldn't load notifications: ${notifRes.error.message}`)
@@ -155,6 +163,19 @@ export function NotificationsPage() {
     }
     setNotifications((notifRes.data ?? []) as Notification[])
     setFunderCards(buildFunderIpoCards((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
+
+    // Bank/UPI names win over demat holder names on a shared phone number —
+    // a notification's "To" is almost always the funder who needs to act on
+    // it (send a payment, confirm a mandate), not the demat holder it's
+    // about.
+    const nameMap = new Map<string, string>()
+    for (const d of (dematRes.data ?? []) as { phone_e164: string | null; holder_name: string }[]) {
+      if (d.phone_e164) nameMap.set(d.phone_e164, d.holder_name)
+    }
+    for (const b of (bankRes.data ?? []) as { phone_e164: string | null; account_holder_name: string | null }[]) {
+      if (b.phone_e164 && b.account_holder_name) nameMap.set(b.phone_e164, b.account_holder_name)
+    }
+    setPhoneNames(nameMap)
     setLoading(false)
   }
 
@@ -282,6 +303,7 @@ export function NotificationsPage() {
             isAdmin={isAdmin}
             retrying={retrying}
             onDispatch={dispatch}
+            phoneNames={phoneNames}
           />
 
           {/* Notifications for an application whose IPO ended up NOT_ALLOTTED
@@ -297,6 +319,7 @@ export function NotificationsPage() {
                 isAdmin={isAdmin}
                 retrying={retrying}
                 onDispatch={dispatch}
+                phoneNames={phoneNames}
               />
             </ArchivedSection>
           )}
@@ -314,12 +337,14 @@ function NotificationsTable({
   isAdmin,
   retrying,
   onDispatch,
+  phoneNames,
 }: {
   notifications: Notification[]
   emptyLabel: string
   isAdmin: boolean
   retrying: string | null
   onDispatch: (n: Notification) => void
+  phoneNames: Map<string, string>
 }) {
   return (
     <div className="card overflow-x-auto">
@@ -340,7 +365,13 @@ function NotificationsTable({
               <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
                 {new Date(n.created_at).toLocaleString()}
               </td>
-              <td className="px-4 py-2.5">{n.to_phone}</td>
+              <td className="px-4 py-2.5">
+                {phoneNames.has(n.to_phone) ? (
+                  <span title={n.to_phone}>{phoneNames.get(n.to_phone)}</span>
+                ) : (
+                  n.to_phone
+                )}
+              </td>
               <td className="px-4 py-2.5">{n.template_name}</td>
               <td className="px-4 py-2.5">
                 <StatusBadge status={n.status} />
