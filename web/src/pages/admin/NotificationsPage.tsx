@@ -29,14 +29,14 @@ interface FunderIpoCard {
 type ApplicationForFunderRow = {
   ipo_id: string
   lots: number
-  created_at: string
+  applied_at: string
   ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
   demat_accounts: { holder_name: string } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
 }
 
 // Local calendar day, not UTC — an application entered at 11pm IST is
-// "today" to whoever's looking at this page, even though its created_at
+// "today" to whoever's looking at this page, even though its applied_at
 // timestamp may already have rolled into tomorrow in UTC.
 function isToday(isoTimestamp: string): boolean {
   const d = new Date(isoTimestamp)
@@ -74,7 +74,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       holderName: r.demat_accounts?.holder_name ?? 'Unknown',
       upiId: r.bank_accounts?.upi_id ?? null,
       lots: r.lots,
-      createdAt: r.created_at,
+      createdAt: r.applied_at,
     })
   }
   return Array.from(byKey.values()).sort(
@@ -154,7 +154,7 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, created_at, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, applied_at, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
