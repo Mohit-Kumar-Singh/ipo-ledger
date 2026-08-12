@@ -256,7 +256,9 @@ export function IpojiSyncPanel({
   const [parseError, setParseError] = useState<string | null>(null)
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ created: number; mandateUpdated: number; failed: number } | null>(null)
+  const [result, setResult] = useState<{ created: number; alreadyExisted: number; mandateUpdated: number; failed: number } | null>(
+    null,
+  )
   const [errorDetails, setErrorDetails] = useState<string[]>([])
 
   async function handleParse() {
@@ -321,8 +323,22 @@ export function IpojiSyncPanel({
             is_backdated: true,
             imported_from_ipoji: true,
           })
-          if (error) console.error('ipoji sync — insert failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
-          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name}`, error }
+          // 23505 = unique_violation on (ipo_id, demat_id) — this pair was
+          // already applied for, most likely by an earlier sync run whose
+          // result this panel's local existingByKey hadn't picked up yet
+          // (created between page loads/parses). Same "duplicate insert
+          // race -> treat as already-there, not a failure" handling this
+          // app already uses for IPO upserts, not a new pattern.
+          const alreadyExists = error?.code === '23505'
+          if (error && !alreadyExists) {
+            console.error('ipoji sync — insert failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
+          }
+          return {
+            ok: !error || alreadyExists,
+            skipped: alreadyExists,
+            label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name}`,
+            error: alreadyExists ? null : error,
+          }
         }),
       ),
       Promise.all(
@@ -337,15 +353,16 @@ export function IpojiSyncPanel({
       ),
     ])
     setSubmitting(false)
-    const created = createOutcomes.filter((o) => o.ok).length
+    const created = createOutcomes.filter((o) => o.ok && !o.skipped).length
+    const alreadyExisted = createOutcomes.filter((o) => o.skipped).length
     const mandateUpdated = mandateOutcomes.filter((o) => o.ok).length
-    const failed = createOutcomes.length - created + (mandateOutcomes.length - mandateUpdated)
+    const failed = createOutcomes.filter((o) => !o.ok).length + mandateOutcomes.filter((o) => !o.ok).length
     setErrorDetails(
       [...createOutcomes, ...mandateOutcomes]
         .filter((o) => !o.ok)
         .map((o) => `${o.label}: ${o.error?.message ?? 'unknown error'}`),
     )
-    setResult({ created, mandateUpdated, failed })
+    setResult({ created, alreadyExisted, mandateUpdated, failed })
     setRows(null)
     setPasteText('')
     if (created > 0 || mandateUpdated > 0) onImported()
@@ -536,6 +553,7 @@ export function IpojiSyncPanel({
             <div>
               <p className="text-xs" style={{ color: result.failed ? 'var(--critical-text)' : 'var(--good-text)' }}>
                 Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s)
+                {result.alreadyExisted ? `, ${result.alreadyExisted} already existed (skipped)` : ''}
                 {result.failed ? `, ${result.failed} failed` : ''}.
               </p>
               {errorDetails.length > 0 && (
