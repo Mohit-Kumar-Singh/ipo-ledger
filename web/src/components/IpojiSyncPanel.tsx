@@ -26,12 +26,17 @@ const SYNC_SCRIPT_BASIC = `(() => {
   cards.forEach((card, i) => {
     const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
     const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+    // price/qty/amount labels are still used to LOCATE the status line
+    // (which sits right after them) — their VALUES aren't kept in the
+    // output. Price and lot size are already in the portal per-IPO, so
+    // scraping them again per application was pure redundant text to get
+    // wrong; qty/amount defaults to the IPO's own minimum lot on the portal
+    // side, editable by hand for the rare multi-lot application.
     const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
     if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines }); return; }
     rows.push({
       ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
-      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      appNumber: lines[appIdx + 1] || '',
       status: lines[amtIdx + 2] || '',
     });
   });
@@ -63,12 +68,13 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
     const card = cards[i];
     const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
     const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+    // price/qty/amount labels are still used to LOCATE the status line —
+    // their values aren't kept (see the fast script's comment for why).
     const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
     if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
     const row = {
       ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
-      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      appNumber: lines[appIdx + 1] || '',
       status: lines[amtIdx + 2] || '', upiId: '', panNumber: '',
     };
     try {
@@ -87,13 +93,34 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       let sheet = null;
       for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
       if (sheet) {
-        await sleep(500); // let the staggered field animation finish
+        // A fixed sleep here isn't enough — the fields animate in staggered
+        // (each with its own animation-delay), and reading mid-transition
+        // captured a BLEND of the previous card's still-fading-out text and
+        // this card's still-fading-in text (observed: two cards' price/
+        // qty/amount/status fields concatenated into one garbled row).
+        // Poll until the body's text stops changing between reads, so we
+        // only ever read a fully-settled sheet.
         const body = sheet.querySelector('#orderDetailBody') || sheet;
-        const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-        const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
-        if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
-        const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
-        if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
+        let prevText = null, stableReads = 0, text = '';
+        for (let t = 0; t < 15 && stableReads < 2; t++) {
+          await sleep(200);
+          text = body.innerText || '';
+          stableReads = text === prevText ? stableReads + 1 : 0;
+          prevText = text;
+        }
+        const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
+        // Cross-check: the settled text must actually contain THIS card's
+        // application number — if it doesn't, we're still looking at a
+        // stale/wrong sheet (e.g. it never advanced past the previous
+        // card), so don't trust anything read from it.
+        if (row.appNumber && !dLines.some(l => l.includes(row.appNumber))) {
+          errors.push({ card: i, stage: 'stale-sheet-content', gotText: text.slice(0, 200) });
+        } else {
+          const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
+          if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+          const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
+          if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
+        }
         if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
         else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
         await sleep(300);
@@ -118,9 +145,6 @@ interface ScrapedRow {
   ipo: string
   applicant: string
   appNumber: string
-  price: string
-  qty: string
-  amount: string
   status: string
   upiId?: string
   panNumber?: string
@@ -134,6 +158,10 @@ interface MatchedRow extends ScrapedRow {
   existingId: string | null
   existingMandate: MandateStatus | null
   guessedMandate: MandateStatus
+  // Not scraped — assumed the IPO's own minimum lot (matches every real
+  // application observed so far), computed once the IPO is matched.
+  // Editable afterward like any manually entered application for the rare
+  // case someone actually applied for more than one lot.
   lots: number | null
   amountNum: number | null
 }
@@ -251,9 +279,16 @@ function parseScrapedRows(text: string): { rows: ScrapedRow[]; skippedLabels: st
   return { rows, skippedLabels }
 }
 
-function parseAmount(s: string): number | null {
-  const n = Number(s.replace(/[^0-9.]/g, ''))
-  return Number.isFinite(n) && n > 0 ? n : null
+// One lot at the IPO's cutoff (highest) price — the retail default every
+// scraped application in practice matched exactly (ipoji's own qty/amount
+// were always lot_size and lot_size*price_high respectively before this was
+// dropped from scraping). Not scraped per-application anymore; see the
+// MatchedRow.lots comment for the multi-lot edge case this accepts.
+function defaultLotsAndAmount(ipo: Ipo | null): { lots: number | null; amount: number | null } {
+  if (!ipo) return { lots: null, amount: null }
+  const lots = 1
+  const amount = ipo.price_high != null ? ipo.lot_size * ipo.price_high : null
+  return { lots, amount }
 }
 
 // Best-effort mapping from ipoji's own free-text status to this app's
@@ -322,7 +357,7 @@ export function IpojiSyncPanel({
         const matchedIpo = matchIpo(r.ipo, ipos)
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
         const matchedBank = matchBank(r.upiId, banks)
-        const lots = Number.isFinite(Number(r.qty)) ? Number(r.qty) : null
+        const { lots, amount: amountNum } = defaultLotsAndAmount(matchedIpo)
         const existing = matchedIpo && matchedDemat ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}`) : undefined
         return {
           ...r,
@@ -334,7 +369,7 @@ export function IpojiSyncPanel({
           existingMandate: existing?.mandate_status ?? null,
           guessedMandate: guessMandateStatus(r.status),
           lots,
-          amountNum: parseAmount(r.amount),
+          amountNum,
         }
       }),
     )
@@ -442,9 +477,14 @@ export function IpojiSyncPanel({
               page — running it multiple times and pasting each result is safe, already-applied entries
               are automatically skipped.
             </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Lots/amount aren't scraped — they're assumed to be 1 lot at the IPO's own cutoff price
+              (true for every application seen so far); edit an imported application afterward if
+              someone actually applied for more than one lot.
+            </p>
 
             <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              Fast — IPO, account, amount, status
+              Fast — IPO, account, status
             </p>
             <div className="relative mt-1">
               <pre
@@ -522,8 +562,7 @@ export function IpojiSyncPanel({
                       <th className="p-1.5 text-left">Matched IPO</th>
                       <th className="p-1.5 text-left">ipoji account</th>
                       <th className="p-1.5 text-left">Matched account</th>
-                      <th className="p-1.5 text-left">Qty</th>
-                      <th className="p-1.5 text-left">Amount</th>
+                      <th className="p-1.5 text-left">Lots / amount</th>
                       <th className="p-1.5 text-left">Funder (UPI)</th>
                       <th className="p-1.5 text-left">Mandate</th>
                       <th className="p-1.5 text-left">Result</th>
@@ -549,8 +588,12 @@ export function IpojiSyncPanel({
                             <span style={{ color: 'var(--critical-text)' }}>not found</span>
                           )}
                         </td>
-                        <td className="p-1.5">{r.qty}</td>
-                        <td className="p-1.5">{r.amount}</td>
+                        <td className="p-1.5">
+                          {r.lots != null ? `${r.lots} lot${r.lots === 1 ? '' : 's'}` : '—'}
+                          {r.amountNum != null && (
+                            <span style={{ color: 'var(--ink-muted)' }}> (₹{r.amountNum.toLocaleString('en-IN')})</span>
+                          )}
+                        </td>
                         <td className="p-1.5">
                           {!r.upiId ? (
                             <span style={{ color: 'var(--ink-muted)' }}>—</span>
