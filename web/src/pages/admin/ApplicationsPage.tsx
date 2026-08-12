@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
@@ -11,7 +11,10 @@ import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/di
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
-import { IpojiSyncPanel } from '../../components/IpojiSyncPanel'
+// Lazy — most visits to this page never open the sync panel (627 lines,
+// its own review-table UI), no reason to make every Applications page load
+// pay for parsing it eagerly.
+const IpojiSyncPanel = lazy(() => import('../../components/IpojiSyncPanel').then((m) => ({ default: m.IpojiSyncPanel })))
 import type {
   Application,
   ApplicationCategory,
@@ -424,16 +427,18 @@ export function ApplicationsPage() {
         </div>
       </div>
 
-      {!showForm && (
-        <IpojiSyncPanel
-          open={ipojiSyncOpen}
-          ipos={ipos}
-          accounts={accounts}
-          banks={banks}
-          existingByKey={existingByKey}
-          onImported={loadApplications}
-          lookupsLoading={formDataLoading}
-        />
+      {!showForm && ipojiSyncOpen && (
+        <Suspense fallback={<InlineSpinner label="Loading sync panel…" />}>
+          <IpojiSyncPanel
+            open={ipojiSyncOpen}
+            ipos={ipos}
+            accounts={accounts}
+            banks={banks}
+            existingByKey={existingByKey}
+            onImported={loadApplications}
+            lookupsLoading={formDataLoading}
+          />
+        </Suspense>
       )}
 
       {!showForm && visibleApplications.length > 0 && (

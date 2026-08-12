@@ -96,7 +96,8 @@ export function ToastHost() {
   useEffect(() => {
     if (!isAdmin) return
     async function announceLinkRequest(kind: 'demat' | 'bank', memberId: string) {
-      const { data } = await supabase.rpc('resolve_profile_names', { p_ids: [memberId] })
+      const { data, error } = await supabase.rpc('resolve_profile_names', { p_ids: [memberId] })
+      if (error) console.error('announceLinkRequest: resolve_profile_names failed', error)
       const name = (data as { id: string; full_name: string }[] | null)?.[0]?.full_name ?? 'Someone'
       pushToast(
         {

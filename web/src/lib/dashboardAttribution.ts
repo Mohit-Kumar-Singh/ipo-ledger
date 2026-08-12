@@ -30,7 +30,13 @@ export async function resolveAttributionNames(rows: ApplicationAttributionRow[])
     if (r.created_by) ids.add(r.created_by)
   }
   if (ids.size === 0) return new Map()
-  const { data } = await supabase.rpc('resolve_profile_names', { p_ids: Array.from(ids) })
+  const { data, error } = await supabase.rpc('resolve_profile_names', { p_ids: Array.from(ids) })
+  // Degrades gracefully either way (charts fall back to raw ids/"Other"
+  // rather than breaking), so this doesn't need UI-level error state like
+  // the main attribution query above — but a silent failure here was
+  // otherwise indistinguishable from "nobody to resolve," worth at least
+  // logging so a real RPC failure doesn't look like normal data.
+  if (error) console.error('resolveAttributionNames: resolve_profile_names failed', error)
   const rows2 = (data ?? []) as { id: string; full_name: string }[]
   return new Map(rows2.map((r) => [r.id, r.full_name]))
 }

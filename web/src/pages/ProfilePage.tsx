@@ -79,6 +79,7 @@ export function ProfilePage() {
   const [loadingRequests, setLoadingRequests] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
   const [attribution, setAttribution] = useState<IpoAttribution[] | null>(null)
+  const [attributionError, setAttributionError] = useState<string | null>(null)
 
   const [linkedDemat, setLinkedDemat] = useState<Pick<DematAccount, 'id' | 'holder_name'>[]>([])
   const [linkedBank, setLinkedBank] = useState<Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[]>([])
@@ -217,8 +218,16 @@ export function ProfilePage() {
   useEffect(() => {
     let cancelled = false
     async function loadAttribution() {
-      const { data } = await supabase.from('v_application_attribution').select('*')
+      const { data, error } = await supabase.from('v_application_attribution').select('*')
       if (cancelled) return
+      if (error) {
+        // Was silently falling through to an empty `data ?? []`, which
+        // rendered identically to "no applications yet" — a real query
+        // failure and a genuinely empty account looked the same, exactly
+        // the swallowed-error pattern this app got burned by before.
+        setAttributionError(error.message)
+        return
+      }
       const scopedRows = topRecentIpoAttributionRows((data ?? []) as ApplicationAttributionRow[], 4)
       const nameById = await resolveAttributionNames(scopedRows)
       if (cancelled) return
@@ -665,7 +674,11 @@ export function ProfilePage() {
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Recent IPOs
         </h2>
-        {attribution == null ? (
+        {attributionError ? (
+          <p className="text-sm" style={{ color: 'var(--critical-text)' }}>
+            Couldn't load: {attributionError}
+          </p>
+        ) : attribution == null ? (
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             Loading…
           </p>
