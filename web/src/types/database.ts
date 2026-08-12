@@ -139,6 +139,7 @@ export interface AllotmentBoardRow {
   bank_account_holder_name: string | null
   bank_account_phone: string | null
   mandate_status: MandateStatus
+  ipo_is_archived: boolean
 }
 
 export interface RegistrarLink {

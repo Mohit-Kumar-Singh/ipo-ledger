@@ -56,7 +56,7 @@ function isEligibleForNotAllotted(
 }
 
 type ApplicationRow = Application & {
-  ipos: Pick<Ipo, 'company_name' | 'allotment_date'>
+  ipos: Pick<Ipo, 'company_name' | 'allotment_date' | 'is_archived'>
   // null when RLS withholds the full row — that only happens for a
   // funder-only viewer (their linked bank/UPI paid for someone else's
   // demat), and those rows are filtered out of this list before render (see
@@ -144,7 +144,7 @@ export function ApplicationsPage() {
     const { data, error } = await supabase
       .from('applications')
       .select(
-        '*, ipos(company_name, allotment_date), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
+        '*, ipos(company_name, allotment_date, is_archived), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
     if (error) {
@@ -327,9 +327,15 @@ export function ApplicationsPage() {
   // each IPO's items are further clustered by that key (alphabetical), so
   // e.g. all of Jiggi's applications for an IPO — or all applications paid
   // via one specific UPI ID — sit together under one sub-header.
+  // Once an IPO's archived (settled — see /archives), its applications drop
+  // off this page entirely rather than sitting in an ever-growing list of
+  // groups nobody needs to look at anymore; they're still fully visible on
+  // the Archives page.
+  const visibleApplications = useMemo(() => applications.filter((a) => !a.ipos?.is_archived), [applications])
+
   const groupedApplications = useMemo(() => {
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
-    for (const a of applications) {
+    for (const a of visibleApplications) {
       const key = a.ipo_id
       if (!groups.has(key)) groups.set(key, { ipoName: a.ipos?.company_name ?? 'Unknown IPO', items: [] })
       groups.get(key)!.items.push(a)
@@ -345,7 +351,7 @@ export function ApplicationsPage() {
       }
     }
     return result
-  }, [applications, sortMode])
+  }, [visibleApplications, sortMode])
 
   return (
     <div className="space-y-5">
@@ -355,7 +361,7 @@ export function ApplicationsPage() {
             Applications
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {applications.length} total
+            {visibleApplications.length} total
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
@@ -376,7 +382,7 @@ export function ApplicationsPage() {
         </div>
       </div>
 
-      {!showForm && applications.length > 0 && (
+      {!showForm && visibleApplications.length > 0 && (
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
           <span>Sort within each IPO by</span>
           <div className="segmented">
@@ -458,7 +464,7 @@ export function ApplicationsPage() {
 
       {loading ? (
         <InlineSpinner />
-      ) : loadError ? null : applications.length === 0 ? (
+      ) : loadError ? null : visibleApplications.length === 0 ? (
         <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           No applications yet.
         </p>

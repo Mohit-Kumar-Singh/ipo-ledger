@@ -68,6 +68,9 @@ export function AllotmentBoardPage() {
       .select('*')
       .not('allotment_date', 'is', null)
       .lte('allotment_date', todayStr)
+      // Archived IPOs (fully settled, moved to /archives) drop out of this
+      // dropdown — their board is still viewable there.
+      .eq('is_archived', false)
       .order('allotment_date', { ascending: false })
       .then(({ data }) => setIpos((data ?? []) as Ipo[]))
     supabase

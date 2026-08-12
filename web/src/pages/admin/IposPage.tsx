@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { CheckIcon } from '@primer/octicons-react'
-import { Archive, ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
+import { Archive, Pencil, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -8,7 +9,6 @@ import { showToast } from '../../lib/toast'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
-import { ArchivedSection } from '../../components/ArchivedSection'
 
 const LOW_GMP_THRESHOLD = 10
 
@@ -376,7 +376,14 @@ export function IposPage() {
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             {visibleIpos.length} tracked
-            {archivedIpos.length > 0 ? ` · ${archivedIpos.length} archived` : ''}
+            {archivedIpos.length > 0 && (
+              <>
+                {' · '}
+                <Link to="/archives" className="link-accent font-medium">
+                  {archivedIpos.length} archived →
+                </Link>
+              </>
+            )}
           </p>
         </div>
         {isAdmin && (
@@ -525,7 +532,11 @@ export function IposPage() {
           )}
           {visibleIpos.length === 0 ? (
             <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-              Everything's archived — see below.
+              Everything's archived —{' '}
+              <Link to="/archives" className="link-accent font-medium">
+                see Archives
+              </Link>
+              .
             </p>
           ) : (
             <>
@@ -585,27 +596,6 @@ export function IposPage() {
               )}
             </>
           )}
-
-          {archivedIpos.length > 0 && (
-            <ArchivedSection>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                {archivedIpos.map((ipo) => (
-                  <IpoCard
-                    key={ipo.id}
-                    ipo={ipo}
-                    isAdmin={isAdmin}
-                    onEdit={() => {
-                      setEditingIpo(ipo)
-                      setShowAddForm(false)
-                      setShowImport(false)
-                    }}
-                    onDelete={() => deleteIpo(ipo)}
-                    onUnarchive={() => setArchived(ipo, false)}
-                  />
-                ))}
-              </div>
-            </ArchivedSection>
-          )}
         </>
       )}
     </div>
@@ -620,7 +610,6 @@ function IpoCard({
   onEdit,
   onDelete,
   onArchive,
-  onUnarchive,
 }: {
   ipo: Ipo
   isAdmin: boolean
@@ -629,7 +618,6 @@ function IpoCard({
   onEdit: () => void
   onDelete: () => void
   onArchive?: () => void
-  onUnarchive?: () => void
 }) {
   const status = deriveStatus(ipo)
   // Hot-GMP hype ring — a rotating conic-gradient glow around the card,
@@ -699,17 +687,6 @@ function IpoCard({
                   style={{ color: 'var(--ink-muted)' }}
                 >
                   <Archive size={15} />
-                </button>
-              )}
-              {onUnarchive && (
-                <button
-                  onClick={onUnarchive}
-                  aria-label={`Unarchive ${ipo.company_name}`}
-                  title="Unarchive"
-                  className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ color: 'var(--accent)' }}
-                >
-                  <ArchiveRestore size={15} />
                 </button>
               )}
               <button

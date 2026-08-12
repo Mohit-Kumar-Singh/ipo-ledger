@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
+  ArchiveIcon,
   BellIcon,
   ChecklistIcon,
   FileIcon,
@@ -30,6 +31,7 @@ const links = [
   { to: '/applications', label: 'Applications', icon: FileIcon },
   { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon },
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
+  { to: '/archives', label: 'Archives', icon: ArchiveIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon },
   { to: '/profile', label: 'Profile', icon: PersonIcon },
 ]

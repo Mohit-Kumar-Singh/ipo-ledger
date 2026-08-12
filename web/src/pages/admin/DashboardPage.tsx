@@ -191,7 +191,11 @@ export function DashboardPage() {
       const nameById = await resolveAttributionNames(scopedRows)
       if (cancelled) return
 
-      const boardRows = (board.data ?? []) as AllotmentBoardRow[]
+      // Archived IPOs (settled + moved to /archives) shouldn't keep showing
+      // up in "Awaiting mandate approval," "Allotted, not sold," or
+      // "Payouts pending" — those tiles are for what's still live, not a
+      // running history of everything that ever happened.
+      const boardRows = ((board.data ?? []) as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived)
 
       // Applied-per-IPO accounts come from the board rows already fetched above
       // (one row per application) rather than a separate query — v_allotment_board
