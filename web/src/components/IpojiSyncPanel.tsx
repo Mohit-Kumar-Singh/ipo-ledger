@@ -208,6 +208,37 @@ function matchBank(upiId: string | undefined, banks: BankAccount[]): BankAccount
   return banks.find((b) => b.upi_id?.trim().toLowerCase() === n) ?? null
 }
 
+// A single malformed row (observed: a truncated/garbled UPI ID producing
+// invalid JSON for just that one object — cause unconfirmed, but it's
+// scoped to one row, not the whole payload) used to fail the ENTIRE paste
+// with one generic error, discarding otherwise-good rows. Parse the array
+// as a whole first (the common, fully-valid case); only if that fails, fall
+// back to splitting on top-level object boundaries and parsing each row
+// independently, so one bad row is skipped and reported instead of blocking
+// everything else.
+function parseScrapedRows(text: string): { rows: ScrapedRow[]; skipped: number } {
+  try {
+    const whole = JSON.parse(text)
+    if (Array.isArray(whole)) return { rows: whole, skipped: 0 }
+  } catch {
+    // fall through to per-row recovery below
+  }
+  const inner = text.trim().replace(/^\[/, '').replace(/\]\s*$/, '')
+  const parts = inner.split(/}\s*,\s*{/)
+  const rows: ScrapedRow[] = []
+  let skipped = 0
+  parts.forEach((part, i) => {
+    const withBraces = (i > 0 ? '{' : '') + part + (i < parts.length - 1 ? '}' : '')
+    try {
+      const obj = JSON.parse(withBraces)
+      rows.push(obj)
+    } catch {
+      skipped++
+    }
+  })
+  return { rows, skipped }
+}
+
 function parseAmount(s: string): number | null {
   const n = Number(s.replace(/[^0-9.]/g, ''))
   return Number.isFinite(n) && n > 0 ? n : null
@@ -262,17 +293,18 @@ export function IpojiSyncPanel({
   const [errorDetails, setErrorDetails] = useState<string[]>([])
 
   async function handleParse() {
-    setParseError(null)
     setResult(null)
-    let scraped: ScrapedRow[]
-    try {
-      scraped = JSON.parse(pasteText)
-      if (!Array.isArray(scraped)) throw new Error('not an array')
-    } catch {
+    const { rows: scraped, skipped } = parseScrapedRows(pasteText)
+    if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
       setRows(null)
       return
     }
+    setParseError(
+      skipped > 0
+        ? `${skipped} row(s) couldn't be read (malformed) and were skipped — the rest parsed fine below.`
+        : null,
+    )
     const matched: MatchedRow[] = await Promise.all(
       scraped.map(async (r) => {
         const matchedIpo = matchIpo(r.ipo, ipos)
