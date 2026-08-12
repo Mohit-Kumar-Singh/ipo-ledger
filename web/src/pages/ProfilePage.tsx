@@ -422,7 +422,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="max-w-lg space-y-6">
+    <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Profile
@@ -446,9 +446,18 @@ export function ProfilePage() {
               None pending.
             </p>
           ) : (
-            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            // Its own list of items can run long once several members have
+            // pending requests at once — a 2-up grid on wider screens keeps
+            // this from turning into one long single-column scroll the way
+            // the whole page used to (see below), same reasoning as the
+            // rest of this redesign.
+            <div className="grid grid-cols-1 gap-x-6 divide-y sm:grid-cols-2 sm:gap-y-0 sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
               {pendingReview.map((r) => (
-                <div key={`${r.kind}-${r.id}`} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div
+                  key={`${r.kind}-${r.id}`}
+                  className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-b-0 sm:border-b"
+                  style={{ borderColor: 'var(--border)' }}
+                >
                   <div className="min-w-0">
                     <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {r.requesterName}
@@ -481,6 +490,19 @@ export function ProfilePage() {
         </div>
       )}
 
+      {/* Everything below used to be one unbroken single column capped at
+          max-w-lg (32rem) — fine on a phone, but on any laptop/desktop it
+          left most of the page blank on both sides while every section
+          stacked into one long scroll regardless of how much horizontal
+          room there was. Grouped into two responsive rows instead: identity
+          (small, fixed-height forms) next to Recent IPOs (wants width for
+          its donut+legend rows) on top, then the demat and bank/UPI link
+          workflows side by side below — they're already parallel flows
+          (search → request → your requests), so mirroring them
+          side-by-side reads naturally instead of one long queue of one
+          after the other. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="space-y-6 xl:col-span-1">
       <form onSubmit={handleSubmit} className="card animate-page-in space-y-4 p-5">
         <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
           <div
@@ -636,7 +658,88 @@ export function ProfilePage() {
           </>
         )}
       </form>
+        </div>
 
+        <div className="xl:col-span-2">
+      <div className="card animate-page-in h-full space-y-4 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Recent IPOs
+        </h2>
+        {attribution == null ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : attribution.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No applications yet.
+          </p>
+        ) : (
+          // 2-up on wide screens instead of one stacked column — this used
+          // to be the very last section on the page, cut off from all the
+          // width the redesigned layout now gives it.
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+            {attribution.map((a) => (
+              <AttributionChart key={a.ipoId} attribution={a} compact />
+            ))}
+          </div>
+        )}
+      </div>
+        </div>
+      </div>
+
+      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
+        <div className="card animate-page-in space-y-3 p-5">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Your linked accounts
+          </h2>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Unlinking is immediate and keeps all history — you can request to re-link later.
+          </p>
+          <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+            {linkedDemat.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2">
+                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {d.holder_name}
+                  </span>
+                  <span className="badge badge-info">demat</span>
+                </div>
+                <button
+                  onClick={() => unlinkDemat(d.id)}
+                  disabled={unlinkingDematId === d.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
+            ))}
+            {linkedBank.map((b) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2">
+                  <LawIcon size={15} fill="var(--ink-muted)" />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
+                  </span>
+                  <span className="badge badge-good">bank/UPI</span>
+                </div>
+                <button
+                  onClick={() => unlinkBank(b.id)}
+                  disabled={unlinkingBankId === b.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
       <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a demat account
@@ -734,57 +837,9 @@ export function ProfilePage() {
           </div>
         )}
       </div>
-
-      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
-        <div className="card animate-page-in space-y-3 p-5">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Your linked accounts
-          </h2>
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Unlinking is immediate and keeps all history — you can request to re-link later.
-          </p>
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {linkedDemat.map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {d.holder_name}
-                  </span>
-                  <span className="badge badge-info">demat</span>
-                </div>
-                <button
-                  onClick={() => unlinkDemat(d.id)}
-                  disabled={unlinkingDematId === d.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-            {linkedBank.map((b) => (
-              <div key={b.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
-                <div className="flex items-center gap-2">
-                  <LawIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
-                  </span>
-                  <span className="badge badge-good">bank/UPI</span>
-                </div>
-                <button
-                  onClick={() => unlinkBank(b.id)}
-                  disabled={unlinkingBankId === b.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
-      )}
+
+        <div className="space-y-6">
 
       <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-5">
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
@@ -899,26 +954,7 @@ export function ProfilePage() {
           </div>
         )}
       </div>
-
-      <div className="card animate-page-in space-y-4 p-5">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Recent IPOs
-        </h2>
-        {attribution == null ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Loading…
-          </p>
-        ) : attribution.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No applications yet.
-          </p>
-        ) : (
-          <div className="space-y-4">
-            {attribution.map((a) => (
-              <AttributionChart key={a.ipoId} attribution={a} compact />
-            ))}
-          </div>
-        )}
+        </div>
       </div>
     </div>
   )
