@@ -135,6 +135,11 @@ export function NotificationsPage() {
   // new grant, same rows the rest of the app already exposes to them), not
   // stored on the notification itself.
   const [phoneNames, setPhoneNames] = useState<Map<string, string>>(new Map())
+  // Surfaced instead of silently swallowed — the funders query previously
+  // just fell back to an empty array on any error (data ?? []), so a real
+  // failure here looked identical to "nobody's funded anything live," no
+  // visible sign anything was actually wrong.
+  const [fundersError, setFundersError] = useState<string | null>(null)
   // Filters the funder cards below to only the applications entered today —
   // for the common case of "I just added a batch of applications this
   // morning, tell the funder about those specifically" instead of resending
@@ -162,6 +167,7 @@ export function NotificationsPage() {
       return
     }
     setNotifications((notifRes.data ?? []) as Notification[])
+    setFundersError(fundersRes.error ? fundersRes.error.message : null)
     setFunderCards(buildFunderIpoCards((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
 
     // Bank/UPI names win over demat holder names on a shared phone number —
@@ -211,6 +217,10 @@ export function NotificationsPage() {
           {notifications.length} messages
         </p>
       </div>
+
+      {isAdmin && !loading && fundersError && (
+        <p className="badge badge-critical w-fit">Couldn't load funders: {fundersError}</p>
+      )}
 
       {isAdmin && !loading && funderCards.length > 0 && (
         <section>
