@@ -6,6 +6,7 @@ import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } 
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
+import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
@@ -250,7 +251,9 @@ export function ApplicationsPage() {
   }
 
   async function markStatus(id: string, status: Application['status']) {
+    const ipoId = applications.find((a) => a.id === id)?.ipo_id
     await supabase.from('applications').update({ status }).eq('id', id)
+    if (status === 'NOT_ALLOTTED' && ipoId) await maybeAutoArchiveIpo(ipoId)
     loadApplications()
   }
 
@@ -272,6 +275,10 @@ export function ApplicationsPage() {
     if (selectedForNotAllotted.size === 0) return
     setBulkMarking(true)
     const ids = Array.from(selectedForNotAllotted)
+    // Captured before the update lands — once every application on one of
+    // these IPOs is resolved (this batch might be the last one), that IPO
+    // archives itself immediately instead of waiting for the nightly sweep.
+    const affectedIpoIds = Array.from(new Set(applications.filter((a) => ids.includes(a.id)).map((a) => a.ipo_id)))
     const results = await Promise.all(
       ids.map((id) => supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).eq('id', id))
     )
@@ -279,6 +286,7 @@ export function ApplicationsPage() {
     const failed = results.filter((r) => r.error).length
     if (failed > 0) alert(`${failed} of ${ids.length} couldn't be updated.`)
     setSelectedForNotAllotted(new Set())
+    await Promise.all(affectedIpoIds.map((id) => maybeAutoArchiveIpo(id)))
     loadApplications()
   }
 

@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
+import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import type {
   AllotmentBoardRow,
@@ -61,18 +62,25 @@ export function AllotmentBoardPage() {
   const [savingSold, setSavingSold] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
 
-  useEffect(() => {
+  // Archived IPOs (fully settled, moved to /archives) drop out of this
+  // dropdown — their board is still viewable there. Re-run after any action
+  // that might have just auto-archived the currently-selected IPO (see
+  // maybeAutoArchiveIpo below), so it drops out of the list right away
+  // instead of sitting there stale until a manual page reload.
+  function loadIpos() {
     const todayStr = new Date().toISOString().slice(0, 10)
     supabase
       .from('ipos')
       .select('*')
       .not('allotment_date', 'is', null)
       .lte('allotment_date', todayStr)
-      // Archived IPOs (fully settled, moved to /archives) drop out of this
-      // dropdown — their board is still viewable there.
       .eq('is_archived', false)
       .order('allotment_date', { ascending: false })
       .then(({ data }) => setIpos((data ?? []) as Ipo[]))
+  }
+
+  useEffect(() => {
+    loadIpos()
     supabase
       .from('registrar_links')
       .select('*')
@@ -140,12 +148,15 @@ export function AllotmentBoardPage() {
 
   async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
     await supabase.from('applications').update({ status }).eq('id', applicationId)
+    if (status === 'NOT_ALLOTTED') { await maybeAutoArchiveIpo(selectedIpoId); loadIpos() }
     loadBoard(selectedIpoId)
   }
 
   async function bulkMarkNotAllotted() {
     if (selected.size === 0) return
     await supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).in('id', Array.from(selected))
+    await maybeAutoArchiveIpo(selectedIpoId)
+    loadIpos()
     loadBoard(selectedIpoId)
   }
 
@@ -205,6 +216,10 @@ export function AllotmentBoardPage() {
     setMarkingPaid(applicationId + field)
     await supabase.from('applications').update({ [field]: true }).eq('id', applicationId)
     setMarkingPaid(null)
+    // This might be the last outstanding payout on the IPO — check whether
+    // everything's resolved now and archive immediately if so.
+    await maybeAutoArchiveIpo(selectedIpoId)
+    loadIpos()
     loadBoard(selectedIpoId)
   }
 
