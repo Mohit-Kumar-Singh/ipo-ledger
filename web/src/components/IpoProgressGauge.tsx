@@ -84,24 +84,28 @@ export function IpoProgressGauge({
           />
         )}
       </svg>
-      <div className="-mt-1 text-center">
-        <p className="font-mono-ipo text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
-          {animatedApplied}/{total}
-        </p>
-        <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-          applied / active accounts
-        </p>
-        {/* Was its own badge up in the card header — moved down here, right
-            under the ratio it's derived from, since "accounts left" is a
-            reading of this same ring, not a separate fact about the card.
-            The only click target for the "accounts yet to apply" panel —
+      {/* "N left" sits beside the ratio/label, not stacked below it — was a
+          third stacked line under "applied / active accounts", which added
+          extra height this card can't spare on a phone-width screen where
+          the donut above it has already wrapped onto its own row. Same
+          info, laid out as a row instead of a column. */}
+      <div className="-mt-1 flex items-center justify-center gap-2">
+        <div className="text-center">
+          <p className="font-mono-ipo text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
+            {animatedApplied}/{total}
+          </p>
+          <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+            applied / active accounts
+          </p>
+        </div>
+        {/* The only click target for the "accounts yet to apply" panel —
             see IpoDashboardCard/IpoProgressGauge prop comments. */}
         {total - applied > 0 && onToggleExpanded && (
           <button
             type="button"
             onClick={onToggleExpanded}
             aria-expanded={expanded}
-            className="badge badge-neutral mt-1.5 inline-block cursor-pointer text-xs"
+            className="badge badge-neutral shrink-0 cursor-pointer text-xs"
           >
             {total - applied} left
           </button>

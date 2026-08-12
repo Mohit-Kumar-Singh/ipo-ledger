@@ -11,6 +11,7 @@ interface FunderApplicationDetail {
   holderName: string
   upiId: string | null
   lots: number
+  createdAt: string
 }
 
 // One card per (funder name, IPO) — a funder who's currently live across
@@ -28,9 +29,21 @@ interface FunderIpoCard {
 type ApplicationForFunderRow = {
   ipo_id: string
   lots: number
+  created_at: string
   ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
   demat_accounts: { holder_name: string } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
+}
+
+// Local calendar day, not UTC — an application entered at 11pm IST is
+// "today" to whoever's looking at this page, even though its created_at
+// timestamp may already have rolled into tomorrow in UTC.
+function isToday(isoTimestamp: string): boolean {
+  const d = new Date(isoTimestamp)
+  const now = new Date()
+  return (
+    d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()
+  )
 }
 
 // Excludes self-funded applications (no bank_account_id, so no one else to
@@ -61,6 +74,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       holderName: r.demat_accounts?.holder_name ?? 'Unknown',
       upiId: r.bank_accounts?.upi_id ?? null,
       lots: r.lots,
+      createdAt: r.created_at,
     })
   }
   return Array.from(byKey.values()).sort(
@@ -73,7 +87,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
 // client, so it just sat there as dead text instead of a tappable link.
 const PORTAL_URL = 'https://mohit-kumar-singh-ipo-ledger.vercel.app/'
 
-function buildFunderIpoMessage(card: FunderIpoCard): string {
+function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean }): string {
   // Grouped by UPI ID, not one flat list — a funder who paid through two
   // different UPI IDs for the same IPO needs to see which names went
   // through which one, not a single undifferentiated list. "No UPI ID"
@@ -97,8 +111,12 @@ function buildFunderIpoMessage(card: FunderIpoCard): string {
     )
     .join('\n\n')
 
+  const intro = opts?.todayOnly
+    ? `Hi ${card.funderName}, here's what you funded *today* for *${card.ipoName}*:`
+    : `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:`
+
   return (
-    `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:\n\n${body}\n\n` +
+    `${intro}\n\n${body}\n\n` +
     `\`\`\`Total = ${total}\`\`\`\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
@@ -111,6 +129,11 @@ export function NotificationsPage() {
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
+  // Filters the funder cards below to only the applications entered today —
+  // for the common case of "I just added a batch of applications this
+  // morning, tell the funder about those specifically" instead of resending
+  // the full running total every time.
+  const [todayOnly, setTodayOnly] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -120,7 +143,7 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, created_at, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
@@ -170,16 +193,37 @@ export function NotificationsPage() {
 
       {isAdmin && !loading && funderCards.length > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-            Funders
-          </h2>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+              Funders
+            </h2>
+            {/* Today-only view — same funder cards, but each one's message
+                and app count are recomputed from just today's applications,
+                and cards where the funder has nothing new today drop out
+                entirely rather than showing an empty card. */}
+            <label className="flex cursor-pointer items-center gap-1.5 text-xs" style={{ color: 'var(--ink-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={todayOnly}
+                onChange={(e) => setTodayOnly(e.target.checked)}
+                className="cursor-pointer"
+              />
+              Today's applications only
+            </label>
+          </div>
           <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            One card per funder per currently-live IPO — if someone's funded applications across multiple ongoing
-            IPOs, send each one separately.
+            {todayOnly
+              ? "One card per funder per IPO, showing only applications entered today — for messaging a funder about just what's new."
+              : 'One card per funder per currently-live IPO — if someone\'s funded applications across multiple ongoing IPOs, send each one separately.'}
           </p>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {funderCards.map((c) => {
-              const message = buildFunderIpoMessage(c)
+            {funderCards
+              .map((c) =>
+                todayOnly ? { ...c, applications: c.applications.filter((a) => isToday(a.createdAt)) } : c,
+              )
+              .filter((c) => c.applications.length > 0)
+              .map((c) => {
+              const message = buildFunderIpoMessage(c, { todayOnly })
               return (
                 <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
                   <div className="flex items-start justify-between gap-2">

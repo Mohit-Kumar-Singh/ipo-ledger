@@ -111,6 +111,20 @@ export function ApplicationsPage() {
   // clicking "Not allotted" on every row individually.
   const [selectedForNotAllotted, setSelectedForNotAllotted] = useState<Set<string>>(new Set())
   const [bulkMarking, setBulkMarking] = useState(false)
+  // Per-IPO group collapse — a portal with several IPOs' worth of
+  // applications made this page a long scroll of every group always fully
+  // expanded. Keyed by ipo_id, expanded by default (empty set = nothing
+  // collapsed), so this only changes what a group looks like once someone
+  // actually collapses it.
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  function toggleGroupCollapsed(ipoId: string) {
+    setCollapsedGroups((s) => {
+      const next = new Set(s)
+      if (next.has(ipoId)) next.delete(ipoId)
+      else next.add(ipoId)
+      return next
+    })
+  }
 
   async function revealPan(dematId: string) {
     setRevealingPan(dematId)
@@ -457,18 +471,31 @@ export function ApplicationsPage() {
             const allEligibleSelected =
               eligibleIdsInGroup.length > 0 && eligibleIdsInGroup.every((id) => selectedForNotAllotted.has(id))
 
+            const ipoId = items[0].ipo_id
+            const isCollapsed = collapsedGroups.has(ipoId)
+
             return (
-            <div key={items[0].ipo_id}>
+            <div key={ipoId}>
               <div className="mb-2 flex items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-                  {ipoName}
-                </h2>
+                <button
+                  type="button"
+                  onClick={() => toggleGroupCollapsed(ipoId)}
+                  aria-expanded={!isCollapsed}
+                  className="flex min-w-0 items-center gap-1.5 text-sm font-semibold hover:underline"
+                  style={{ color: 'var(--ink-secondary)' }}
+                >
+                  <span className="shrink-0">{isCollapsed ? '▸' : '▾'}</span>
+                  <span className="truncate">{ipoName}</span>
+                  <span className="shrink-0 font-normal" style={{ color: 'var(--ink-muted)' }}>
+                    ({items.length})
+                  </span>
+                </button>
                 {/* Only shows once at least one application in this IPO's
                     group is actually eligible for the bulk action — no point
                     offering "select all" over a group with nothing to
                     select. */}
                 {eligibleIdsInGroup.length > 0 && (
-                  <label className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  <label className="flex shrink-0 items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
                     <input
                       type="checkbox"
                       checked={allEligibleSelected}
@@ -488,6 +515,7 @@ export function ApplicationsPage() {
                   </label>
                 )}
               </div>
+              {isCollapsed ? null : (
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
                   const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
@@ -780,6 +808,7 @@ export function ApplicationsPage() {
                   )
                 })}
               </div>
+              )}
             </div>
             )
           })}
