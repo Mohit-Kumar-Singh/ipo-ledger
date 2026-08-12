@@ -7,6 +7,11 @@ import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ArchivedSection } from '../../components/ArchivedSection'
 
+// ipos is nullable on the join — a notification whose ipo_id was cleared
+// (on_delete set null, migration 0039) has none, and null just means
+// "no IPO to check archive status against," not "not archived."
+type NotificationRow = Notification & { ipos: { is_archived: boolean } | null }
+
 interface FunderApplicationDetail {
   holderName: string
   upiId: string | null
@@ -125,7 +130,7 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
 export function NotificationsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [notifications, setNotifications] = useState<Notification[]>([])
+  const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
@@ -149,7 +154,11 @@ export function NotificationsPage() {
   async function load() {
     setLoading(true)
     const [notifRes, fundersRes, dematRes, bankRes] = await Promise.all([
-      supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(200),
+      supabase
+        .from('notifications')
+        .select('*, ipos(is_archived)')
+        .order('created_at', { ascending: false })
+        .limit(200),
       isAdmin
         ? supabase
             .from('applications')
@@ -166,7 +175,7 @@ export function NotificationsPage() {
       setLoading(false)
       return
     }
-    setNotifications((notifRes.data ?? []) as Notification[])
+    setNotifications((notifRes.data ?? []) as unknown as NotificationRow[])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     setFunderCards(buildFunderIpoCards((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
 
@@ -204,8 +213,12 @@ export function NotificationsPage() {
     load()
   }
 
-  const visibleNotifications = notifications.filter((n) => !n.is_archived)
-  const archivedNotifications = notifications.filter((n) => n.is_archived)
+  // A notification for an IPO that's since moved to /archives (e.g. every
+  // application came back NOT_ALLOTTED) drops out of the main list the same
+  // way its IPO did — folded into the same collapsed "Archived" section as
+  // notification-level archiving, not a third separate state.
+  const visibleNotifications = notifications.filter((n) => !n.is_archived && !n.ipos?.is_archived)
+  const archivedNotifications = notifications.filter((n) => n.is_archived || n.ipos?.is_archived)
 
   return (
     <div className="space-y-5">
