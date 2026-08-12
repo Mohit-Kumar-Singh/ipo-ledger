@@ -216,27 +216,39 @@ function matchBank(upiId: string | undefined, banks: BankAccount[]): BankAccount
 // back to splitting on top-level object boundaries and parsing each row
 // independently, so one bad row is skipped and reported instead of blocking
 // everything else.
-function parseScrapedRows(text: string): { rows: ScrapedRow[]; skipped: number } {
+// Best-effort identification for a row whose JSON is too broken to parse —
+// pulls whatever plain-text fragments still look like "applicant":"...",
+// "panNumber":"...", "ipo":"..." out of the raw (invalid) substring via
+// regex, so a skipped row can be reported as "Parnita (PAN CHJPP2137B,
+// DHOOTTRANS)" instead of just "1 row skipped" with no way to know which
+// application needs adding by hand.
+function identifyBrokenRow(raw: string): string {
+  const field = (name: string) => raw.match(new RegExp(`"${name}"\\s*:\\s*"([^"]*)"`))?.[1]
+  const parts = [field('applicant'), field('panNumber') && `PAN ${field('panNumber')}`, field('ipo')].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : 'unidentified row'
+}
+
+function parseScrapedRows(text: string): { rows: ScrapedRow[]; skippedLabels: string[] } {
   try {
     const whole = JSON.parse(text)
-    if (Array.isArray(whole)) return { rows: whole, skipped: 0 }
+    if (Array.isArray(whole)) return { rows: whole, skippedLabels: [] }
   } catch {
     // fall through to per-row recovery below
   }
   const inner = text.trim().replace(/^\[/, '').replace(/\]\s*$/, '')
   const parts = inner.split(/}\s*,\s*{/)
   const rows: ScrapedRow[] = []
-  let skipped = 0
+  const skippedLabels: string[] = []
   parts.forEach((part, i) => {
     const withBraces = (i > 0 ? '{' : '') + part + (i < parts.length - 1 ? '}' : '')
     try {
       const obj = JSON.parse(withBraces)
       rows.push(obj)
     } catch {
-      skipped++
+      skippedLabels.push(identifyBrokenRow(withBraces))
     }
   })
-  return { rows, skipped }
+  return { rows, skippedLabels }
 }
 
 function parseAmount(s: string): number | null {
@@ -294,15 +306,15 @@ export function IpojiSyncPanel({
 
   async function handleParse() {
     setResult(null)
-    const { rows: scraped, skipped } = parseScrapedRows(pasteText)
+    const { rows: scraped, skippedLabels } = parseScrapedRows(pasteText)
     if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
       setRows(null)
       return
     }
     setParseError(
-      skipped > 0
-        ? `${skipped} row(s) couldn't be read (malformed) and were skipped — the rest parsed fine below.`
+      skippedLabels.length > 0
+        ? `Couldn't read ${skippedLabels.length} row(s), add manually: ${skippedLabels.join('; ')}. The rest parsed fine below.`
         : null,
     )
     const matched: MatchedRow[] = await Promise.all(
