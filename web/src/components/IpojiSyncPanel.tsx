@@ -1,7 +1,25 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CopyButton } from './CopyButton'
-import type { BankAccount, DematAccount, Ipo } from '../types/database'
+import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
+
+// Shared across both script variants below: scrape every "Current" page,
+// not just the first — ipoji paginates Orders/Bids once there are enough
+// live applications, and the first cut of this script silently stopped at
+// page 1. Best-effort pager detection (ipoji's classes are opaque, not
+// semantic) — if no "Next" control is found, or clicking it produces no new
+// application numbers, the loop just stops where it is instead of spinning;
+// a 30-page cap is the hard backstop against a pager that loops back on
+// itself. Cards are deduped by appNumber (the one ipoji-assigned identifier)
+// since a stale last page can repeat the previous page's cards.
+const PAGER_JS = `
+  const findNext = () => document.querySelector('[aria-label="Next"]:not([disabled]), a[rel="next"]:not(.disabled)') ||
+    [...document.querySelectorAll('a,button')].find(el => {
+      const t = (el.textContent || '').trim().toLowerCase();
+      return (t === 'next' || t === '›' || t === '»') && el.getAttribute('aria-disabled') !== 'true' &&
+        !el.classList.contains('disabled') && !el.closest('.disabled') && !el.disabled;
+    });
+`
 
 // Console script the user runs themselves, once, while logged into ipoji in
 // their own browser (Orders/Bids -> Current tab) — reads the DOM they're
@@ -11,81 +29,104 @@ import type { BankAccount, DematAccount, Ipo } from '../types/database'
 // because ipoji's classes are opaque Bootstrap utility names, not semantic —
 // see IpojiSyncPanel below for why a shape mismatch fails loudly instead of
 // silently importing garbage.
-const SYNC_SCRIPT_BASIC = `(() => {
-  const cards = document.querySelectorAll('.order-card-v2');
-  const rows = []; const errors = [];
-  cards.forEach((card, i) => {
+const SYNC_SCRIPT_BASIC = `(async () => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  ${PAGER_JS}
+  const scrapeCard = (card) => {
     const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
     const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
     const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines }); return; }
-    rows.push({
-      ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
-      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
-      status: lines[amtIdx + 2] || '',
+    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) return null;
+    return { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '',
+      price: lines[priceIdx + 1] || '', qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      status: lines[amtIdx + 2] || '' };
+  };
+  const byAppNumber = new Map(); const errors = [];
+  for (let page = 1; page <= 30; page++) {
+    const cards = [...document.querySelectorAll('.order-card-v2')];
+    let added = 0;
+    cards.forEach((card, i) => {
+      const r = scrapeCard(card);
+      if (!r) { errors.push({ page, card: i }); return; }
+      if (!byAppNumber.has(r.appNumber)) { byAppNumber.set(r.appNumber, r); added++; }
     });
-  });
+    const next = findNext();
+    if (!next || added === 0) break;
+    next.click();
+    await sleep(900);
+  }
+  const rows = [...byAppNumber.values()];
   const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) to clipboard.' +
+  const done = () => alert('Copied ' + rows.length + ' application(s) across all pages to clipboard.' +
     (errors.length ? ' ' + errors.length + " card(s) didn't match the expected layout (skipped) — ipoji's page may have changed." : '') +
     '\\n\\nNow paste into the IPO Ledger sync panel.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
   console.log('ipoji sync — parsed', rows, 'errors', errors);
 })();`
 
-// Slower variant — same list-scrape, then clicks into each card's detail
-// sheet (ipoji only shows UPI ID there, not on the list view) to pull that
-// too, so it can drive funder matching/messaging in the portal instead of
-// staying blank. This is the fragile half: it depends on ipoji's Bootstrap
-// offcanvas markup and a click target inside each card, both best-effort —
-// if a card's detail sheet doesn't open or doesn't contain a "UPI ID" line
-// within the timeout, that one row is skipped (upiId left blank) and logged,
-// never guessed at. Run the basic script above first if this one misbehaves.
+// Slower variant — same paginated list-scrape, then clicks into each card's
+// detail sheet (ipoji only shows UPI ID there, not on the list view) to pull
+// that too, so it can drive funder matching/messaging in the portal instead
+// of staying blank. This is the fragile half: it depends on ipoji's
+// Bootstrap offcanvas markup and a click target inside each card, both
+// best-effort — if a card's detail sheet doesn't open or doesn't contain a
+// "UPI ID" line within the timeout, that one row is skipped (upiId left
+// blank) and logged, never guessed at. Run the basic script above first if
+// this one misbehaves.
 const SYNC_SCRIPT_WITH_UPI = `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const cards = [...document.querySelectorAll('.order-card-v2')];
-  const rows = []; const errors = [];
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-    const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
-    const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines, stage: 'list' }); continue; }
-    const row = {
-      ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
-      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
-      status: lines[amtIdx + 2] || '', upiId: '',
-    };
-    try {
-      // Click the card itself, NOT a child button/svg inside it — the first
-      // clickable child is the circular refresh icon (top-right of every
-      // card), and clicking that just re-fetches the card's own status
-      // instead of opening the detail sheet. The card's own click handler
-      // (the one that opens details) is what we actually want to trigger.
-      card.click();
-      let sheet = null;
-      for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
-      if (sheet) {
-        await sleep(500); // let the staggered field animation finish
-        const body = sheet.querySelector('#orderDetailBody') || sheet;
-        const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-        const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
-        if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
-        if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
-        else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
-        await sleep(300);
-      } else {
-        errors.push({ card: i, stage: 'detail-sheet-not-found' });
+  ${PAGER_JS}
+  const byAppNumber = new Map(); const errors = [];
+  for (let page = 1; page <= 30; page++) {
+    const cards = [...document.querySelectorAll('.order-card-v2')];
+    let added = 0;
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+      const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+      const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
+      if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ page, card: i, stage: 'list' }); continue; }
+      const row = {
+        ipo: lines[0], applicant: lines[1],
+        appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
+        qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+        status: lines[amtIdx + 2] || '', upiId: '',
+      };
+      if (byAppNumber.has(row.appNumber)) continue; // already captured on an earlier page
+      try {
+        // Click the card itself, NOT a child button/svg inside it — the
+        // first clickable child is the circular refresh icon (top-right of
+        // every card), and clicking that just re-fetches the card's own
+        // status instead of opening the detail sheet.
+        card.click();
+        let sheet = null;
+        for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+        if (sheet) {
+          await sleep(500); // let the staggered field animation finish
+          const body = sheet.querySelector('#orderDetailBody') || sheet;
+          const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+          const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
+          if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+          if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
+          else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
+          await sleep(300);
+        } else {
+          errors.push({ page, card: i, stage: 'detail-sheet-not-found' });
+        }
+      } catch (e) {
+        errors.push({ page, card: i, stage: 'click', error: String(e) });
       }
-    } catch (e) {
-      errors.push({ card: i, stage: 'click', error: String(e) });
+      byAppNumber.set(row.appNumber, row);
+      added++;
     }
-    rows.push(row);
+    const next = findNext();
+    if (!next || added === 0) break;
+    next.click();
+    await sleep(900);
   }
+  const rows = [...byAppNumber.values()];
   const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
+  const done = () => alert('Copied ' + rows.length + ' application(s) across all pages (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
     (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
     '\\n\\nNow paste into the IPO Ledger sync panel.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
@@ -107,7 +148,9 @@ interface MatchedRow extends ScrapedRow {
   matchedIpo: Ipo | null
   matchedDemat: DematAccount | null
   matchedBank: BankAccount | null
-  alreadyExists: boolean
+  existingId: string | null
+  existingMandate: MandateStatus | null
+  guessedMandate: MandateStatus
   lots: number | null
   amountNum: number | null
 }
@@ -159,11 +202,28 @@ function parseAmount(s: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+// Best-effort mapping from ipoji's own free-text status to this app's
+// mandate_status enum — ipoji's status line IS the UPI mandate lifecycle
+// ("Bid placed successfully" / "Request Accepted By Sponsor Bank" both mean
+// still awaiting the investor's UPI approval; "Accepted by Investor" means
+// the investor actually approved it). Only three ipoji strings have been
+// observed so far, so this leans on keyword matching rather than an exact
+// lookup table — treated as a guess to review, not silently trusted; a
+// reject/fail/expire keyword maps to CANCELLED, everything else PENDING.
+function guessMandateStatus(ipojiStatus: string): MandateStatus {
+  const s = ipojiStatus.toLowerCase()
+  if (s.includes('accepted by investor') || s.includes('mandate approved') || s.includes('approved')) return 'APPROVED'
+  if (s.includes('reject') || s.includes('declin') || s.includes('fail') || s.includes('expir') || s.includes('cancel')) {
+    return 'CANCELLED'
+  }
+  return 'PENDING'
+}
+
 export function IpojiSyncPanel({
   ipos,
   accounts,
   banks,
-  existingKeys,
+  existingByKey,
   onImported,
   ensureLookupsLoaded,
   lookupsLoading,
@@ -171,7 +231,7 @@ export function IpojiSyncPanel({
   ipos: Ipo[]
   accounts: DematAccount[]
   banks: BankAccount[]
-  existingKeys: Set<string>
+  existingByKey: Map<string, { id: string; mandate_status: MandateStatus }>
   onImported: () => void
   // IPOs/demat accounts are only fetched lazily (when the "New application"
   // form opens) — this panel can be opened without that ever having
@@ -185,7 +245,7 @@ export function IpojiSyncPanel({
   const [parseError, setParseError] = useState<string | null>(null)
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ created: number; failed: number } | null>(null)
+  const [result, setResult] = useState<{ created: number; mandateUpdated: number; failed: number } | null>(null)
 
   function handleParse() {
     setParseError(null)
@@ -204,36 +264,68 @@ export function IpojiSyncPanel({
       const matchedDemat = matchDemat(r.applicant, accounts)
       const matchedBank = matchBank(r.upiId, banks)
       const lots = Number.isFinite(Number(r.qty)) ? Number(r.qty) : null
-      const alreadyExists = !!(matchedIpo && matchedDemat && existingKeys.has(`${matchedIpo.id}_${matchedDemat.id}`))
-      return { ...r, matchedIpo, matchedDemat, matchedBank, alreadyExists, lots, amountNum: parseAmount(r.amount) }
+      const existing = matchedIpo && matchedDemat ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}`) : undefined
+      return {
+        ...r,
+        matchedIpo,
+        matchedDemat,
+        matchedBank,
+        existingId: existing?.id ?? null,
+        existingMandate: existing?.mandate_status ?? null,
+        guessedMandate: guessMandateStatus(r.status),
+        lots,
+        amountNum: parseAmount(r.amount),
+      }
     })
     setRows(matched)
   }
 
-  const importable = (rows ?? []).filter((r) => r.matchedIpo && r.matchedDemat && !r.alreadyExists && r.lots)
+  const toCreate = (rows ?? []).filter((r) => r.matchedIpo && r.matchedDemat && !r.existingId && r.lots)
+  // Only ever move PENDING -> a decided state here — never overwrite a
+  // mandate this app already has a real decision for, in case ipoji's
+  // status text and this app's own state ever disagree for a legitimate
+  // reason (e.g. an admin manually cancelled a mandate ipoji still shows as
+  // pending).
+  const toUpdateMandate = (rows ?? []).filter(
+    (r) => r.existingId && r.existingMandate === 'PENDING' && r.guessedMandate !== 'PENDING',
+  )
 
   async function handleImport() {
     setSubmitting(true)
-    const outcomes = await Promise.all(
-      importable.map(async (r) => {
-        const { error } = await supabase.from('applications').insert({
-          ipo_id: r.matchedIpo!.id,
-          demat_id: r.matchedDemat!.id,
-          bank_account_id: r.matchedBank?.id ?? null,
-          category: 'RETAIL',
-          lots: r.lots!,
-          bid_amount: r.amountNum,
-          is_backdated: true,
-        })
-        return !error
-      }),
-    )
+    const [createOutcomes, mandateOutcomes] = await Promise.all([
+      Promise.all(
+        toCreate.map(async (r) => {
+          const { error } = await supabase.from('applications').insert({
+            ipo_id: r.matchedIpo!.id,
+            demat_id: r.matchedDemat!.id,
+            bank_account_id: r.matchedBank?.id ?? null,
+            category: 'RETAIL',
+            lots: r.lots!,
+            bid_amount: r.amountNum,
+            is_backdated: true,
+            imported_from_ipoji: true,
+          })
+          return !error
+        }),
+      ),
+      Promise.all(
+        toUpdateMandate.map(async (r) => {
+          const { error } = await supabase.rpc('set_mandate_status', {
+            p_application_id: r.existingId,
+            p_status: r.guessedMandate,
+          })
+          return !error
+        }),
+      ),
+    ])
     setSubmitting(false)
-    const created = outcomes.filter(Boolean).length
-    setResult({ created, failed: outcomes.length - created })
+    const created = createOutcomes.filter(Boolean).length
+    const mandateUpdated = mandateOutcomes.filter(Boolean).length
+    const failed = createOutcomes.length - created + (mandateOutcomes.length - mandateUpdated)
+    setResult({ created, mandateUpdated, failed })
     setRows(null)
     setPasteText('')
-    if (created > 0) onImported()
+    if (created > 0 || mandateUpdated > 0) onImported()
   }
 
   return (
@@ -256,9 +348,9 @@ export function IpojiSyncPanel({
             </p>
             <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. Open DevTools (F12) →
-              Console, paste one of the scripts below, press Enter. It only reads the page you're already
-              logged into and copies a summary to your clipboard — your ipoji login never touches this
-              app.
+              Console, paste one of the scripts below, press Enter. It walks every page of the list (not
+              just the first), and only reads the page you're already logged into — your ipoji login
+              never touches this app.
             </p>
 
             <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
@@ -280,9 +372,8 @@ export function IpojiSyncPanel({
               Slower — also opens each card to pull its UPI ID (for funder matching)
             </p>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Clicks into every card's detail sheet, so it takes a few seconds per application and is
-              more likely to need adjusting if ipoji's page changes. Use the fast one above if this
-              misbehaves.
+              Clicks into every card's detail sheet, so it takes longer and is more likely to need
+              adjusting if ipoji's page changes. Use the fast one above if this misbehaves.
             </p>
             <div className="relative mt-1">
               <pre
@@ -324,7 +415,12 @@ export function IpojiSyncPanel({
           {rows && (
             <div>
               <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                3. Review before importing ({importable.length} new of {rows.length} found)
+                3. Review before importing ({toCreate.length} new, {toUpdateMandate.length} mandate update
+                {toUpdateMandate.length === 1 ? '' : 's'} of {rows.length} found)
+              </p>
+              <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                Mandate status is a best-effort guess from ipoji's own status text — double-check it
+                rather than treating it as certain.
               </p>
               <div className="mt-2 overflow-x-auto">
                 <table className="w-full text-xs">
@@ -337,6 +433,7 @@ export function IpojiSyncPanel({
                       <th className="p-1.5 text-left">Qty</th>
                       <th className="p-1.5 text-left">Amount</th>
                       <th className="p-1.5 text-left">Funder (UPI)</th>
+                      <th className="p-1.5 text-left">Mandate</th>
                       <th className="p-1.5 text-left">Result</th>
                     </tr>
                   </thead>
@@ -364,9 +461,14 @@ export function IpojiSyncPanel({
                             </span>
                           )}
                         </td>
+                        <td className="p-1.5">{r.guessedMandate}</td>
                         <td className="p-1.5">
-                          {r.alreadyExists ? (
-                            <span style={{ color: 'var(--ink-muted)' }}>already applied</span>
+                          {r.existingId ? (
+                            toUpdateMandate.includes(r) ? (
+                              <span style={{ color: 'var(--accent)' }}>update mandate → {r.guessedMandate}</span>
+                            ) : (
+                              <span style={{ color: 'var(--ink-muted)' }}>already applied</span>
+                            )
                           ) : r.matchedIpo && r.matchedDemat && r.lots ? (
                             <span style={{ color: 'var(--good-text)' }}>will import</span>
                           ) : (
@@ -380,25 +482,24 @@ export function IpojiSyncPanel({
               </div>
               <button
                 onClick={handleImport}
-                disabled={submitting || importable.length === 0}
+                disabled={submitting || (toCreate.length === 0 && toUpdateMandate.length === 0)}
                 className="btn-primary mt-3"
               >
-                {submitting ? <InlineWait /> : `Import ${importable.length} application(s)`}
+                {submitting
+                  ? 'Importing…'
+                  : `Import ${toCreate.length} application(s), update ${toUpdateMandate.length} mandate(s)`}
               </button>
             </div>
           )}
 
           {result && (
             <p className="text-xs" style={{ color: result.failed ? 'var(--critical-text)' : 'var(--good-text)' }}>
-              Imported {result.created} application(s){result.failed ? `, ${result.failed} failed` : ''}.
+              Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s)
+              {result.failed ? `, ${result.failed} failed` : ''}.
             </p>
           )}
         </div>
       )}
     </div>
   )
-}
-
-function InlineWait() {
-  return <>Importing…</>
 }

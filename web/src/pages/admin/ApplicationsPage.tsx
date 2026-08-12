@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState, type FormEvent, type ReactNode 
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isLiveIpo } from '../../lib/ipoStatus'
@@ -362,11 +362,13 @@ export function ApplicationsPage() {
     return result
   }, [visibleApplications, sortMode])
 
-  // (ipo_id, demat_id) pairs already applied for — the sync panel's own
-  // dedupe check against what ipoji reports, so re-running a sync never
-  // creates a duplicate application for a pair that's already here.
-  const existingKeys = useMemo(
-    () => new Set(applications.map((a) => `${a.ipo_id}_${a.demat_id}`)),
+  // (ipo_id, demat_id) -> {id, mandate_status} for applications already on
+  // file — the sync panel's own dedupe check against what ipoji reports (so
+  // re-running a sync never creates a duplicate), and also lets it offer a
+  // mandate-status update for an existing PENDING application instead of
+  // only ever creating new rows.
+  const existingByKey = useMemo(
+    () => new Map(applications.map((a) => [`${a.ipo_id}_${a.demat_id}`, { id: a.id, mandate_status: a.mandate_status }])),
     [applications],
   )
 
@@ -404,7 +406,7 @@ export function ApplicationsPage() {
           ipos={ipos}
           accounts={accounts}
           banks={banks}
-          existingKeys={existingKeys}
+          existingByKey={existingByKey}
           onImported={loadApplications}
           ensureLookupsLoaded={loadFormData}
           lookupsLoading={formDataLoading}
@@ -648,6 +650,11 @@ export function ApplicationsPage() {
                               title="This application was created in backdated format."
                             >
                               <HistoryIcon size={13} fill="var(--warning)" aria-label="Backdated" />
+                            </span>
+                          )}
+                          {a.imported_from_ipoji && (
+                            <span className="shrink-0" title="Imported from ipoji via the sync panel.">
+                              <SyncIcon size={13} fill="var(--accent)" aria-label="Synced from ipoji" />
                             </span>
                           )}
                         </div>
