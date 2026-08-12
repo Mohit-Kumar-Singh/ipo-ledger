@@ -224,6 +224,7 @@ export function IpojiSyncPanel({
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ created: number; mandateUpdated: number; failed: number } | null>(null)
+  const [errorDetails, setErrorDetails] = useState<string[]>([])
 
   function handleParse() {
     setParseError(null)
@@ -270,6 +271,7 @@ export function IpojiSyncPanel({
 
   async function handleImport() {
     setSubmitting(true)
+    setErrorDetails([])
     const [createOutcomes, mandateOutcomes] = await Promise.all([
       Promise.all(
         toCreate.map(async (r) => {
@@ -283,7 +285,8 @@ export function IpojiSyncPanel({
             is_backdated: true,
             imported_from_ipoji: true,
           })
-          return !error
+          if (error) console.error('ipoji sync — insert failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
+          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name}`, error }
         }),
       ),
       Promise.all(
@@ -292,14 +295,20 @@ export function IpojiSyncPanel({
             p_application_id: r.existingId,
             p_status: r.guessedMandate,
           })
-          return !error
+          if (error) console.error('ipoji sync — mandate update failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
+          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (mandate)`, error }
         }),
       ),
     ])
     setSubmitting(false)
-    const created = createOutcomes.filter(Boolean).length
-    const mandateUpdated = mandateOutcomes.filter(Boolean).length
+    const created = createOutcomes.filter((o) => o.ok).length
+    const mandateUpdated = mandateOutcomes.filter((o) => o.ok).length
     const failed = createOutcomes.length - created + (mandateOutcomes.length - mandateUpdated)
+    setErrorDetails(
+      [...createOutcomes, ...mandateOutcomes]
+        .filter((o) => !o.ok)
+        .map((o) => `${o.label}: ${o.error?.message ?? 'unknown error'}`),
+    )
     setResult({ created, mandateUpdated, failed })
     setRows(null)
     setPasteText('')
@@ -477,10 +486,19 @@ export function IpojiSyncPanel({
           )}
 
           {result && (
-            <p className="text-xs" style={{ color: result.failed ? 'var(--critical-text)' : 'var(--good-text)' }}>
-              Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s)
-              {result.failed ? `, ${result.failed} failed` : ''}.
-            </p>
+            <div>
+              <p className="text-xs" style={{ color: result.failed ? 'var(--critical-text)' : 'var(--good-text)' }}>
+                Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s)
+                {result.failed ? `, ${result.failed} failed` : ''}.
+              </p>
+              {errorDetails.length > 0 && (
+                <ul className="mt-1 list-disc pl-4 text-xs" style={{ color: 'var(--critical-text)' }}>
+                  {errorDetails.map((d, i) => (
+                    <li key={i}>{d}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </div>
       )}
