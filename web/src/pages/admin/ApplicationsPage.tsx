@@ -400,7 +400,14 @@ export function ApplicationsPage() {
       </div>
 
       {!showForm && (
-        <IpojiSyncPanel ipos={ipos} accounts={accounts} existingKeys={existingKeys} onImported={loadApplications} />
+        <IpojiSyncPanel
+          ipos={ipos}
+          accounts={accounts}
+          existingKeys={existingKeys}
+          onImported={loadApplications}
+          ensureLookupsLoaded={loadFormData}
+          lookupsLoading={formDataLoading}
+        />
       )}
 
       {!showForm && visibleApplications.length > 0 && (

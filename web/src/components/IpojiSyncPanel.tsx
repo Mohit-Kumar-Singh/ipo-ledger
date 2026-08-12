@@ -94,11 +94,19 @@ export function IpojiSyncPanel({
   accounts,
   existingKeys,
   onImported,
+  ensureLookupsLoaded,
+  lookupsLoading,
 }: {
   ipos: Ipo[]
   accounts: DematAccount[]
   existingKeys: Set<string>
   onImported: () => void
+  // IPOs/demat accounts are only fetched lazily (when the "New application"
+  // form opens) — this panel can be opened without that ever having
+  // happened, which silently left `ipos`/`accounts` empty and made every
+  // row match as "not found". Call the same loader when this panel opens.
+  ensureLookupsLoaded: () => void
+  lookupsLoading: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
@@ -157,7 +165,13 @@ export function IpojiSyncPanel({
 
   return (
     <div>
-      <button onClick={() => setOpen((v) => !v)} className="btn-secondary">
+      <button
+        onClick={() => {
+          setOpen((v) => !v)
+          if (!open) ensureLookupsLoaded()
+        }}
+        className="btn-secondary"
+      >
         {open ? 'Close sync panel' : 'Sync from ipoji'}
       </button>
 
@@ -201,8 +215,12 @@ export function IpojiSyncPanel({
                 {parseError}
               </p>
             )}
-            <button onClick={handleParse} disabled={!pasteText.trim()} className="btn-secondary mt-2">
-              Preview
+            <button
+              onClick={handleParse}
+              disabled={!pasteText.trim() || lookupsLoading}
+              className="btn-secondary mt-2"
+            >
+              {lookupsLoading ? 'Loading IPOs/accounts…' : 'Preview'}
             </button>
           </div>
 
