@@ -30,9 +30,12 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 // Whoever's bank/UPI account actually funded the application — falls back to
 // the demat holder when no bank/UPI account was recorded (self-funded, the
 // common case), same fallback logic as the attribution split's "no funder
-// row" branch.
-function funderNameFor(a: ApplicationRow): string {
-  return a.bank_accounts?.account_holder_name ?? a.demat_accounts?.holder_name ?? 'Unknown'
+// row" branch. `resolvedBankNames` covers the case RLS withheld the embed
+// (see resolvedBankInfo above) — narrower than the embed (name only), but
+// enough to keep this label working.
+function funderNameFor(a: ApplicationRow, resolvedBankNames: Map<string, string>): string {
+  const resolvedName = a.bank_account_id ? resolvedBankNames.get(a.bank_account_id) : undefined
+  return a.bank_accounts?.account_holder_name ?? resolvedName ?? a.demat_accounts?.holder_name ?? 'Unknown'
 }
 
 // The UPI ID itself, distinct from funderNameFor — one funder name can span
@@ -46,6 +49,11 @@ function visibleNotifs(a: ApplicationRow) {
   return (a.notifications ?? []).filter((n) => n.status !== 'SIMULATED')
 }
 
+// Unlike funderNameFor, this has no resolved-fallback — a demat owner who
+// isn't the funder legitimately shouldn't see the raw UPI ID anymore
+// (migration 0057), only who funded them. Falls to 'No UPI ID' the same as
+// a genuinely bank-only entry; the two cases read the same on purpose,
+// since distinguishing "withheld" from "absent" here isn't worth exposing.
 function upiIdFor(a: ApplicationRow): string {
   return a.bank_accounts?.upi_id ?? 'No UPI ID'
 }
@@ -105,6 +113,13 @@ export function ApplicationsPage() {
   const [resolvedDematInfo, setResolvedDematInfo] = useState<Map<string, { holder_name: string; pan_masked: string | null }>>(
     new Map(),
   )
+  // Same shape, other direction: a demat owner viewing their own application
+  // no longer gets the full bank_accounts row for a funder who isn't them
+  // (migration 0057 narrowed that RLS grant — it used to leak the funder's
+  // raw UPI ID/phone/bank name, not just who they are) — resolves just
+  // account_holder_name via resolve_bank_holder_names so the "Funded by X"
+  // label still works without that.
+  const [resolvedBankInfo, setResolvedBankInfo] = useState<Map<string, string>>(new Map())
   // A masked PAN is useless for actually checking allotment on the
   // registrar's site — reveal-pan now also authorizes a funder (not just
   // admin/owner) to decrypt the real PAN for a demat account their linked
@@ -186,6 +201,24 @@ export function ApplicationsPage() {
       setResolvedDematInfo(map)
     } else {
       setResolvedDematInfo(new Map())
+    }
+
+    const unresolvedBankIds = Array.from(
+      new Set(
+        rows
+          .filter((r) => r.bank_accounts == null && r.bank_account_id != null)
+          .map((r) => r.bank_account_id as string),
+      ),
+    )
+    if (unresolvedBankIds.length > 0) {
+      const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: unresolvedBankIds })
+      const bankMap = new Map<string, string>()
+      for (const r of (resolvedBanks ?? []) as { id: string; account_holder_name: string | null }[]) {
+        if (r.account_holder_name) bankMap.set(r.id, r.account_holder_name)
+      }
+      setResolvedBankInfo(bankMap)
+    } else {
+      setResolvedBankInfo(new Map())
     }
 
     setApplications(rows)
@@ -362,7 +395,7 @@ export function ApplicationsPage() {
     }
     const result = Array.from(groups.values())
     if (sortMode !== 'recent') {
-      const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
+      const groupKeyFor = (a: ApplicationRow) => (sortMode === 'upi' ? upiIdFor(a) : funderNameFor(a, resolvedBankInfo))
       for (const g of result) {
         g.items.sort((a, b) => {
           const byKey = groupKeyFor(a).localeCompare(groupKeyFor(b))
@@ -371,7 +404,7 @@ export function ApplicationsPage() {
       }
     }
     return result
-  }, [visibleApplications, sortMode])
+  }, [visibleApplications, sortMode, resolvedBankInfo])
 
   // (ipo_id, demat_id) -> {id, mandate_status} for applications already on
   // file — the sync panel's own dedupe check against what ipoji reports (so
@@ -583,7 +616,7 @@ export function ApplicationsPage() {
               {isCollapsed ? null : (
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
-                  const groupKeyFor = sortMode === 'upi' ? upiIdFor : funderNameFor
+                  const groupKeyFor = (x: ApplicationRow) => (sortMode === 'upi' ? upiIdFor(x) : funderNameFor(x, resolvedBankInfo))
                   const showFunderHeader = sortMode !== 'recent' && (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
                   // Items are already sorted by group key within this IPO's
                   // list, so the run sharing `a`'s key is contiguous — count
@@ -597,7 +630,7 @@ export function ApplicationsPage() {
                       className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase"
                       style={{ color: 'var(--ink-muted)', background: 'var(--hover-surface)' }}
                     >
-                      {sortMode === 'upi' ? `Paid via ${upiIdFor(a)}` : `Funded by ${funderNameFor(a)}`}
+                      {sortMode === 'upi' ? `Paid via ${upiIdFor(a)}` : `Funded by ${funderNameFor(a, resolvedBankInfo)}`}
                       {' · '}
                       {groupCount} application{groupCount === 1 ? '' : 's'}
                     </div>
@@ -638,7 +671,7 @@ export function ApplicationsPage() {
                   const resolvedDemat = a.demat_accounts ? null : resolvedDematInfo.get(a.demat_id)
                   const holderName = a.demat_accounts?.holder_name ?? resolvedDemat?.holder_name
 
-                  const funderName = funderNameFor(a)
+                  const funderName = funderNameFor(a, resolvedBankInfo)
                   const funderDiffersFromHolder = funderName !== holderName
                   // "Me and the funder can mark it" — admin, or whoever's
                   // linked bank/UPI account actually funded this application
