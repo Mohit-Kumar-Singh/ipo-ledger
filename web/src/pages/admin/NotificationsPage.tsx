@@ -7,10 +7,14 @@ import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ArchivedSection } from '../../components/ArchivedSection'
 
-// ipos is nullable on the join — a notification whose ipo_id was cleared
-// (on_delete set null, migration 0039) has none, and null just means
-// "no IPO to check archive status against," not "not archived."
-type NotificationRow = Notification & { ipos: { is_archived: boolean } | null }
+// Almost every notification carries application_id, not ipo_id directly —
+// send-whatsapp's queueForApplication only ever sets application_id/demat_id
+// (see supabase/functions/send-whatsapp/index.ts), so notifications.ipo_id
+// stays null except for the handful of gmp-alert rows (migration 0039) that
+// set it explicitly. Checking archive status has to go through
+// applications.ipo_id instead, or every application-linked notification
+// (i.e. almost all of them) would never match its IPO's archived state.
+type NotificationRow = Notification & { applications: { ipos: { is_archived: boolean } | null } | null }
 
 interface FunderApplicationDetail {
   holderName: string
@@ -156,7 +160,7 @@ export function NotificationsPage() {
     const [notifRes, fundersRes, dematRes, bankRes] = await Promise.all([
       supabase
         .from('notifications')
-        .select('*, ipos(is_archived)')
+        .select('*, applications(ipos(is_archived))')
         .order('created_at', { ascending: false })
         .limit(200),
       isAdmin
@@ -217,8 +221,8 @@ export function NotificationsPage() {
   // application came back NOT_ALLOTTED) drops out of the main list the same
   // way its IPO did — folded into the same collapsed "Archived" section as
   // notification-level archiving, not a third separate state.
-  const visibleNotifications = notifications.filter((n) => !n.is_archived && !n.ipos?.is_archived)
-  const archivedNotifications = notifications.filter((n) => n.is_archived || n.ipos?.is_archived)
+  const visibleNotifications = notifications.filter((n) => !n.is_archived && !n.applications?.ipos?.is_archived)
+  const archivedNotifications = notifications.filter((n) => n.is_archived || n.applications?.ipos?.is_archived)
 
   return (
     <div className="space-y-5">

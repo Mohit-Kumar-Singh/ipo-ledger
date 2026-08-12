@@ -84,12 +84,13 @@ export function IpoProgressGauge({
           />
         )}
       </svg>
-      {/* "N left" sits beside the ratio/label, not stacked below it — was a
-          third stacked line under "applied / active accounts", which added
-          extra height this card can't spare on a phone-width screen where
-          the donut above it has already wrapped onto its own row. Same
-          info, laid out as a row instead of a column. */}
-      <div className="-mt-1 flex items-center justify-center gap-2">
+      {/* "N left" sits beside the ratio/label only on phone-width screens
+          (default, no breakpoint prefix) — on desktop (sm: and up) it goes
+          back to stacked below, the original layout. Mobile-only because
+          that's specifically what was asked for ("in side show account
+          left in mobile site desktop site is good") — not a change to the
+          desktop card at all. */}
+      <div className="-mt-1 flex flex-row items-center justify-center gap-2 sm:flex-col sm:gap-0">
         <div className="text-center">
           <p className="font-mono-ipo text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
             {animatedApplied}/{total}
@@ -105,7 +106,7 @@ export function IpoProgressGauge({
             type="button"
             onClick={onToggleExpanded}
             aria-expanded={expanded}
-            className="badge badge-neutral shrink-0 cursor-pointer text-xs"
+            className="badge badge-neutral mt-0 shrink-0 cursor-pointer text-xs sm:mt-1.5"
           >
             {total - applied} left
           </button>
