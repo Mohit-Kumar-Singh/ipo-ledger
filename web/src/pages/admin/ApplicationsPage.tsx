@@ -90,6 +90,7 @@ export function ApplicationsPage() {
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [backdatedMode, setBackdatedMode] = useState(false)
+  const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const todayStr = new Date().toISOString().slice(0, 10)
   // Funder-only rows (RLS grants SELECT on the application itself, but not
@@ -403,6 +404,15 @@ export function ApplicationsPage() {
             </button>
           ) : (
             <>
+              <button
+                onClick={() => {
+                  setIpojiSyncOpen((v) => !v)
+                  if (!ipojiSyncOpen) loadFormData()
+                }}
+                className="btn-secondary"
+              >
+                {ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
+              </button>
               <button onClick={() => openForm(true)} className="btn-secondary">
                 + Backdated application
               </button>
@@ -416,12 +426,12 @@ export function ApplicationsPage() {
 
       {!showForm && (
         <IpojiSyncPanel
+          open={ipojiSyncOpen}
           ipos={ipos}
           accounts={accounts}
           banks={banks}
           existingByKey={existingByKey}
           onImported={loadApplications}
-          ensureLookupsLoaded={loadFormData}
           lookupsLoading={formDataLoading}
         />
       )}

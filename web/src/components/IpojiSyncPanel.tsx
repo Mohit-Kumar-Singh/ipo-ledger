@@ -1,6 +1,6 @@
 import { useState } from 'react'
+import { InfoIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
-import { CopyButton } from './CopyButton'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Deliberately ONE PAGE per run, not auto-paginated. An earlier version
@@ -12,55 +12,19 @@ import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/dat
 // dedupes by ipoji's own application number, so pasting page 2's output
 // after page 1's only ever adds what's new.
 
-// Console script the user runs themselves, once per page, while logged
-// into ipoji in their own browser (Orders/Bids -> Current tab) — reads the
-// page they're already looking at and copies a JSON summary to the
-// clipboard. No ipoji credential ever touches this app; this only ever sees
-// what the user explicitly pastes back in. Text-line heuristic (not brittle
-// CSS selectors) because ipoji's classes are opaque Bootstrap utility
-// names, not semantic — see IpojiSyncPanel below for why a shape mismatch
-// fails loudly instead of silently importing garbage.
-const SYNC_SCRIPT_BASIC = `(() => {
-  const cards = document.querySelectorAll('.order-card-v2');
-  const rows = []; const errors = [];
-  cards.forEach((card, i) => {
-    const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-    const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
-    // price/qty/amount labels are still used to LOCATE the status line
-    // (which sits right after them) — their VALUES aren't kept in the
-    // output. Price and lot size are already in the portal per-IPO, so
-    // scraping them again per application was pure redundant text to get
-    // wrong; qty/amount defaults to the IPO's own minimum lot on the portal
-    // side, editable by hand for the rare multi-lot application.
-    const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines }); return; }
-    rows.push({
-      ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '',
-      status: lines[amtIdx + 2] || '',
-    });
-  });
-  const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) from this page to clipboard.' +
-    (errors.length ? ' ' + errors.length + " card(s) didn't match the expected layout (skipped) — ipoji's page may have changed." : '') +
-    '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
-  navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
-  console.log('ipoji sync — parsed', rows, 'errors', errors);
-})();`
-
-// Slower variant — same single-page list-scrape, then clicks into each
-// card's detail sheet (ipoji only shows UPI ID and PAN there, not on the
-// list view) to pull both, so the portal can match by PAN — a real unique
-// identifier, unlike names which collide/vary — and drive funder
-// matching/messaging. This is the fragile half: it depends on ipoji's
-// Bootstrap offcanvas markup and a click target inside each card, both
-// best-effort — if a card's detail sheet doesn't open or doesn't contain a
-// "UPI ID"/"PAN NUMBER" line within the timeout, that one field is left
-// blank on that row and logged, never guessed at. Run the basic script
-// above first if this one misbehaves — and if EVERY card fails to open its
-// detail sheet, that's very likely a bug on ipoji's own site (observed:
-// their own 'buildAccountForm is not defined' error), not this script.
-const SYNC_SCRIPT_WITH_UPI = `(async () => {
+// Console script the user runs themselves, once per page, while logged into
+// ipoji in their own browser (Orders/Bids -> Current tab) — reads the page
+// they're already looking at, opens each card's detail sheet for its UPI ID
+// and PAN (the only place ipoji shows either), and copies a JSON summary to
+// the clipboard. No ipoji credential ever touches this app; this only ever
+// sees what the user explicitly pastes back in. Text-line heuristic (not
+// brittle CSS selectors) because ipoji's classes are opaque Bootstrap
+// utility names, not semantic — see IpojiSyncPanel below for why a shape
+// mismatch fails loudly instead of silently importing garbage. The earlier
+// "fast" no-click variant was dropped — PAN is what makes account matching
+// reliable (name matching alone collides/misses), so there was no real case
+// left for the version that skips it.
+const SYNC_SCRIPT = `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const cards = [...document.querySelectorAll('.order-card-v2')];
   const rows = []; const errors = [];
@@ -69,7 +33,9 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
     const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
     const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
     // price/qty/amount labels are still used to LOCATE the status line —
-    // their values aren't kept (see the fast script's comment for why).
+    // their values aren't kept. Price and lot size are already in the
+    // portal per-IPO; qty/amount default to the IPO's own minimum lot on
+    // the portal side, editable by hand for the rare multi-lot application.
     const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
     if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
     const row = {
@@ -91,19 +57,20 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
       target.click();
       let sheet = null;
-      for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+      for (let t = 0; t < 15 && !sheet; t++) { await sleep(120); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
       if (sheet) {
-        // A fixed sleep here isn't enough — the fields animate in staggered
+        // A fixed sleep isn't enough — the fields animate in staggered
         // (each with its own animation-delay), and reading mid-transition
         // captured a BLEND of the previous card's still-fading-out text and
-        // this card's still-fading-in text (observed: two cards' price/
-        // qty/amount/status fields concatenated into one garbled row).
-        // Poll until the body's text stops changing between reads, so we
-        // only ever read a fully-settled sheet.
+        // this card's still-fading-in text (observed: two cards' fields
+        // concatenated into one garbled row). Poll until the body's text
+        // stops changing between reads, so only a fully-settled sheet gets
+        // read — 150ms/2-stable-reads is enough now that this only waits
+        // on text settling, not a fixed worst-case guess.
         const body = sheet.querySelector('#orderDetailBody') || sheet;
         let prevText = null, stableReads = 0, text = '';
-        for (let t = 0; t < 15 && stableReads < 2; t++) {
-          await sleep(200);
+        for (let t = 0; t < 12 && stableReads < 2; t++) {
+          await sleep(150);
           text = body.innerText || '';
           stableReads = text === prevText ? stableReads + 1 : 0;
           prevText = text;
@@ -123,7 +90,7 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
         }
         if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
         else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
-        await sleep(300);
+        await sleep(200);
       } else {
         errors.push({ card: i, stage: 'detail-sheet-not-found' });
       }
@@ -138,7 +105,7 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
     (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
     '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
-  console.log('ipoji sync (with UPI) — parsed', rows, 'errors', errors);
+  console.log('ipoji sync — parsed', rows, 'errors', errors);
 })();`
 
 interface ScrapedRow {
@@ -310,27 +277,27 @@ function guessMandateStatus(ipojiStatus: string): MandateStatus {
 }
 
 export function IpojiSyncPanel({
+  open,
   ipos,
   accounts,
   banks,
   existingByKey,
   onImported,
-  ensureLookupsLoaded,
   lookupsLoading,
 }: {
+  // Owned by the parent, not this component — the trigger button lives in
+  // the page's own "+ New application"/"+ Backdated application" row, not
+  // beside the panel body, so the open/close state has to live where both
+  // pieces can see it.
+  open: boolean
   ipos: Ipo[]
   accounts: DematAccount[]
   banks: BankAccount[]
   existingByKey: Map<string, { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null }>
   onImported: () => void
-  // IPOs/demat accounts are only fetched lazily (when the "New application"
-  // form opens) — this panel can be opened without that ever having
-  // happened, which silently left `ipos`/`accounts` empty and made every
-  // row match as "not found". Call the same loader when this panel opens.
-  ensureLookupsLoaded: () => void
   lookupsLoading: boolean
 }) {
-  const [open, setOpen] = useState(false)
+  const [scriptCopied, setScriptCopied] = useState(false)
   const [pasteText, setPasteText] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
@@ -473,77 +440,48 @@ export function IpojiSyncPanel({
     if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
   }
 
+  if (!open) return null
+
   return (
-    <div>
-      <button
-        onClick={() => {
-          setOpen((v) => !v)
-          if (!open) ensureLookupsLoaded()
-        }}
-        className="btn-secondary"
-      >
-        {open ? 'Close sync panel' : 'Sync from ipoji'}
-      </button>
-
-      {open && (
-        <div className="card mt-3 space-y-4 p-5">
-          <div>
-            <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              1. Run this while logged into ipoji
-            </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. Open DevTools (F12) →
-              Console, paste one of the scripts below, press Enter. It only reads the page you're already
-              logged into and copies a summary to your clipboard — your ipoji login never touches this
-              app.
-            </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              If ipoji's list has more than one page, this only reads the current page. Paste this
-              page's result below, then click Next on ipoji and run the same script again for the next
-              page — running it multiple times and pasting each result is safe, already-applied entries
-              are automatically skipped.
-            </p>
-            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Lots/amount aren't scraped — they're assumed to be 1 lot at the IPO's own cutoff price
-              (true for every application seen so far); edit an imported application afterward if
-              someone actually applied for more than one lot.
-            </p>
-
-            <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              Fast — IPO, account, status
-            </p>
-            <div className="relative mt-1">
-              <pre
-                className="max-h-28 overflow-auto rounded-md p-3 text-xs"
-                style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+    <div className="card mt-3 space-y-4 p-5">
+      <div>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                1. Copy the sync script
+              </p>
+              {/* Native title tooltip on hover — full instructions live here
+                  instead of as permanent on-page text/code blocks, so the
+                  Applications page stays clean when this panel isn't in use. */}
+              <span
+                title={
+                  'Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. ' +
+                  'Open DevTools (F12) → Console, paste the copied script, press Enter. ' +
+                  "It only reads the page you're already logged into (opening each card's " +
+                  'detail sheet for its UPI ID and PAN) and copies a summary to your clipboard — ' +
+                  'your ipoji login never touches this app.\n\n' +
+                  'If ipoji\'s list has more than one page, this only reads the current page. ' +
+                  'Paste this page\'s result below, then click Next on ipoji and run the script ' +
+                  'again for the next page — running it multiple times and pasting each result ' +
+                  'is safe, already-applied entries are automatically skipped.\n\n' +
+                  "Lots/amount aren't scraped — they're assumed to be 1 lot at the IPO's own " +
+                  'cutoff price (true for every application seen so far); edit an imported ' +
+                  'application afterward if someone actually applied for more than one lot.'
+                }
+                style={{ cursor: 'help', display: 'inline-flex' }}
               >
-                {SYNC_SCRIPT_BASIC}
-              </pre>
-              <div className="absolute top-2 right-2">
-                <CopyButton value={SYNC_SCRIPT_BASIC} label="script" />
-              </div>
+                <InfoIcon size={14} fill="var(--ink-muted)" />
+              </span>
             </div>
-
-            <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              Slower — also opens each card to pull its UPI ID and PAN (for accurate account matching)
-            </p>
-            <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Clicks into every card's detail sheet, so it takes longer and is more likely to need
-              adjusting if ipoji's page changes. Use the fast one above if this misbehaves. PAN, when
-              found, is matched exactly (no name guessing) — the review table shows which method matched
-              each account.
-            </p>
-            <div className="relative mt-1">
-              <pre
-                className="max-h-28 overflow-auto rounded-md p-3 text-xs"
-                style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-              >
-                {SYNC_SCRIPT_WITH_UPI}
-              </pre>
-              <div className="absolute top-2 right-2">
-                <CopyButton value={SYNC_SCRIPT_WITH_UPI} label="script" />
-              </div>
-            </div>
+            <button
+              onClick={async () => {
+                await navigator.clipboard.writeText(SYNC_SCRIPT)
+                setScriptCopied(true)
+                setTimeout(() => setScriptCopied(false), 1500)
+              }}
+              className="btn-secondary mt-2"
+            >
+              {scriptCopied ? 'Copied — paste it into ipoji\'s console' : 'Copy sync script'}
+            </button>
           </div>
 
           <div>
@@ -684,8 +622,6 @@ export function IpojiSyncPanel({
               )}
             </div>
           )}
-        </div>
-      )}
     </div>
   )
 }
