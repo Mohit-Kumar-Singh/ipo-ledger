@@ -11,6 +11,7 @@ import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/di
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
+import { IpojiSyncPanel } from '../../components/IpojiSyncPanel'
 import type {
   Application,
   ApplicationCategory,
@@ -361,6 +362,14 @@ export function ApplicationsPage() {
     return result
   }, [visibleApplications, sortMode])
 
+  // (ipo_id, demat_id) pairs already applied for — the sync panel's own
+  // dedupe check against what ipoji reports, so re-running a sync never
+  // creates a duplicate application for a pair that's already here.
+  const existingKeys = useMemo(
+    () => new Set(applications.map((a) => `${a.ipo_id}_${a.demat_id}`)),
+    [applications],
+  )
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -389,6 +398,10 @@ export function ApplicationsPage() {
           )}
         </div>
       </div>
+
+      {!showForm && (
+        <IpojiSyncPanel ipos={ipos} accounts={accounts} existingKeys={existingKeys} onImported={loadApplications} />
+      )}
 
       {!showForm && visibleApplications.length > 0 && (
         <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
