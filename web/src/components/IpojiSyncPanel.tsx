@@ -3,140 +3,110 @@ import { supabase } from '../lib/supabase'
 import { CopyButton } from './CopyButton'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
-// Shared across both script variants below: scrape every "Current" page,
-// not just the first — ipoji paginates Orders/Bids once there are enough
-// live applications, and the first cut of this script silently stopped at
-// page 1. Best-effort pager detection (ipoji's classes are opaque, not
-// semantic) — if no "Next" control is found, or clicking it produces no new
-// application numbers, the loop just stops where it is instead of spinning;
-// a 30-page cap is the hard backstop against a pager that loops back on
-// itself. Cards are deduped by appNumber (the one ipoji-assigned identifier)
-// since a stale last page can repeat the previous page's cards.
-const PAGER_JS = `
-  const findNext = () => document.querySelector('[aria-label="Next"]:not([disabled]), a[rel="next"]:not(.disabled)') ||
-    [...document.querySelectorAll('a,button')].find(el => {
-      const t = (el.textContent || '').trim().toLowerCase();
-      return (t === 'next' || t === '›' || t === '»') && el.getAttribute('aria-disabled') !== 'true' &&
-        !el.classList.contains('disabled') && !el.closest('.disabled') && !el.disabled;
-    });
-`
+// Deliberately ONE PAGE per run, not auto-paginated. An earlier version
+// tried to detect and click ipoji's "Next" control automatically — with no
+// visibility into ipoji's real pager markup, that guess ended up clicking
+// the wrong element (observed: it left the list showing no results at all
+// after advancing). Multi-page IPOs just mean running this script again
+// after you click Next yourself — completely safe to do, since the portal
+// dedupes by ipoji's own application number, so pasting page 2's output
+// after page 1's only ever adds what's new.
 
-// Console script the user runs themselves, once, while logged into ipoji in
-// their own browser (Orders/Bids -> Current tab) — reads the DOM they're
-// already looking at and copies a JSON summary to the clipboard. No ipoji
-// credential ever touches this app; this only ever sees what the user
-// explicitly pastes back in. Text-line heuristic (not brittle CSS selectors)
-// because ipoji's classes are opaque Bootstrap utility names, not semantic —
-// see IpojiSyncPanel below for why a shape mismatch fails loudly instead of
-// silently importing garbage.
-const SYNC_SCRIPT_BASIC = `(async () => {
-  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  ${PAGER_JS}
-  const scrapeCard = (card) => {
+// Console script the user runs themselves, once per page, while logged
+// into ipoji in their own browser (Orders/Bids -> Current tab) — reads the
+// page they're already looking at and copies a JSON summary to the
+// clipboard. No ipoji credential ever touches this app; this only ever sees
+// what the user explicitly pastes back in. Text-line heuristic (not brittle
+// CSS selectors) because ipoji's classes are opaque Bootstrap utility
+// names, not semantic — see IpojiSyncPanel below for why a shape mismatch
+// fails loudly instead of silently importing garbage.
+const SYNC_SCRIPT_BASIC = `(() => {
+  const cards = document.querySelectorAll('.order-card-v2');
+  const rows = []; const errors = [];
+  cards.forEach((card, i) => {
     const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
     const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
     const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) return null;
-    return { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '',
-      price: lines[priceIdx + 1] || '', qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
-      status: lines[amtIdx + 2] || '' };
-  };
-  const byAppNumber = new Map(); const errors = [];
-  for (let page = 1; page <= 30; page++) {
-    const cards = [...document.querySelectorAll('.order-card-v2')];
-    let added = 0;
-    cards.forEach((card, i) => {
-      const r = scrapeCard(card);
-      if (!r) { errors.push({ page, card: i }); return; }
-      if (!byAppNumber.has(r.appNumber)) { byAppNumber.set(r.appNumber, r); added++; }
+    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines }); return; }
+    rows.push({
+      ipo: lines[0], applicant: lines[1],
+      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
+      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      status: lines[amtIdx + 2] || '',
     });
-    const next = findNext();
-    if (!next || added === 0) break;
-    next.click();
-    await sleep(900);
-  }
-  const rows = [...byAppNumber.values()];
+  });
   const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) across all pages to clipboard.' +
+  const done = () => alert('Copied ' + rows.length + ' application(s) from this page to clipboard.' +
     (errors.length ? ' ' + errors.length + " card(s) didn't match the expected layout (skipped) — ipoji's page may have changed." : '') +
-    '\\n\\nNow paste into the IPO Ledger sync panel.');
+    '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
   console.log('ipoji sync — parsed', rows, 'errors', errors);
 })();`
 
-// Slower variant — same paginated list-scrape, then clicks into each card's
-// detail sheet (ipoji only shows UPI ID there, not on the list view) to pull
-// that too, so it can drive funder matching/messaging in the portal instead
-// of staying blank. This is the fragile half: it depends on ipoji's
-// Bootstrap offcanvas markup and a click target inside each card, both
-// best-effort — if a card's detail sheet doesn't open or doesn't contain a
-// "UPI ID" line within the timeout, that one row is skipped (upiId left
-// blank) and logged, never guessed at. Run the basic script above first if
-// this one misbehaves.
+// Slower variant — same single-page list-scrape, then clicks into each
+// card's detail sheet (ipoji only shows UPI ID there, not on the list view)
+// to pull that too, so it can drive funder matching/messaging in the portal
+// instead of staying blank. This is the fragile half: it depends on
+// ipoji's Bootstrap offcanvas markup and a click target inside each card,
+// both best-effort — if a card's detail sheet doesn't open or doesn't
+// contain a "UPI ID" line within the timeout, that one row is skipped
+// (upiId left blank) and logged, never guessed at. Run the basic script
+// above first if this one misbehaves — and if EVERY card fails to open its
+// detail sheet, that's very likely a bug on ipoji's own site (observed:
+// their own 'buildAccountForm is not defined' error), not this script.
 const SYNC_SCRIPT_WITH_UPI = `(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  ${PAGER_JS}
-  const byAppNumber = new Map(); const errors = [];
-  for (let page = 1; page <= 30; page++) {
-    const cards = [...document.querySelectorAll('.order-card-v2')];
-    let added = 0;
-    for (let i = 0; i < cards.length; i++) {
-      const card = cards[i];
-      const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-      const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
-      const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-      if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ page, card: i, stage: 'list' }); continue; }
-      const row = {
-        ipo: lines[0], applicant: lines[1],
-        appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
-        qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
-        status: lines[amtIdx + 2] || '', upiId: '',
-      };
-      if (byAppNumber.has(row.appNumber)) continue; // already captured on an earlier page
-      try {
-        // Neither "first clickable child" (the refresh icon) nor the whole
-        // card (triggers some other handler on ipoji's side — observed
-        // throwing their own 'buildAccountForm is not defined' error, not
-        // ours, and never opening the detail sheet) is the right target.
-        // The chevron/arrow at the row's right edge is visually the LAST
-        // icon in the card, distinct from the refresh icon at the top —
-        // prefer that, walking up to its nearest clickable ancestor in case
-        // the icon itself isn't the click handler's target.
-        const icons = [...card.querySelectorAll('svg')];
-        const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
-        const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
-        target.click();
-        let sheet = null;
-        for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
-        if (sheet) {
-          await sleep(500); // let the staggered field animation finish
-          const body = sheet.querySelector('#orderDetailBody') || sheet;
-          const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-          const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
-          if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
-          if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
-          else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
-          await sleep(300);
-        } else {
-          errors.push({ page, card: i, stage: 'detail-sheet-not-found' });
-        }
-      } catch (e) {
-        errors.push({ page, card: i, stage: 'click', error: String(e) });
+  const cards = [...document.querySelectorAll('.order-card-v2')];
+  const rows = []; const errors = [];
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+    const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+    const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
+    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
+    const row = {
+      ipo: lines[0], applicant: lines[1],
+      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
+      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      status: lines[amtIdx + 2] || '', upiId: '',
+    };
+    try {
+      // Neither "first clickable child" (the refresh icon) nor the whole
+      // card (triggers some other handler on ipoji's side — observed
+      // throwing their own 'buildAccountForm is not defined' error, not
+      // ours, and never opening the detail sheet) is the right target.
+      // The chevron/arrow at the row's right edge is visually the LAST
+      // icon in the card, distinct from the refresh icon at the top —
+      // prefer that, walking up to its nearest clickable ancestor in case
+      // the icon itself isn't the click handler's target.
+      const icons = [...card.querySelectorAll('svg')];
+      const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
+      const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
+      target.click();
+      let sheet = null;
+      for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+      if (sheet) {
+        await sleep(500); // let the staggered field animation finish
+        const body = sheet.querySelector('#orderDetailBody') || sheet;
+        const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+        const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
+        if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+        if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
+        else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
+        await sleep(300);
+      } else {
+        errors.push({ card: i, stage: 'detail-sheet-not-found' });
       }
-      console.log('ipoji sync — card', i, 'on page', page, row.upiId ? 'got UPI' : 'no UPI (see errors array at the end)');
-      byAppNumber.set(row.appNumber, row);
-      added++;
+    } catch (e) {
+      errors.push({ card: i, stage: 'click', error: String(e) });
     }
-    const next = findNext();
-    if (!next || added === 0) break;
-    next.click();
-    await sleep(900);
+    console.log('ipoji sync — card', i, row.upiId ? 'got UPI' : 'no UPI (see errors array at the end)');
+    rows.push(row);
   }
-  const rows = [...byAppNumber.values()];
   const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) across all pages (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
+  const done = () => alert('Copied ' + rows.length + ' application(s) from this page (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
     (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
-    '\\n\\nNow paste into the IPO Ledger sync panel.');
+    '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
   console.log('ipoji sync (with UPI) — parsed', rows, 'errors', errors);
 })();`
@@ -356,9 +326,15 @@ export function IpojiSyncPanel({
             </p>
             <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. Open DevTools (F12) →
-              Console, paste one of the scripts below, press Enter. It walks every page of the list (not
-              just the first), and only reads the page you're already logged into — your ipoji login
-              never touches this app.
+              Console, paste one of the scripts below, press Enter. It only reads the page you're already
+              logged into and copies a summary to your clipboard — your ipoji login never touches this
+              app.
+            </p>
+            <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              If ipoji's list has more than one page, this only reads the current page. Paste this
+              page's result below, then click Next on ipoji and run the same script again for the next
+              page — running it multiple times and pasting each result is safe, already-applied entries
+              are automatically skipped.
             </p>
 
             <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
