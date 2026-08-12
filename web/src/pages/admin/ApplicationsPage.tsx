@@ -36,6 +36,13 @@ function funderNameFor(a: ApplicationRow): string {
 // several UPI/bank accounts, so this is the finer-grained "which specific
 // account paid" view. Bank accounts without a UPI ID (bank-only entries)
 // group under a shared placeholder rather than splintering by holder name.
+// SIMULATED notifications (WhatsApp sending not configured yet) are internal
+// setup state, not per-application info worth showing — filtered out here so
+// a row with only simulated sends falls through to the empty "—" state.
+function visibleNotifs(a: ApplicationRow) {
+  return (a.notifications ?? []).filter((n) => n.status !== 'SIMULATED')
+}
+
 function upiIdFor(a: ApplicationRow): string {
   return a.bank_accounts?.upi_id ?? 'No UPI ID'
 }
@@ -368,7 +375,13 @@ export function ApplicationsPage() {
   // mandate-status update for an existing PENDING application instead of
   // only ever creating new rows.
   const existingByKey = useMemo(
-    () => new Map(applications.map((a) => [`${a.ipo_id}_${a.demat_id}`, { id: a.id, mandate_status: a.mandate_status }])),
+    () =>
+      new Map(
+        applications.map((a) => [
+          `${a.ipo_id}_${a.demat_id}`,
+          { id: a.id, mandate_status: a.mandate_status, ipoji_app_number: a.ipoji_app_number },
+        ]),
+      ),
     [applications],
   )
 
@@ -687,9 +700,15 @@ export function ApplicationsPage() {
                         )}
                       </div>
 
+                      {/* App # (ipoji's own application number, when synced from there)
+                          replaces the old lots/amount display — those are now assumed
+                          defaults on ipoji-imported rows (see IpojiSyncPanel), not real
+                          scraped values, so showing them here read as more precise than
+                          they actually are. This is a directly checkable identifier
+                          against ipoji instead. Blank for manually-entered applications,
+                          which never have one. */}
                       <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        <p>{a.lots} lot(s)</p>
-                        <p>{a.bid_amount ? `₹${a.bid_amount.toLocaleString('en-IN')}` : '—'}</p>
+                        {a.ipoji_app_number ? <p className="font-mono-ipo">App #{a.ipoji_app_number}</p> : null}
                       </div>
 
                       {a.sell_price != null && (
@@ -736,9 +755,14 @@ export function ApplicationsPage() {
                       </div>
 
                       <div className="min-w-[8rem] flex-1">
-                        {a.notifications && a.notifications.length > 0 ? (
+                        {/* SIMULATED just means WhatsApp sending isn't configured yet
+                            (no WA_ACCESS_TOKEN/WA_PHONE_NUMBER_ID) — that's an internal
+                            setup fact, not something useful to see repeated on every row,
+                            so those notifications are hidden here entirely rather than
+                            shown as a badge with nothing actionable attached. */}
+                        {visibleNotifs(a).length > 0 ? (
                           <div className="flex flex-col gap-1">
-                            {a.notifications.map((notif) => (
+                            {visibleNotifs(a).map((notif) => (
                               <div key={notif.id} className="flex items-center gap-1.5">
                                 <NotifBadge status={notif.status} />
                                 {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (

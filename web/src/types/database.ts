@@ -91,6 +91,7 @@ export interface Application {
   sell_price: number | null
   is_backdated: boolean
   imported_from_ipoji: boolean
+  ipoji_app_number: string | null
   created_by: string | null
   mandate_status: MandateStatus
   mandate_marked_by: string | null

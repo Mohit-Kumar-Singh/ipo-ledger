@@ -157,6 +157,7 @@ interface MatchedRow extends ScrapedRow {
   matchedBank: BankAccount | null
   existingId: string | null
   existingMandate: MandateStatus | null
+  existingAppNumber: string | null
   guessedMandate: MandateStatus
   // Not scraped — assumed the IPO's own minimum lot (matches every real
   // application observed so far), computed once the IPO is matched.
@@ -320,7 +321,7 @@ export function IpojiSyncPanel({
   ipos: Ipo[]
   accounts: DematAccount[]
   banks: BankAccount[]
-  existingByKey: Map<string, { id: string; mandate_status: MandateStatus }>
+  existingByKey: Map<string, { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null }>
   onImported: () => void
   // IPOs/demat accounts are only fetched lazily (when the "New application"
   // form opens) — this panel can be opened without that ever having
@@ -334,9 +335,13 @@ export function IpojiSyncPanel({
   const [parseError, setParseError] = useState<string | null>(null)
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [result, setResult] = useState<{ created: number; alreadyExisted: number; mandateUpdated: number; failed: number } | null>(
-    null,
-  )
+  const [result, setResult] = useState<{
+    created: number
+    alreadyExisted: number
+    mandateUpdated: number
+    appNumbersBackfilled: number
+    failed: number
+  } | null>(null)
   const [errorDetails, setErrorDetails] = useState<string[]>([])
 
   async function handleParse() {
@@ -367,6 +372,7 @@ export function IpojiSyncPanel({
           matchedBank,
           existingId: existing?.id ?? null,
           existingMandate: existing?.mandate_status ?? null,
+          existingAppNumber: existing?.ipoji_app_number ?? null,
           guessedMandate: guessMandateStatus(r.status),
           lots,
           amountNum,
@@ -385,11 +391,16 @@ export function IpojiSyncPanel({
   const toUpdateMandate = (rows ?? []).filter(
     (r) => r.existingId && r.existingMandate === 'PENDING' && r.guessedMandate !== 'PENDING',
   )
+  // An application that already exists here but was created before this
+  // sync (or backdated/manually) never got ipoji's own App number recorded
+  // — backfill it now that we have it, so the portal shows something
+  // checkable against ipoji even for older rows.
+  const toBackfillAppNumber = (rows ?? []).filter((r) => r.existingId && !r.existingAppNumber && r.appNumber)
 
   async function handleImport() {
     setSubmitting(true)
     setErrorDetails([])
-    const [createOutcomes, mandateOutcomes] = await Promise.all([
+    const [createOutcomes, mandateOutcomes, appNumberOutcomes] = await Promise.all([
       Promise.all(
         toCreate.map(async (r) => {
           const { error } = await supabase.from('applications').insert({
@@ -401,6 +412,7 @@ export function IpojiSyncPanel({
             bid_amount: r.amountNum,
             is_backdated: true,
             imported_from_ipoji: true,
+            ipoji_app_number: r.appNumber,
           })
           // 23505 = unique_violation on (ipo_id, demat_id) — this pair was
           // already applied for, most likely by an earlier sync run whose
@@ -430,21 +442,35 @@ export function IpojiSyncPanel({
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (mandate)`, error }
         }),
       ),
+      Promise.all(
+        toBackfillAppNumber.map(async (r) => {
+          const { error } = await supabase
+            .from('applications')
+            .update({ ipoji_app_number: r.appNumber })
+            .eq('id', r.existingId)
+          if (error) console.error('ipoji sync — app number backfill failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
+          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (app #)`, error }
+        }),
+      ),
     ])
     setSubmitting(false)
     const created = createOutcomes.filter((o) => o.ok && !o.skipped).length
     const alreadyExisted = createOutcomes.filter((o) => o.skipped).length
     const mandateUpdated = mandateOutcomes.filter((o) => o.ok).length
-    const failed = createOutcomes.filter((o) => !o.ok).length + mandateOutcomes.filter((o) => !o.ok).length
+    const appNumbersBackfilled = appNumberOutcomes.filter((o) => o.ok).length
+    const failed =
+      createOutcomes.filter((o) => !o.ok).length +
+      mandateOutcomes.filter((o) => !o.ok).length +
+      appNumberOutcomes.filter((o) => !o.ok).length
     setErrorDetails(
-      [...createOutcomes, ...mandateOutcomes]
+      [...createOutcomes, ...mandateOutcomes, ...appNumberOutcomes]
         .filter((o) => !o.ok)
         .map((o) => `${o.label}: ${o.error?.message ?? 'unknown error'}`),
     )
-    setResult({ created, alreadyExisted, mandateUpdated, failed })
+    setResult({ created, alreadyExisted, mandateUpdated, appNumbersBackfilled, failed })
     setRows(null)
     setPasteText('')
-    if (created > 0 || mandateUpdated > 0) onImported()
+    if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
   }
 
   return (
@@ -548,7 +574,8 @@ export function IpojiSyncPanel({
             <div>
               <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                 3. Review before importing ({toCreate.length} new, {toUpdateMandate.length} mandate update
-                {toUpdateMandate.length === 1 ? '' : 's'} of {rows.length} found)
+                {toUpdateMandate.length === 1 ? '' : 's'}, {toBackfillAppNumber.length} app # backfill
+                {toBackfillAppNumber.length === 1 ? '' : 's'} of {rows.length} found)
               </p>
               <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
                 Mandate status is a best-effort guess from ipoji's own status text — double-check it
@@ -610,6 +637,8 @@ export function IpojiSyncPanel({
                           {r.existingId ? (
                             toUpdateMandate.includes(r) ? (
                               <span style={{ color: 'var(--accent)' }}>update mandate → {r.guessedMandate}</span>
+                            ) : toBackfillAppNumber.includes(r) ? (
+                              <span style={{ color: 'var(--accent)' }}>backfill app # {r.appNumber}</span>
                             ) : (
                               <span style={{ color: 'var(--ink-muted)' }}>already applied</span>
                             )
@@ -626,12 +655,14 @@ export function IpojiSyncPanel({
               </div>
               <button
                 onClick={handleImport}
-                disabled={submitting || (toCreate.length === 0 && toUpdateMandate.length === 0)}
+                disabled={
+                  submitting || (toCreate.length === 0 && toUpdateMandate.length === 0 && toBackfillAppNumber.length === 0)
+                }
                 className="btn-primary mt-3"
               >
                 {submitting
                   ? 'Importing…'
-                  : `Import ${toCreate.length} application(s), update ${toUpdateMandate.length} mandate(s)`}
+                  : `Import ${toCreate.length}, update ${toUpdateMandate.length} mandate(s), backfill ${toBackfillAppNumber.length} app #`}
               </button>
             </div>
           )}
@@ -639,7 +670,8 @@ export function IpojiSyncPanel({
           {result && (
             <div>
               <p className="text-xs" style={{ color: result.failed ? 'var(--critical-text)' : 'var(--good-text)' }}>
-                Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s)
+                Imported {result.created} application(s), updated {result.mandateUpdated} mandate(s),
+                backfilled {result.appNumbersBackfilled} app number(s)
                 {result.alreadyExisted ? `, ${result.alreadyExisted} already existed (skipped)` : ''}
                 {result.failed ? `, ${result.failed} failed` : ''}.
               </p>
