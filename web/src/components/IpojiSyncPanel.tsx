@@ -44,13 +44,14 @@ const SYNC_SCRIPT_BASIC = `(() => {
 })();`
 
 // Slower variant — same single-page list-scrape, then clicks into each
-// card's detail sheet (ipoji only shows UPI ID there, not on the list view)
-// to pull that too, so it can drive funder matching/messaging in the portal
-// instead of staying blank. This is the fragile half: it depends on
-// ipoji's Bootstrap offcanvas markup and a click target inside each card,
-// both best-effort — if a card's detail sheet doesn't open or doesn't
-// contain a "UPI ID" line within the timeout, that one row is skipped
-// (upiId left blank) and logged, never guessed at. Run the basic script
+// card's detail sheet (ipoji only shows UPI ID and PAN there, not on the
+// list view) to pull both, so the portal can match by PAN — a real unique
+// identifier, unlike names which collide/vary — and drive funder
+// matching/messaging. This is the fragile half: it depends on ipoji's
+// Bootstrap offcanvas markup and a click target inside each card, both
+// best-effort — if a card's detail sheet doesn't open or doesn't contain a
+// "UPI ID"/"PAN NUMBER" line within the timeout, that one field is left
+// blank on that row and logged, never guessed at. Run the basic script
 // above first if this one misbehaves — and if EVERY card fails to open its
 // detail sheet, that's very likely a bug on ipoji's own site (observed:
 // their own 'buildAccountForm is not defined' error), not this script.
@@ -68,7 +69,7 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       ipo: lines[0], applicant: lines[1],
       appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
       qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
-      status: lines[amtIdx + 2] || '', upiId: '',
+      status: lines[amtIdx + 2] || '', upiId: '', panNumber: '',
     };
     try {
       // Neither "first clickable child" (the refresh icon) nor the whole
@@ -91,6 +92,8 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
         const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
         const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
         if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+        const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
+        if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
         if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
         else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
         await sleep(300);
@@ -100,11 +103,11 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
     } catch (e) {
       errors.push({ card: i, stage: 'click', error: String(e) });
     }
-    console.log('ipoji sync — card', i, row.upiId ? 'got UPI' : 'no UPI (see errors array at the end)');
+    console.log('ipoji sync — card', i, row.upiId ? 'got UPI' : 'no UPI', row.panNumber ? 'got PAN' : 'no PAN');
     rows.push(row);
   }
   const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) from this page (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
+  const done = () => alert('Copied ' + rows.length + ' application(s) from this page (' + rows.filter(r => r.upiId).length + ' with UPI ID, ' + rows.filter(r => r.panNumber).length + ' with PAN) to clipboard.' +
     (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
     '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
   navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
@@ -120,11 +123,13 @@ interface ScrapedRow {
   amount: string
   status: string
   upiId?: string
+  panNumber?: string
 }
 
 interface MatchedRow extends ScrapedRow {
   matchedIpo: Ipo | null
   matchedDemat: DematAccount | null
+  dematMatchedByPan: boolean
   matchedBank: BankAccount | null
   existingId: string | null
   existingMandate: MandateStatus | null
@@ -152,7 +157,7 @@ function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
   )
 }
 
-function matchDemat(applicantName: string, accounts: DematAccount[]): DematAccount | null {
+function matchDematByName(applicantName: string, accounts: DematAccount[]): DematAccount | null {
   const n = normalize(applicantName)
   if (!n) return null
   const exact = accounts.find((a) => normalize(a.holder_name) === n)
@@ -163,6 +168,34 @@ function matchDemat(applicantName: string, accounts: DematAccount[]): DematAccou
   const firstToken = applicantName.trim().split(/\s+/)[0]
   const nt = normalize(firstToken)
   return accounts.find((a) => normalize(a.holder_name.split(/\s+/)[0]) === nt) ?? null
+}
+
+// PAN is never stored in plaintext (see reveal-pan / PAN_KEY in
+// CLAUDE.md) — but demat_accounts.pan_hash is sha256(upper(pan)), computed
+// the same way at insert time (0006_update_demat_encrypted.sql). Hashing
+// the scraped PAN client-side with the same algorithm and comparing hashes
+// gives an exact, unique match without ever decrypting anything — strictly
+// better than the name-based fallback below, which can collide (two
+// "Arpit"s) or miss on a nickname.
+async function sha256Hex(input: string): Promise<string> {
+  const bytes = new TextEncoder().encode(input)
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+async function matchDemat(
+  applicantName: string,
+  panNumber: string | undefined,
+  accounts: DematAccount[],
+): Promise<{ account: DematAccount | null; byPan: boolean }> {
+  if (panNumber?.trim()) {
+    const hash = await sha256Hex(panNumber.trim().toUpperCase())
+    const byPan = accounts.find((a) => a.pan_hash === hash)
+    if (byPan) return { account: byPan, byPan: true }
+  }
+  return { account: matchDematByName(applicantName, accounts), byPan: false }
 }
 
 // UPI IDs are exact identifiers, not names — no fuzz here. This is what
@@ -226,7 +259,7 @@ export function IpojiSyncPanel({
   const [result, setResult] = useState<{ created: number; mandateUpdated: number; failed: number } | null>(null)
   const [errorDetails, setErrorDetails] = useState<string[]>([])
 
-  function handleParse() {
+  async function handleParse() {
     setParseError(null)
     setResult(null)
     let scraped: ScrapedRow[]
@@ -238,24 +271,27 @@ export function IpojiSyncPanel({
       setRows(null)
       return
     }
-    const matched: MatchedRow[] = scraped.map((r) => {
-      const matchedIpo = matchIpo(r.ipo, ipos)
-      const matchedDemat = matchDemat(r.applicant, accounts)
-      const matchedBank = matchBank(r.upiId, banks)
-      const lots = Number.isFinite(Number(r.qty)) ? Number(r.qty) : null
-      const existing = matchedIpo && matchedDemat ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}`) : undefined
-      return {
-        ...r,
-        matchedIpo,
-        matchedDemat,
-        matchedBank,
-        existingId: existing?.id ?? null,
-        existingMandate: existing?.mandate_status ?? null,
-        guessedMandate: guessMandateStatus(r.status),
-        lots,
-        amountNum: parseAmount(r.amount),
-      }
-    })
+    const matched: MatchedRow[] = await Promise.all(
+      scraped.map(async (r) => {
+        const matchedIpo = matchIpo(r.ipo, ipos)
+        const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
+        const matchedBank = matchBank(r.upiId, banks)
+        const lots = Number.isFinite(Number(r.qty)) ? Number(r.qty) : null
+        const existing = matchedIpo && matchedDemat ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}`) : undefined
+        return {
+          ...r,
+          matchedIpo,
+          matchedDemat,
+          dematMatchedByPan,
+          matchedBank,
+          existingId: existing?.id ?? null,
+          existingMandate: existing?.mandate_status ?? null,
+          guessedMandate: guessMandateStatus(r.status),
+          lots,
+          amountNum: parseAmount(r.amount),
+        }
+      }),
+    )
     setRows(matched)
   }
 
@@ -362,11 +398,13 @@ export function IpojiSyncPanel({
             </div>
 
             <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              Slower — also opens each card to pull its UPI ID (for funder matching)
+              Slower — also opens each card to pull its UPI ID and PAN (for accurate account matching)
             </p>
             <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Clicks into every card's detail sheet, so it takes longer and is more likely to need
-              adjusting if ipoji's page changes. Use the fast one above if this misbehaves.
+              adjusting if ipoji's page changes. Use the fast one above if this misbehaves. PAN, when
+              found, is matched exactly (no name guessing) — the review table shows which method matched
+              each account.
             </p>
             <div className="relative mt-1">
               <pre
@@ -439,7 +477,16 @@ export function IpojiSyncPanel({
                         </td>
                         <td className="p-1.5">{r.applicant}</td>
                         <td className="p-1.5">
-                          {r.matchedDemat ? r.matchedDemat.holder_name : <span style={{ color: 'var(--critical-text)' }}>not found</span>}
+                          {r.matchedDemat ? (
+                            <>
+                              {r.matchedDemat.holder_name}{' '}
+                              <span style={{ color: r.dematMatchedByPan ? 'var(--good-text)' : 'var(--warning-text)' }}>
+                                ({r.dematMatchedByPan ? 'by PAN' : 'by name'})
+                              </span>
+                            </>
+                          ) : (
+                            <span style={{ color: 'var(--critical-text)' }}>not found</span>
+                          )}
                         </td>
                         <td className="p-1.5">{r.qty}</td>
                         <td className="p-1.5">{r.amount}</td>
