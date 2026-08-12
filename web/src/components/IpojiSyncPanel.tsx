@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { CopyButton } from './CopyButton'
-import type { DematAccount, Ipo } from '../types/database'
+import type { BankAccount, DematAccount, Ipo } from '../types/database'
 
 // Console script the user runs themselves, once, while logged into ipoji in
 // their own browser (Orders/Bids -> Current tab) — reads the DOM they're
@@ -11,7 +11,7 @@ import type { DematAccount, Ipo } from '../types/database'
 // because ipoji's classes are opaque Bootstrap utility names, not semantic —
 // see IpojiSyncPanel below for why a shape mismatch fails loudly instead of
 // silently importing garbage.
-const SYNC_SCRIPT = `(() => {
+const SYNC_SCRIPT_BASIC = `(() => {
   const cards = document.querySelectorAll('.order-card-v2');
   const rows = []; const errors = [];
   cards.forEach((card, i) => {
@@ -34,6 +34,59 @@ const SYNC_SCRIPT = `(() => {
   console.log('ipoji sync — parsed', rows, 'errors', errors);
 })();`
 
+// Slower variant — same list-scrape, then clicks into each card's detail
+// sheet (ipoji only shows UPI ID there, not on the list view) to pull that
+// too, so it can drive funder matching/messaging in the portal instead of
+// staying blank. This is the fragile half: it depends on ipoji's Bootstrap
+// offcanvas markup and a click target inside each card, both best-effort —
+// if a card's detail sheet doesn't open or doesn't contain a "UPI ID" line
+// within the timeout, that one row is skipped (upiId left blank) and logged,
+// never guessed at. Run the basic script above first if this one misbehaves.
+const SYNC_SCRIPT_WITH_UPI = `(async () => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const cards = [...document.querySelectorAll('.order-card-v2')];
+  const rows = []; const errors = [];
+  for (let i = 0; i < cards.length; i++) {
+    const card = cards[i];
+    const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+    const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+    const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
+    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, lines, stage: 'list' }); continue; }
+    const row = {
+      ipo: lines[0], applicant: lines[1],
+      appNumber: lines[appIdx + 1] || '', price: lines[priceIdx + 1] || '',
+      qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '',
+      status: lines[amtIdx + 2] || '', upiId: '',
+    };
+    try {
+      (card.querySelector('svg,button,.chevron,[role="button"]') || card).click();
+      let sheet = null;
+      for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+      if (sheet) {
+        await sleep(500); // let the staggered field animation finish
+        const body = sheet.querySelector('#orderDetailBody') || sheet;
+        const dLines = (body.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+        const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
+        if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+        if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
+        else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
+        await sleep(300);
+      } else {
+        errors.push({ card: i, stage: 'detail-sheet-not-found' });
+      }
+    } catch (e) {
+      errors.push({ card: i, stage: 'click', error: String(e) });
+    }
+    rows.push(row);
+  }
+  const out = JSON.stringify(rows);
+  const done = () => alert('Copied ' + rows.length + ' application(s) (' + rows.filter(r => r.upiId).length + ' with UPI ID) to clipboard.' +
+    (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
+    '\\n\\nNow paste into the IPO Ledger sync panel.');
+  navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
+  console.log('ipoji sync (with UPI) — parsed', rows, 'errors', errors);
+})();`
+
 interface ScrapedRow {
   ipo: string
   applicant: string
@@ -42,11 +95,13 @@ interface ScrapedRow {
   qty: string
   amount: string
   status: string
+  upiId?: string
 }
 
 interface MatchedRow extends ScrapedRow {
   matchedIpo: Ipo | null
   matchedDemat: DematAccount | null
+  matchedBank: BankAccount | null
   alreadyExists: boolean
   lots: number | null
   amountNum: number | null
@@ -84,6 +139,16 @@ function matchDemat(applicantName: string, accounts: DematAccount[]): DematAccou
   return accounts.find((a) => normalize(a.holder_name.split(/\s+/)[0]) === nt) ?? null
 }
 
+// UPI IDs are exact identifiers, not names — no fuzz here. This is what
+// actually lets the sync attribute an application to the right funder
+// (bank_account_id) instead of leaving it unset, which is the whole point
+// of pulling UPI ID off ipoji at all.
+function matchBank(upiId: string | undefined, banks: BankAccount[]): BankAccount | null {
+  if (!upiId?.trim()) return null
+  const n = upiId.trim().toLowerCase()
+  return banks.find((b) => b.upi_id?.trim().toLowerCase() === n) ?? null
+}
+
 function parseAmount(s: string): number | null {
   const n = Number(s.replace(/[^0-9.]/g, ''))
   return Number.isFinite(n) && n > 0 ? n : null
@@ -92,6 +157,7 @@ function parseAmount(s: string): number | null {
 export function IpojiSyncPanel({
   ipos,
   accounts,
+  banks,
   existingKeys,
   onImported,
   ensureLookupsLoaded,
@@ -99,6 +165,7 @@ export function IpojiSyncPanel({
 }: {
   ipos: Ipo[]
   accounts: DematAccount[]
+  banks: BankAccount[]
   existingKeys: Set<string>
   onImported: () => void
   // IPOs/demat accounts are only fetched lazily (when the "New application"
@@ -130,9 +197,10 @@ export function IpojiSyncPanel({
     const matched: MatchedRow[] = scraped.map((r) => {
       const matchedIpo = matchIpo(r.ipo, ipos)
       const matchedDemat = matchDemat(r.applicant, accounts)
+      const matchedBank = matchBank(r.upiId, banks)
       const lots = Number.isFinite(Number(r.qty)) ? Number(r.qty) : null
       const alreadyExists = !!(matchedIpo && matchedDemat && existingKeys.has(`${matchedIpo.id}_${matchedDemat.id}`))
-      return { ...r, matchedIpo, matchedDemat, alreadyExists, lots, amountNum: parseAmount(r.amount) }
+      return { ...r, matchedIpo, matchedDemat, matchedBank, alreadyExists, lots, amountNum: parseAmount(r.amount) }
     })
     setRows(matched)
   }
@@ -146,7 +214,7 @@ export function IpojiSyncPanel({
         const { error } = await supabase.from('applications').insert({
           ipo_id: r.matchedIpo!.id,
           demat_id: r.matchedDemat!.id,
-          bank_account_id: null,
+          bank_account_id: r.matchedBank?.id ?? null,
           category: 'RETAIL',
           lots: r.lots!,
           bid_amount: r.amountNum,
@@ -183,19 +251,43 @@ export function IpojiSyncPanel({
             </p>
             <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. Open DevTools (F12) →
-              Console, paste the script below, press Enter. It only reads the page you're already
+              Console, paste one of the scripts below, press Enter. It only reads the page you're already
               logged into and copies a summary to your clipboard — your ipoji login never touches this
               app.
             </p>
-            <div className="relative mt-2">
+
+            <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+              Fast — IPO, account, amount, status
+            </p>
+            <div className="relative mt-1">
               <pre
-                className="max-h-32 overflow-auto rounded-md p-3 text-xs"
+                className="max-h-28 overflow-auto rounded-md p-3 text-xs"
                 style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
               >
-                {SYNC_SCRIPT}
+                {SYNC_SCRIPT_BASIC}
               </pre>
               <div className="absolute top-2 right-2">
-                <CopyButton value={SYNC_SCRIPT} label="script" />
+                <CopyButton value={SYNC_SCRIPT_BASIC} label="script" />
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+              Slower — also opens each card to pull its UPI ID (for funder matching)
+            </p>
+            <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Clicks into every card's detail sheet, so it takes a few seconds per application and is
+              more likely to need adjusting if ipoji's page changes. Use the fast one above if this
+              misbehaves.
+            </p>
+            <div className="relative mt-1">
+              <pre
+                className="max-h-28 overflow-auto rounded-md p-3 text-xs"
+                style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+              >
+                {SYNC_SCRIPT_WITH_UPI}
+              </pre>
+              <div className="absolute top-2 right-2">
+                <CopyButton value={SYNC_SCRIPT_WITH_UPI} label="script" />
               </div>
             </div>
           </div>
@@ -239,6 +331,7 @@ export function IpojiSyncPanel({
                       <th className="p-1.5 text-left">Matched account</th>
                       <th className="p-1.5 text-left">Qty</th>
                       <th className="p-1.5 text-left">Amount</th>
+                      <th className="p-1.5 text-left">Funder (UPI)</th>
                       <th className="p-1.5 text-left">Result</th>
                     </tr>
                   </thead>
@@ -255,6 +348,17 @@ export function IpojiSyncPanel({
                         </td>
                         <td className="p-1.5">{r.qty}</td>
                         <td className="p-1.5">{r.amount}</td>
+                        <td className="p-1.5">
+                          {!r.upiId ? (
+                            <span style={{ color: 'var(--ink-muted)' }}>—</span>
+                          ) : r.matchedBank ? (
+                            r.matchedBank.account_holder_name ?? r.upiId
+                          ) : (
+                            <span title={r.upiId} style={{ color: 'var(--warning-text)' }}>
+                              no funder account for {r.upiId}
+                            </span>
+                          )}
+                        </td>
                         <td className="p-1.5">
                           {r.alreadyExists ? (
                             <span style={{ color: 'var(--ink-muted)' }}>already applied</span>

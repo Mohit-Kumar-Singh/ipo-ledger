@@ -403,6 +403,7 @@ export function ApplicationsPage() {
         <IpojiSyncPanel
           ipos={ipos}
           accounts={accounts}
+          banks={banks}
           existingKeys={existingKeys}
           onImported={loadApplications}
           ensureLookupsLoaded={loadFormData}
