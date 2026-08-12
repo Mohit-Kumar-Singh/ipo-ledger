@@ -94,11 +94,18 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       };
       if (byAppNumber.has(row.appNumber)) continue; // already captured on an earlier page
       try {
-        // Click the card itself, NOT a child button/svg inside it — the
-        // first clickable child is the circular refresh icon (top-right of
-        // every card), and clicking that just re-fetches the card's own
-        // status instead of opening the detail sheet.
-        card.click();
+        // Neither "first clickable child" (the refresh icon) nor the whole
+        // card (triggers some other handler on ipoji's side — observed
+        // throwing their own 'buildAccountForm is not defined' error, not
+        // ours, and never opening the detail sheet) is the right target.
+        // The chevron/arrow at the row's right edge is visually the LAST
+        // icon in the card, distinct from the refresh icon at the top —
+        // prefer that, walking up to its nearest clickable ancestor in case
+        // the icon itself isn't the click handler's target.
+        const icons = [...card.querySelectorAll('svg')];
+        const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
+        const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
+        target.click();
         let sheet = null;
         for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
         if (sheet) {
@@ -116,6 +123,7 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       } catch (e) {
         errors.push({ page, card: i, stage: 'click', error: String(e) });
       }
+      console.log('ipoji sync — card', i, 'on page', page, row.upiId ? 'got UPI' : 'no UPI (see errors array at the end)');
       byAppNumber.set(row.appNumber, row);
       added++;
     }
