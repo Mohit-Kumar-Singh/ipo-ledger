@@ -59,7 +59,12 @@ const SYNC_SCRIPT_WITH_UPI = `(async () => {
       status: lines[amtIdx + 2] || '', upiId: '',
     };
     try {
-      (card.querySelector('svg,button,.chevron,[role="button"]') || card).click();
+      // Click the card itself, NOT a child button/svg inside it — the first
+      // clickable child is the circular refresh icon (top-right of every
+      // card), and clicking that just re-fetches the card's own status
+      // instead of opening the detail sheet. The card's own click handler
+      // (the one that opens details) is what we actually want to trigger.
+      card.click();
       let sheet = null;
       for (let t = 0; t < 20 && !sheet; t++) { await sleep(150); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
       if (sheet) {
