@@ -16,9 +16,13 @@ import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/dat
 // Console script the user runs themselves, once per page, while logged into
 // ipoji in their own browser (Orders/Bids -> Current tab) — reads the page
 // they're already looking at, opens each card's detail sheet for its UPI ID
-// and PAN (the only place ipoji shows either), and copies a JSON summary to
-// the clipboard. No ipoji credential ever touches this app; this only ever
-// sees what the user explicitly pastes back in. Text-line heuristic (not
+// and PAN (the only place ipoji shows either), and shows a JSON summary in
+// an on-page textarea for the user to select-all/copy manually — confirmed
+// live that ipoji blocks navigator.clipboard writes outright (the promise
+// never resolves), so a plain textarea (needing no special permission) is
+// the only reliable way to get the data out. No ipoji credential ever
+// touches this app; this only ever sees what the user explicitly pastes
+// back in. Text-line heuristic (not
 // brittle CSS selectors) because ipoji's classes are opaque Bootstrap
 // utility names, not semantic — see IpojiSyncPanel below for why a shape
 // mismatch fails loudly instead of silently importing garbage. The earlier
@@ -101,11 +105,27 @@ const SYNC_SCRIPT = `(async () => {
     console.log('ipoji sync — card', i, row.upiId ? 'got UPI' : 'no UPI', row.panNumber ? 'got PAN' : 'no PAN');
     rows.push(row);
   }
-  const out = JSON.stringify(rows);
-  const done = () => alert('Copied ' + rows.length + ' application(s) from this page (' + rows.filter(r => r.upiId).length + ' with UPI ID, ' + rows.filter(r => r.panNumber).length + ' with PAN) to clipboard.' +
-    (errors.length ? ' ' + errors.length + " card(s) had an issue — see console." : '') +
-    '\\n\\nPaste into the sync panel now. If there are more pages, click Next on ipoji, then run this script again for that page.');
-  navigator.clipboard.writeText(out).then(done).catch(() => prompt('Clipboard blocked — copy this manually (' + rows.length + ' found):', out));
+  const out = JSON.stringify(rows, null, 2);
+  // Shown on-page instead of attempted via navigator.clipboard — confirmed
+  // live that ipoji blocks clipboard writes outright (the call just never
+  // resolves). A plain textarea needs no special permission; select-all
+  // and copy manually.
+  document.querySelectorAll('#__ipojiSyncBox').forEach((el) => el.remove());
+  const box = document.createElement('div');
+  box.id = '__ipojiSyncBox';
+  box.style.cssText = 'position:fixed;inset:5% 5%;z-index:999999;background:#fff;border:3px solid #333;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,.4);font-family:sans-serif;';
+  box.innerHTML =
+    '<div style="font:14px sans-serif;color:#111;">' + rows.length + ' application(s) from this page' +
+    (errors.length ? ' (' + errors.length + " card(s) didn't match the expected layout — skipped, see console)" : '') +
+    '. Ctrl+A then Ctrl+C inside the box to copy, paste into the sync panel below, then close this. If there are more pages, click Next on ipoji and run this script again for that page.</div>' +
+    '<textarea id="__ipojiSyncTA" style="flex:1;width:100%;font:12px monospace;color:#111;" readonly></textarea>' +
+    '<button id="__ipojiSyncClose" style="align-self:flex-start;padding:6px 14px;">Close</button>';
+  document.body.appendChild(box);
+  const ta = document.getElementById('__ipojiSyncTA');
+  ta.value = out;
+  ta.focus();
+  ta.select();
+  document.getElementById('__ipojiSyncClose').onclick = () => box.remove();
   console.log('ipoji sync — parsed', rows, 'errors', errors);
 })();`
 
@@ -487,8 +507,9 @@ export function IpojiSyncPanel({
                   'Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. ' +
                   'Open DevTools (F12) → Console, paste the copied script, press Enter. ' +
                   "It only reads the page you're already logged into (opening each card's " +
-                  'detail sheet for its UPI ID and PAN) and copies a summary to your clipboard — ' +
-                  'your ipoji login never touches this app.\n\n' +
+                  'detail sheet for its UPI ID and PAN) and shows the result in a text box on the ' +
+                  'page — ipoji blocks clipboard writes, so select-all and copy from that box ' +
+                  'manually. Your ipoji login never touches this app.\n\n' +
                   'If ipoji\'s list has more than one page, this only reads the current page. ' +
                   'Paste this page\'s result below, then click Next on ipoji and run the script ' +
                   'again for the next page — running it multiple times and pasting each result ' +
@@ -521,7 +542,7 @@ export function IpojiSyncPanel({
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder="Paste the clipboard content here…"
+              placeholder="Paste what the script showed you here…"
               className="input mt-2 h-24 w-full font-mono text-xs"
             />
             {parseError && (

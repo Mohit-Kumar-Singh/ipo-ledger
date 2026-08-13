@@ -143,6 +143,17 @@ export function AllotmentBoardPage() {
     loadBoard(selectedIpoId)
   }
 
+  // Allotted rows surface first so a glance at the board shows who's already
+  // confirmed before scrolling past everyone still just "applied" — within
+  // each group, original load order (registrar-list order) is preserved.
+  const statusOrder: Record<AllotmentBoardRow['status'], number> = {
+    ALLOTTED: 0,
+    SOLD: 1,
+    APPLIED: 2,
+    NOT_ALLOTTED: 3,
+  }
+  const sortedRows = [...rows].sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
+
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
   const registrarUrl = selectedIpo?.registrar_url || registrarLinks[selectedIpo?.registrar ?? '']
 
@@ -272,7 +283,7 @@ export function AllotmentBoardPage() {
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {rows.map((row) => {
+              {sortedRows.map((row) => {
                 const notif = allottedNotifs[row.application_id]
                 return (
                 <tr key={row.application_id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">

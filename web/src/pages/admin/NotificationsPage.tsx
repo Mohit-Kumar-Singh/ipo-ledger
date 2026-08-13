@@ -42,11 +42,66 @@ type ApplicationForFunderRow = {
   ipo_id: string
   lots: number
   applied_at: string
+  status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipoji_status_text: string | null
   ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
   demat_accounts: { holder_name: string } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
+}
+
+// One card per (funder, IPO) covering only their ALLOTTED (or already SOLD —
+// still allotted, just further along) applications — separate from the
+// funding-summary cards above, which are about what's been *applied for*,
+// not the result. A funder shouldn't have to wait for a payout message to
+// find out an application under them actually got shares.
+interface FunderAllottedCard {
+  key: string
+  funderName: string
+  phone: string | null
+  ipoId: string
+  ipoName: string
+  holderNames: string[]
+}
+
+function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllottedCard[] {
+  const cardsByIpo = new Map<string, FunderAllottedCard[]>()
+  for (const r of rows) {
+    const name = r.bank_accounts?.account_holder_name
+    if (!name || !r.ipos) continue
+    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+    if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
+    const cardsForIpo = cardsByIpo.get(r.ipo_id)!
+    let card = cardsForIpo.find((c) => sameIdentity(c.funderName, name))
+    if (!card) {
+      card = {
+        key: `allotted::${r.ipo_id}::${cardsForIpo.length}`,
+        funderName: name,
+        phone: r.bank_accounts?.phone_e164 ?? null,
+        ipoId: r.ipo_id,
+        ipoName: r.ipos.company_name,
+        holderNames: [],
+      }
+      cardsForIpo.push(card)
+    } else if (name.length > card.funderName.length) {
+      card.funderName = name
+    }
+    if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
+    const holder = r.demat_accounts?.holder_name ?? 'Unknown'
+    if (!card.holderNames.includes(holder)) card.holderNames.push(holder)
+  }
+  return Array.from(cardsByIpo.values())
+    .flat()
+    .sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
+}
+
+function buildFunderAllottedMessage(card: FunderAllottedCard): string {
+  const list = card.holderNames.map((n, i) => `${i + 1}. ${n}`).join('\n')
+  return (
+    `Hi ${card.funderName}, good news — your application(s) got *allotted* in *${card.ipoName}*:\n\n` +
+    `${list}\n\n` +
+    `> Other updates are posted on ${PORTAL_URL}`
+  )
 }
 
 // Local calendar day, not UTC — an application entered at 11pm IST is
@@ -171,6 +226,7 @@ export function NotificationsPage() {
   const isAdmin = profile?.role === 'admin'
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
+  const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
   // Notification rows only ever stored a raw phone number ("To") — useless
@@ -202,7 +258,7 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, applied_at, mandate_status, ipoji_status_text, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
@@ -216,7 +272,9 @@ export function NotificationsPage() {
     }
     setNotifications((notifRes.data ?? []) as unknown as NotificationRow[])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
-    setFunderCards(buildFunderIpoCards((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]))
+    const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
+    setFunderCards(buildFunderIpoCards(funderRows))
+    setAllottedCards(buildFunderAllottedCards(funderRows))
 
     // Bank/UPI names win over demat holder names on a shared phone number —
     // a notification's "To" is almost always the funder who needs to act on
@@ -339,6 +397,54 @@ export function NotificationsPage() {
                     {message}
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send on WhatsApp
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {isAdmin && !loading && allottedCards.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Allotment updates
+          </h2>
+          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            One card per funder per IPO where at least one of their funded accounts got allotted.
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {allottedCards.map((c) => {
+              const message = buildFunderAllottedMessage(c)
+              return (
+                <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.funderName}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName}
+                      </p>
+                    </div>
+                    <span className="badge badge-good shrink-0 text-xs">
+                      {c.holderNames.length} allotted
+                    </span>
+                  </div>
+                  <div
+                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
+                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+                  >
+                    {message}
+                  </div>
                   <button
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
