@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -67,6 +67,7 @@ interface DashboardData {
   ipoProgress: IpoProgress[]
   highGmpAlerts: HighGmpAlert[]
   pendingPayouts: PendingPayout[]
+  totalApplied: number
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -291,6 +292,15 @@ export function DashboardPage() {
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
+        // A CANCELLED mandate means the funder never actually approved the
+        // UPI block — no money moved, so it's not really "applied" in any
+        // sense worth counting here (same reasoning as the accounts-left
+        // fix above). boardRows is already RLS-scoped per viewer (every
+        // account for admin, just this member's own for a member), so this
+        // reads as "how many IPOs has admin/this member applied to" either
+        // way, matching the section's own "across all accounts"/"your
+        // accounts" framing.
+        totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED').length,
       })
       setLoading(false)
     }
@@ -346,7 +356,12 @@ export function DashboardPage() {
           3-col grid wrapped 6 admin tiles to two rows; this scales the
           column count to however many tiles actually render for the
           viewer's role instead. */}
-      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
+      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-7' : 'lg:grid-cols-5'}`}>
+        {/* Every application whose mandate isn't CANCELLED — a cancelled
+            one never actually had money move, so it's not really "applied"
+            in any sense worth counting (same reasoning as the accounts-left
+            fix and the Settings cancelled-mandates section). */}
+        <StatTile icon={FileIcon} label="IPOs applied" value={data.totalApplied} tone="info" to="/applications" />
         <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" to="/ipos" />
         <StatTile
           icon={LawIcon}
