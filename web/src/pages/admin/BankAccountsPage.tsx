@@ -150,6 +150,7 @@ export function BankAccountsPage() {
           userId={session.user.id}
           isAdmin={isAdmin}
           dematPhoneByName={dematPhoneByName}
+          linkableMembers={linkableMembers}
           onCancel={() => setShowForm(false)}
           onDone={() => {
             setShowForm(false)
@@ -163,6 +164,7 @@ export function BankAccountsPage() {
           userId={session.user.id}
           isAdmin={isAdmin}
           dematPhoneByName={dematPhoneByName}
+          linkableMembers={linkableMembers}
           existing={editing}
           onCancel={() => setEditing(null)}
           onDone={() => {
@@ -293,6 +295,7 @@ function BankForm({
   isAdmin,
   existing,
   dematPhoneByName,
+  linkableMembers,
   onCancel,
   onDone,
 }: {
@@ -300,6 +303,7 @@ function BankForm({
   isAdmin: boolean
   existing?: EditingBank
   dematPhoneByName: Record<string, string>
+  linkableMembers: Profile[]
   onCancel: () => void
   onDone: () => void
 }) {
@@ -308,6 +312,12 @@ function BankForm({
   const [bankName, setBankName] = useState(existing?.bankName ?? '')
   const [phoneDigits, setPhoneDigits] = useState(existing?.phoneDigits ?? '')
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false)
+  // New account only — an already-existing one has its own Link/Unlink
+  // control in the list, no reason to duplicate that here. Lets an admin
+  // adding a new UPI ID for someone already on the portal tie it to their
+  // login in the same step, instead of a mandatory separate "Link to
+  // member" click right after saving.
+  const [linkedUserId, setLinkedUserId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -343,13 +353,18 @@ function BankForm({
       is_default: isDefault,
     }
 
-    // linked_user_id is only set on creation, and only for a member adding
-    // their own bank/UPI account (self-service ownership for RLS purposes).
-    // When admin adds one, it's on someone else's behalf, not a claim of
-    // ownership — so it's left unlinked rather than defaulting to admin.
+    // linked_user_id is only set on creation. For a member adding their own
+    // bank/UPI account, that's themselves (self-service ownership for RLS
+    // purposes). When admin adds one on someone else's behalf, it's left
+    // unlinked UNLESS the admin explicitly picked who this new account
+    // belongs to via linkedUserId — that's not a claim of ownership by the
+    // admin, it's recording whose it actually is, same as the separate
+    // "Link to member" action elsewhere on this page just done inline.
     const { error } = existing
       ? await supabase.from('bank_accounts').update(payload).eq('id', existing.id)
-      : await supabase.from('bank_accounts').insert({ ...payload, linked_user_id: isAdmin ? null : userId })
+      : await supabase
+          .from('bank_accounts')
+          .insert({ ...payload, linked_user_id: isAdmin ? linkedUserId || null : userId })
 
     setSubmitting(false)
     if (error) {
@@ -375,6 +390,18 @@ function BankForm({
           ))}
         </datalist>
       </Field>
+      {isAdmin && !existing && linkableMembers.length > 0 && (
+        <Field label="Link to member" hint="if this UPI belongs to someone already on the portal">
+          <select value={linkedUserId} onChange={(e) => setLinkedUserId(e.target.value)} className="input">
+            <option value="">Not linked</option>
+            {linkableMembers.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.full_name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label="UPI ID" hint="optional">
         <input value={upi} onChange={(e) => setUpi(e.target.value)} placeholder="name@bank" className="input" />
       </Field>

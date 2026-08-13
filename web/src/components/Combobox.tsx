@@ -61,7 +61,7 @@ export function Combobox({
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="card z-50 w-72 overflow-hidden p-0"
+          className="card z-50 w-[22rem] max-w-[90vw] overflow-hidden p-0"
           style={{ borderColor: 'var(--border-strong)', boxShadow: 'var(--shadow-lg)' }}
         >
           <Command loop>
@@ -95,10 +95,15 @@ export function Combobox({
                         onChange(o.value)
                         setOpen(false)
                       }}
-                      className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-sm data-[selected=true]:bg-[var(--hover-surface)]"
+                      className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs data-[selected=true]:bg-[var(--hover-surface)]"
                       style={{ color: 'var(--ink-primary)' }}
                     >
-                      <span className="truncate">{o.label}</span>
+                      {/* Smaller text + a wider popover (above) instead of
+                          truncating — this list's labels are often a name +
+                          bank + full UPI ID strung together, and truncating
+                          was hiding the UPI ID entirely, the one field that
+                          actually disambiguates near-identical entries. */}
+                      <span className="break-all">{o.label}</span>
                       {o.value === value && <CheckIcon size={14} className="shrink-0" fill="var(--accent)" />}
                     </Command.Item>
                   ))}

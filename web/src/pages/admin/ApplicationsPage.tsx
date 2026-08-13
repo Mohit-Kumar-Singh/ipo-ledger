@@ -1154,10 +1154,12 @@ function NewApplicationForm({
           onChange={setBankAccountId}
           options={[
             { value: '', label: 'None' },
-            ...banks.map((b) => ({
-              value: b.id,
-              label: [b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account',
-            })),
+            ...[...banks]
+              .sort((a, b) => (a.account_holder_name ?? '').localeCompare(b.account_holder_name ?? ''))
+              .map((b) => ({
+                value: b.id,
+                label: [b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account',
+              })),
           ]}
         />
       </Field>
