@@ -134,15 +134,44 @@ export function BankAccountsPage() {
             reused across holders and one holder can use several.
           </p>
         </div>
-        <button
-          onClick={() => {
-            setEditing(null)
-            setShowForm((s) => !s)
-          }}
-          className="btn-primary"
-        >
-          {showForm ? 'Cancel' : '+ Add bank/UPI account'}
-        </button>
+        {/* Select-all/bulk-delete lives here now, next to the Add button,
+            instead of its own separate row below — one place to look for
+            every page-level action instead of two. */}
+        <div className="flex flex-wrap items-center gap-3">
+          {banks.length > 0 && (
+            <>
+              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={selected.size > 0 && selected.size === banks.length}
+                  ref={(el) => {
+                    if (el) el.indeterminate = selected.size > 0 && selected.size < banks.length
+                  }}
+                  onChange={toggleSelectAll}
+                />
+                Select all
+              </label>
+              {selected.size > 0 && (
+                <button
+                  onClick={bulkDelete}
+                  className="text-sm font-medium hover:underline"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  Delete {selected.size} selected
+                </button>
+              )}
+            </>
+          )}
+          <button
+            onClick={() => {
+              setEditing(null)
+              setShowForm((s) => !s)
+            }}
+            className="btn-primary"
+          >
+            {showForm ? 'Cancel' : '+ Add bank/UPI account'}
+          </button>
+        </div>
       </div>
 
       {showForm && session && (
@@ -182,28 +211,6 @@ export function BankAccountsPage() {
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-              <input
-                type="checkbox"
-                checked={selected.size > 0 && selected.size === banks.length}
-                ref={(el) => {
-                  if (el) el.indeterminate = selected.size > 0 && selected.size < banks.length
-                }}
-                onChange={toggleSelectAll}
-              />
-              Select all
-            </label>
-            {selected.size > 0 && (
-              <button
-                onClick={bulkDelete}
-                className="text-sm font-medium hover:underline"
-                style={{ color: 'var(--critical)' }}
-              >
-                Delete {selected.size} selected
-              </button>
-            )}
-          </div>
           <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
           {banks.map((b) => (
             <div key={b.id} className="stagger-item flex flex-wrap items-center justify-between gap-2 p-4">

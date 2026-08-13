@@ -394,7 +394,33 @@ export function IposPage() {
           </p>
         </div>
         {isAdmin && (
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Select-all/bulk-delete lives here now, next to Import/Add,
+                instead of its own separate row below the header. */}
+            {visibleIpos.length > 0 && (
+              <>
+                <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIpos.size > 0 && selectedIpos.size === visibleIpos.length}
+                    ref={(el) => {
+                      if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < visibleIpos.length
+                    }}
+                    onChange={toggleSelectAllIpos}
+                  />
+                  Select all
+                </label>
+                {selectedIpos.size > 0 && (
+                  <button
+                    onClick={bulkDeleteIpos}
+                    className="text-sm font-medium hover:underline"
+                    style={{ color: 'var(--critical)' }}
+                  >
+                    Delete {selectedIpos.size} selected
+                  </button>
+                )}
+              </>
+            )}
             <button
               onClick={() => {
                 setShowImport((s) => !s)
@@ -513,30 +539,6 @@ export function IposPage() {
         </p>
       ) : (
         <>
-          {isAdmin && visibleIpos.length > 0 && (
-            <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-                <input
-                  type="checkbox"
-                  checked={selectedIpos.size > 0 && selectedIpos.size === visibleIpos.length}
-                  ref={(el) => {
-                    if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < visibleIpos.length
-                  }}
-                  onChange={toggleSelectAllIpos}
-                />
-                Select all
-              </label>
-              {selectedIpos.size > 0 && (
-                <button
-                  onClick={bulkDeleteIpos}
-                  className="text-sm font-medium hover:underline"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  Delete {selectedIpos.size} selected
-                </button>
-              )}
-            </div>
-          )}
           {visibleIpos.length === 0 ? (
             <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
               Everything's archived —{' '}
