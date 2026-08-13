@@ -269,6 +269,22 @@ export function AllotmentBoardPage() {
 
       {loading && <InlineSpinner />}
 
+      {!loading && selectedIpoId && isAdmin && (
+        <SoldPayoutsSection
+          rows={rows.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')}
+          soldForms={soldForms}
+          onOpenForm={openSoldForm}
+          onCloseForm={closeSoldForm}
+          onChangeForm={(id, next) => setSoldForms((f) => ({ ...f, [id]: next }))}
+          onSave={saveSold}
+          savingSold={savingSold}
+          onMarkPaid={markPaid}
+          markingPaid={markingPaid}
+          profitPersonName={profile?.full_name ?? ''}
+          onUndo={(id) => markStatus(id, 'APPLIED')}
+        />
+      )}
+
       {!loading && selectedIpoId && (
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
@@ -378,22 +394,6 @@ export function AllotmentBoardPage() {
           </table>
         </div>
       )}
-
-      {!loading && selectedIpoId && isAdmin && (
-        <SoldPayoutsSection
-          rows={rows.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')}
-          soldForms={soldForms}
-          onOpenForm={openSoldForm}
-          onCloseForm={closeSoldForm}
-          onChangeForm={(id, next) => setSoldForms((f) => ({ ...f, [id]: next }))}
-          onSave={saveSold}
-          savingSold={savingSold}
-          onMarkPaid={markPaid}
-          markingPaid={markingPaid}
-          profitPersonName={profile?.full_name ?? ''}
-          onUndo={(id) => markStatus(id, 'APPLIED')}
-        />
-      )}
     </div>
   )
 }
@@ -427,17 +427,28 @@ function SoldPayoutsSection({
   // sell_price/payout-paid fields too, which this button doesn't touch.
   onUndo: (applicationId: string) => void
 }) {
+  // Moved above the main applied-list table and made collapsible — sold/
+  // payout status is the thing actually worth acting on once allotment's
+  // out, and once it's all settled it's just noise sitting open every visit.
+  const [open, setOpen] = useState(true)
   return (
     <div className="space-y-3">
-      <div>
-        <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Sold status &amp; payouts
-        </h2>
-        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-          Mark allotted shares as sold and track who still needs to be paid.
-        </p>
-      </div>
-      {rows.length === 0 ? (
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <div>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            {open ? '▾' : '▸'} Sold status &amp; payouts
+          </h2>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Mark allotted shares as sold and track who still needs to be paid.
+          </p>
+        </div>
+        {rows.length > 0 && <span className="badge badge-neutral shrink-0">{rows.length}</span>}
+      </button>
+      {open && (rows.length === 0 ? (
         <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
           Nothing allotted or sold yet for this IPO.
         </p>
@@ -502,7 +513,7 @@ function SoldPayoutsSection({
             )
           })}
         </div>
-      )}
+      ))}
     </div>
   )
 }

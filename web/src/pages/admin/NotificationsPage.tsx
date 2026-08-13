@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
+import { parseGmpPercent } from '../../lib/ipoGmp'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ArchivedSection } from '../../components/ArchivedSection'
@@ -45,8 +46,16 @@ type ApplicationForFunderRow = {
   status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipoji_status_text: string | null
-  ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
-  demat_accounts: { holder_name: string } | null
+  ipos: {
+    company_name: string
+    open_date: string
+    close_date: string
+    listing_date: string | null
+    price_high: number | null
+    lot_size: number
+    gmp_notes: string | null
+  } | null
+  demat_accounts: { holder_name: string; profit_share_percent: number } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
 }
 
@@ -61,7 +70,13 @@ interface FunderAllottedCard {
   phone: string | null
   ipoId: string
   ipoName: string
+  listingDate: string | null
+  priceHigh: number | null
+  lotSize: number
+  gmpPercent: number | null
   holderNames: string[]
+  totalLots: number
+  cutPercent: number
 }
 
 function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllottedCard[] {
@@ -80,7 +95,13 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
         phone: r.bank_accounts?.phone_e164 ?? null,
         ipoId: r.ipo_id,
         ipoName: r.ipos.company_name,
+        listingDate: r.ipos.listing_date,
+        priceHigh: r.ipos.price_high,
+        lotSize: r.ipos.lot_size,
+        gmpPercent: parseGmpPercent(r.ipos.gmp_notes),
         holderNames: [],
+        totalLots: 0,
+        cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
       }
       cardsForIpo.push(card)
     } else if (name.length > card.funderName.length) {
@@ -89,17 +110,64 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
     if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
     const holder = r.demat_accounts?.holder_name ?? 'Unknown'
     if (!card.holderNames.includes(holder)) card.holderNames.push(holder)
+    card.totalLots += r.lots
   }
   return Array.from(cardsByIpo.values())
     .flat()
     .sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
+// Projected profit, computed the same way the sold-payout messages already
+// do (see payoutMessage below) but *before* an actual sale — an estimate
+// using the IPO's own price band and its GMP%, so a funder sees roughly
+// what to expect the moment allotment lands instead of only after the sale
+// is booked. gmp_notes stores a plain percentage (e.g. "17" for 17%), so the
+// expected listing price is issue price grossed up by that percentage.
+function expectedProfitBreakdown(card: FunderAllottedCard) {
+  const ipoPrice = card.priceHigh ?? 0
+  const gmpPercent = card.gmpPercent ?? 0
+  const soldPrice = ipoPrice * (1 + gmpPercent / 100)
+  const profitPerShare = soldPrice - ipoPrice
+  const netProfitPerShare = profitPerShare * (1 - card.cutPercent / 100)
+  const yourProfitPerShare = netProfitPerShare / 2
+  const shares = card.totalLots * card.lotSize
+  const netYourProfit = yourProfitPerShare * shares
+  const investedTotal = ipoPrice * shares
+  const amountToSend = investedTotal + netYourProfit
+  return { ipoPrice, gmpPercent, soldPrice, profitPerShare, netProfitPerShare, yourProfitPerShare, shares, netYourProfit, investedTotal, amountToSend }
+}
+
+function rupees(n: number): string {
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
+
 function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   const list = card.holderNames.map((n, i) => `${i + 1}. ${n}`).join('\n')
+  const listingLine = card.listingDate
+    ? `Listing date of this IPO is ${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} — I'll sell that day and transfer your money (hopefully) the next day.`
+    : `I'll sell on listing day and transfer your money (hopefully) the next day.`
+
+  if (!card.priceHigh) {
+    // No price band on file — skip the profit math rather than show ₹0s.
+    return (
+      `Hi ${card.funderName}, good news — your application(s) got *allotted* in *${card.ipoName}*:\n\n` +
+      `${list}\n\n` +
+      `> Other updates are posted on ${PORTAL_URL}`
+    )
+  }
+
+  const b = expectedProfitBreakdown(card)
   return (
     `Hi ${card.funderName}, good news — your application(s) got *allotted* in *${card.ipoName}*:\n\n` +
     `${list}\n\n` +
+    `*Expected profit* _(estimate — actual depends on the real listing price)_\n` +
+    `IPO price ${rupees(b.ipoPrice)} × GMP ${b.gmpPercent}% ≈ sold price ${rupees(b.soldPrice)}\n` +
+    `${rupees(b.soldPrice)} − ${rupees(b.ipoPrice)} = ${rupees(b.profitPerShare)} profit/share\n` +
+    `− ${card.cutPercent}% cut = ${rupees(b.netProfitPerShare)} net profit/share\n` +
+    `÷ 2 (your share + funder share) = ${rupees(b.yourProfitPerShare)} your profit/share\n` +
+    `× ${b.shares.toLocaleString('en-IN')} shares allotted = ${rupees(b.netYourProfit)} your net profit\n\n` +
+    `${listingLine}\n` +
+    `*Amount to send* = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) = *${rupees(b.amountToSend)}*\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
 }
@@ -258,7 +326,9 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
+                'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
+                'demat_accounts(holder_name, profit_share_percent), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),
@@ -332,6 +402,55 @@ export function NotificationsPage() {
         <p className="badge badge-critical w-fit">Couldn't load funders: {fundersError}</p>
       )}
 
+      {isAdmin && !loading && allottedCards.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Allotment updates
+          </h2>
+          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            One card per funder per IPO where at least one of their funded accounts got allotted — with an
+            expected-profit projection based on the IPO's price band and GMP.
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {allottedCards.map((c) => {
+              const message = buildFunderAllottedMessage(c)
+              return (
+                <div key={c.key} className="aura-card stagger-item flex flex-col gap-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.funderName}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName}
+                      </p>
+                    </div>
+                    <span className="badge badge-good shrink-0 text-xs">
+                      {c.holderNames.length} allotted
+                    </span>
+                  </div>
+                  <div
+                    className="max-h-48 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
+                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+                  >
+                    {message}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send on WhatsApp
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
       {isAdmin && !loading && funderCards.length > 0 && (
         <section>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -397,54 +516,6 @@ export function NotificationsPage() {
                     {message}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Send on WhatsApp
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {isAdmin && !loading && allottedCards.length > 0 && (
-        <section>
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-            Allotment updates
-          </h2>
-          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            One card per funder per IPO where at least one of their funded accounts got allotted.
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {allottedCards.map((c) => {
-              const message = buildFunderAllottedMessage(c)
-              return (
-                <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.funderName}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName}
-                      </p>
-                    </div>
-                    <span className="badge badge-good shrink-0 text-xs">
-                      {c.holderNames.length} allotted
-                    </span>
-                  </div>
-                  <div
-                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
-                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-                  >
-                    {message}
-                  </div>
                   <button
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}

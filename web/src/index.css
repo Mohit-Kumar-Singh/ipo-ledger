@@ -621,6 +621,32 @@ table {
     box-shadow: var(--shadow-md);
   }
 
+  /* "Aura" card — good-news treatment for the allotment cards on
+     Notifications: a soft glow using --good, distinct from every other
+     plain .card on the page so an allotted funder card reads as a small
+     celebratory moment rather than routine list noise. Deliberately scoped
+     to this one use, not folded into .card. */
+  .aura-card {
+    @apply rounded-md border;
+    position: relative;
+    border-color: color-mix(in srgb, var(--good) 45%, var(--border-strong));
+    background:
+      linear-gradient(var(--surface), var(--surface)) padding-box,
+      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--good) 55%, transparent), transparent 60%);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--good) 20%, transparent),
+      0 8px 24px -12px color-mix(in srgb, var(--good) 45%, transparent);
+    transition:
+      transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
+      box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .aura-card:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--good) 30%, transparent),
+      0 12px 32px -12px color-mix(in srgb, var(--good) 55%, transparent);
+  }
+
   /* Depth-on-hover for the Dashboard stat tiles — lifts + deepens the
      shadow, using the same tokens/easing as the rest of this app's motion
      (stagger-item, IpoProgressGauge's transitions) rather than a new one.
