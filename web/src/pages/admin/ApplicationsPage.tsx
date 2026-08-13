@@ -677,7 +677,15 @@ export function ApplicationsPage() {
                   // linked bank/UPI account actually funded this application
                   // (mirrors set_mandate_status's own server-side check).
                   const canMarkMandate = isAdmin || a.bank_accounts?.linked_user_id === profile?.id
-                  const mandateMarkerName = a.mandate_marked_by ? mandateMarkerNames.get(a.mandate_marked_by) : undefined
+                  // "ipoji" when the mandate was set from the sync's guess
+                  // at ipoji's own status text (not a reviewed human
+                  // decision) — showing the admin who happened to run the
+                  // sync would misrepresent it as one.
+                  const mandateMarkerName = a.mandate_marked_by_ipoji
+                    ? 'ipoji'
+                    : a.mandate_marked_by
+                      ? mandateMarkerNames.get(a.mandate_marked_by)
+                      : undefined
                   const eligibleForNotAllotted = isEligibleForNotAllotted(a, isAdmin, profile?.id, todayStr)
 
                   return (

@@ -370,17 +370,35 @@ export function IpojiSyncPanel({
     const [createOutcomes, mandateOutcomes, appNumberOutcomes] = await Promise.all([
       Promise.all(
         toCreate.map(async (r) => {
-          const { error } = await supabase.from('applications').insert({
-            ipo_id: r.matchedIpo!.id,
-            demat_id: r.matchedDemat!.id,
-            bank_account_id: r.matchedBank?.id ?? null,
-            category: 'RETAIL',
-            lots: r.lots!,
-            bid_amount: r.amountNum,
-            is_backdated: true,
-            imported_from_ipoji: true,
-            ipoji_app_number: r.appNumber,
-          })
+          const { data: inserted, error } = await supabase
+            .from('applications')
+            .insert({
+              ipo_id: r.matchedIpo!.id,
+              demat_id: r.matchedDemat!.id,
+              bank_account_id: r.matchedBank?.id ?? null,
+              category: 'RETAIL',
+              lots: r.lots!,
+              bid_amount: r.amountNum,
+              is_backdated: true,
+              imported_from_ipoji: true,
+              ipoji_app_number: r.appNumber,
+            })
+            .select('id')
+            .single()
+          // A guessed non-PENDING mandate on a brand-new row goes through
+          // the same ipoji-sourced RPC as an update — best-effort, doesn't
+          // fail the whole row if this second call errors (the application
+          // itself was still created fine; worst case its mandate just
+          // stays PENDING for a manual look).
+          if (!error && inserted && r.guessedMandate !== 'PENDING') {
+            const { error: mandateErr } = await supabase.rpc('set_mandate_status_from_ipoji', {
+              p_application_id: inserted.id,
+              p_status: r.guessedMandate,
+            })
+            if (mandateErr) {
+              console.error('ipoji sync — initial mandate set failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, mandateErr)
+            }
+          }
           // 23505 = unique_violation on (ipo_id, demat_id) — this pair was
           // already applied for, most likely by an earlier sync run whose
           // result this panel's local existingByKey hadn't picked up yet
@@ -401,7 +419,10 @@ export function IpojiSyncPanel({
       ),
       Promise.all(
         toUpdateMandate.map(async (r) => {
-          const { error } = await supabase.rpc('set_mandate_status', {
+          // Not set_mandate_status — this is a guess derived from ipoji's
+          // status text, not a reviewed human decision, so it shouldn't
+          // show up as "marked by <the admin running the sync>" in the UI.
+          const { error } = await supabase.rpc('set_mandate_status_from_ipoji', {
             p_application_id: r.existingId,
             p_status: r.guessedMandate,
           })
