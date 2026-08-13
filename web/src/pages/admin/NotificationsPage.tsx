@@ -121,20 +121,22 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
 // do (see payoutMessage below) but *before* an actual sale — an estimate
 // using the IPO's own price band and its GMP%, so a funder sees roughly
 // what to expect the moment allotment lands instead of only after the sale
-// is booked. gmp_notes stores a plain percentage (e.g. "17" for 17%), so the
-// expected listing price is issue price grossed up by that percentage.
+// is booked. Per LOT, not per share — that's the unit a funder actually
+// thinks in (one lot invested, one lot's worth of profit), and matches how
+// bid_amount is already shown everywhere else in this app. gmp_notes stores
+// a plain percentage (e.g. "17" for 17%), so the expected sold price is the
+// per-lot invested amount grossed up by that percentage.
 function expectedProfitBreakdown(card: FunderAllottedCard) {
-  const ipoPrice = card.priceHigh ?? 0
+  const lotAmount = (card.priceHigh ?? 0) * card.lotSize
   const gmpPercent = card.gmpPercent ?? 0
-  const soldPrice = ipoPrice * (1 + gmpPercent / 100)
-  const profitPerShare = soldPrice - ipoPrice
-  const netProfitPerShare = profitPerShare * (1 - card.cutPercent / 100)
-  const yourProfitPerShare = netProfitPerShare / 2
-  const shares = card.totalLots * card.lotSize
-  const netYourProfit = yourProfitPerShare * shares
-  const investedTotal = ipoPrice * shares
-  const amountToSend = investedTotal + netYourProfit
-  return { ipoPrice, gmpPercent, soldPrice, profitPerShare, netProfitPerShare, yourProfitPerShare, shares, netYourProfit, investedTotal, amountToSend }
+  const soldPrice = Math.round(lotAmount * (1 + gmpPercent / 100))
+  const profitPerLot = soldPrice - lotAmount
+  const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
+  const yourProfitPerLot = Math.round(netProfitPerLot / 2)
+  const netYourProfit = yourProfitPerLot * card.totalLots
+  const investedTotal = lotAmount * card.totalLots
+  const amountToReturn = investedTotal + netYourProfit
+  return { lotAmount, gmpPercent, soldPrice, profitPerLot, netProfitPerLot, yourProfitPerLot, netYourProfit, investedTotal, amountToReturn }
 }
 
 function rupees(n: number): string {
@@ -144,30 +146,27 @@ function rupees(n: number): string {
 function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   const list = card.holderNames.map((n, i) => `${i + 1}. ${n}`).join('\n')
   const listingLine = card.listingDate
-    ? `Listing date of this IPO is ${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} — I'll sell that day and transfer your money (hopefully) the next day.`
-    : `I'll sell on listing day and transfer your money (hopefully) the next day.`
+    ? `Listing date of ${card.ipoName} IPO is  \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
+    : `Listing date isn't out yet.`
+
+  const intro = `Hi ${card.funderName}, good news  🎉🎉— your application(s) got *allotted* in \`${card.ipoName}\`:\n\n${list}`
 
   if (!card.priceHigh) {
     // No price band on file — skip the profit math rather than show ₹0s.
-    return (
-      `Hi ${card.funderName}, good news — your application(s) got *allotted* in *${card.ipoName}*:\n\n` +
-      `${list}\n\n` +
-      `> Other updates are posted on ${PORTAL_URL}`
-    )
+    return `${intro}\n\n> Other updates are posted on ${PORTAL_URL}`
   }
 
   const b = expectedProfitBreakdown(card)
   return (
-    `Hi ${card.funderName}, good news — your application(s) got *allotted* in *${card.ipoName}*:\n\n` +
-    `${list}\n\n` +
-    `*Expected profit* _(estimate — actual depends on the real listing price)_\n` +
-    `IPO price ${rupees(b.ipoPrice)} × GMP ${b.gmpPercent}% ≈ sold price ${rupees(b.soldPrice)}\n` +
-    `${rupees(b.soldPrice)} − ${rupees(b.ipoPrice)} = ${rupees(b.profitPerShare)} profit/share\n` +
-    `− ${card.cutPercent}% cut = ${rupees(b.netProfitPerShare)} net profit/share\n` +
-    `÷ 2 (your share + funder share) = ${rupees(b.yourProfitPerShare)} your profit/share\n` +
-    `× ${b.shares.toLocaleString('en-IN')} shares allotted = ${rupees(b.netYourProfit)} your net profit\n\n` +
-    `${listingLine}\n` +
-    `*Amount to send* = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) = *${rupees(b.amountToSend)}*\n\n` +
+    `${intro}\n\n` +
+    `_Expected profit_\n` +
+    `${rupees(b.yourProfitPerLot)}*${card.totalLots} (no. of ipo alloted)=  *${rupees(b.netYourProfit)}*\n` +
+    `> ${rupees(b.lotAmount)} +  ${b.gmpPercent}% (GMP)≈ ${rupees(b.soldPrice)} ( sold price)\n` +
+    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot \n` +
+    `> ${rupees(b.profitPerLot)}− ${card.cutPercent}% (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
+    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share ) = ${rupees(b.yourProfitPerLot)} your profit/lot\n` +
+    `> Amount to return = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) =  ${rupees(b.amountToReturn)}\n\n` +
+    `${listingLine}\n\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
 }
