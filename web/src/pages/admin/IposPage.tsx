@@ -358,14 +358,14 @@ export function IposPage() {
   const existingNames = new Set(ipos.map((i) => i.company_name.toLowerCase()))
   const visibleIpos = ipos.filter((i) => !i.is_archived)
   const archivedIpos = ipos.filter((i) => i.is_archived)
-  // Bidding-closed-but-nothing-else-happening-yet IPOs (deriveStatus's
-  // plain "Closed" label — not Allotment out/awaited or Listed, which are
-  // still worth seeing up top since there's an actual next step on them)
-  // sink below a divider instead of sitting mixed into the same grid as
-  // still-open/upcoming ones. sortIpos already put them last within
-  // visibleIpos, so this is a stable split, not a re-sort.
-  const currentIpos = visibleIpos.filter((i) => deriveStatus(i).label !== 'Closed')
-  const closedIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Closed')
+  // Three explicit sections, top to bottom: Live (currently open for
+  // bidding), Closed (bidding over — awaiting allotment, allotted, or
+  // listed, all lumped together since none of them can still be applied
+  // to), then Upcoming. sortIpos already ordered visibleIpos by status
+  // priority, so each bucket below is a stable filter, not a re-sort.
+  const liveIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Open')
+  const upcomingIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Upcoming')
+  const closedIpos = visibleIpos.filter((i) => !['Open', 'Upcoming'].includes(deriveStatus(i).label))
 
   return (
     <div className="space-y-5">
@@ -540,59 +540,60 @@ export function IposPage() {
             </p>
           ) : (
             <>
-              {currentIpos.length > 0 && (
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {currentIpos.map((ipo) => (
-                    <IpoCard
-                      key={ipo.id}
-                      ipo={ipo}
-                      isAdmin={isAdmin}
-                      selected={selectedIpos.has(ipo.id)}
-                      onToggleSelected={() => toggleIpoSelected(ipo.id)}
-                      onEdit={() => {
-                        setEditingIpo(ipo)
-                        setShowAddForm(false)
-                        setShowImport(false)
-                      }}
-                      onDelete={() => deleteIpo(ipo)}
-                      onArchive={() => setArchived(ipo, true)}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {closedIpos.length > 0 && (
-                <>
-                  {/* Divider line, not another card/section heading — a
-                      plain horizontal rule with "Closed" centered on it,
-                      the same visual language a printed ledger would use
-                      to mark where the closed entries start. */}
-                  <div className="flex items-center gap-3 py-1" aria-hidden>
-                    <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-                    <span className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-                      Closed
-                    </span>
-                    <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-                  </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    {closedIpos.map((ipo) => (
-                      <IpoCard
-                        key={ipo.id}
-                        ipo={ipo}
-                        isAdmin={isAdmin}
-                        selected={selectedIpos.has(ipo.id)}
-                        onToggleSelected={() => toggleIpoSelected(ipo.id)}
-                        onEdit={() => {
-                          setEditingIpo(ipo)
-                          setShowAddForm(false)
-                          setShowImport(false)
-                        }}
-                        onDelete={() => deleteIpo(ipo)}
-                        onArchive={() => setArchived(ipo, true)}
-                      />
-                    ))}
-                  </div>
-                </>
+              {/* Three explicit sections, top to bottom — live first (what
+                  you'd actually act on today), then closed (bidding's over,
+                  nothing left to do but wait/record), then upcoming
+                  (nothing to do yet). Every section past the first gets the
+                  same divider-with-label treatment; the label itself
+                  (unlike the old single "Closed" divider) is now always
+                  shown so it's never ambiguous which section is which. */}
+              {([
+                ['Live', liveIpos, false],
+                ['Closed', closedIpos, true],
+                ['Upcoming', upcomingIpos, true],
+              ] as const).map(
+                ([label, list, withDivider]) =>
+                  list.length > 0 && (
+                    <div key={label} className="space-y-4">
+                      {withDivider ? (
+                        <div className="flex items-center gap-3 py-1" aria-hidden>
+                          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+                          <span
+                            className="text-xs font-medium tracking-wide uppercase"
+                            style={{ color: 'var(--ink-muted)' }}
+                          >
+                            {label}
+                          </span>
+                          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+                        </div>
+                      ) : (
+                        <span
+                          className="block text-xs font-medium tracking-wide uppercase"
+                          style={{ color: 'var(--ink-muted)' }}
+                        >
+                          {label}
+                        </span>
+                      )}
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        {list.map((ipo) => (
+                          <IpoCard
+                            key={ipo.id}
+                            ipo={ipo}
+                            isAdmin={isAdmin}
+                            selected={selectedIpos.has(ipo.id)}
+                            onToggleSelected={() => toggleIpoSelected(ipo.id)}
+                            onEdit={() => {
+                              setEditingIpo(ipo)
+                              setShowAddForm(false)
+                              setShowImport(false)
+                            }}
+                            onDelete={() => deleteIpo(ipo)}
+                            onArchive={() => setArchived(ipo, true)}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ),
               )}
             </>
           )}

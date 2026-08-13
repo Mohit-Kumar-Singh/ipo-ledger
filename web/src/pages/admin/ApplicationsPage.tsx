@@ -5,7 +5,7 @@ import { Command } from 'cmdk'
 import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { isLiveIpo } from '../../lib/ipoStatus'
+import { isOpenForBidding } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
@@ -1017,11 +1017,13 @@ function NewApplicationForm({
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
-  // Only IPOs currently open for bidding make sense to apply for — a closed
-  // or not-yet-open one would just be a mistake waiting to happen. Backdated
-  // mode is the deliberate escape hatch for catching up a record after the
-  // fact, so it lists every IPO instead.
-  const liveIpos = ipos.filter(isLiveIpo)
+  // Only IPOs currently open for bidding make sense to apply for — closed,
+  // upcoming, or already past bidding (awaiting allotment/listed) would
+  // just be a mistake waiting to happen. Backdated mode (and the ipoji sync
+  // panel, which matches against the full unfiltered ipos list) is the
+  // deliberate escape hatch for catching up a record after the fact, so
+  // both list every IPO instead.
+  const liveIpos = ipos.filter(isOpenForBidding)
   const selectableIpos = backdated ? ipos : liveIpos
   const selectedIpo = ipos.find((i) => i.id === ipoId)
   const selectedAccount = accounts.find((a) => a.id === dematId)
