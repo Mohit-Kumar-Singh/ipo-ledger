@@ -297,6 +297,13 @@ export function IposPage() {
     setBulkResult({ saved, skipped })
     setSelected(new Set())
     load()
+    // Back to the normal IPOs list instead of leaving the import panel
+    // open on screen — the newly-saved ones now show "already added" (or
+    // just show up) in the Live/Closed/Upcoming sections below, which is
+    // confirmation enough; staying on the import screen after a save felt
+    // like nothing had happened.
+    setShowImport(false)
+    setCandidates([])
   }
 
   function toggleIpoSelected(id: string) {
