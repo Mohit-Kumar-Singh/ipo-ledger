@@ -764,7 +764,16 @@ export function ApplicationsPage() {
                           against ipoji instead. Blank for manually-entered applications,
                           which never have one. */}
                       <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {a.ipoji_app_number ? <p className="font-mono-ipo">App #{a.ipoji_app_number}</p> : null}
+                        {a.ipoji_app_number && (
+                          <>
+                            {/* First word only ("Dhoot" not "Dhoot Transmission") —
+                                grouped-by-IPO headers above already give the full
+                                name; this is just enough to place the App # at a
+                                glance while scanning, not a second full label. */}
+                            <p className="truncate font-medium">{a.ipos?.company_name?.split(' ')[0]}</p>
+                            <p className="font-mono-ipo">App #{a.ipoji_app_number}</p>
+                          </>
+                        )}
                       </div>
 
                       {a.sell_price != null && (
@@ -773,7 +782,12 @@ export function ApplicationsPage() {
                         </div>
                       )}
 
-                      <StatusBadge status={a.status} />
+                      {/* APPLIED is the default/starting state of literally every
+                          row here — showing it as a badge on every single
+                          application was just noise, not information. Only the
+                          states that actually mean something (allotted/not
+                          allotted/sold) get a badge now. */}
+                      {a.status !== 'APPLIED' && <StatusBadge status={a.status} />}
 
                       <div className="w-36 shrink-0 text-xs" id={`mandate-${a.id}`}>
                         {a.mandate_status === 'PENDING' ? (

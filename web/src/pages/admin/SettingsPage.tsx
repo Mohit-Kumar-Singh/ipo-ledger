@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LinkIcon, PaintbrushIcon, ShieldCheckIcon } from '@primer/octicons-react'
+import { LinkIcon, PaintbrushIcon, RedoIcon, ShieldCheckIcon } from '@primer/octicons-react'
+import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -32,6 +33,7 @@ export function SettingsPage() {
       </div>
       <AppearanceSection />
       <RegistrarLinksSection editable={isAdmin} />
+      {isAdmin && <CancelledMandatesSection />}
       {isAdmin && <PanAccessLogSection />}
     </div>
   )
@@ -149,6 +151,66 @@ function RegistrarLinksSection({ editable }: { editable: boolean }) {
               </div>
             )
           })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface CancelledMandateRow {
+  id: string
+  ipos: { company_name: string } | null
+  demat_accounts: { holder_name: string } | null
+}
+
+// A CANCELLED mandate means the funder never actually approved the UPI
+// block — the application record is still sitting there as APPLIED, but
+// no money ever moved. That demat account is effectively free to apply
+// again for the same IPO (a fresh application, since this one's mandate
+// already failed) — surfaced here so it doesn't just quietly stay wrong
+// until someone happens to notice on Applications.
+function CancelledMandatesSection() {
+  const [rows, setRows] = useState<CancelledMandateRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase
+      .from('applications')
+      .select('id, ipos(company_name), demat_accounts(holder_name)')
+      .eq('mandate_status', 'CANCELLED')
+      .eq('status', 'APPLIED')
+      .then(({ data }) => {
+        setRows((data ?? []) as unknown as CancelledMandateRow[])
+        setLoading(false)
+      })
+  }, [])
+
+  if (!loading && rows.length === 0) return null
+
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <RedoIcon size={15} fill="var(--warning)" />
+        Cancelled mandates — can reapply
+      </h2>
+      <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        The funder never approved these — no money moved, so the account is free to apply again for the same IPO.
+      </p>
+      {loading ? (
+        <InlineSpinner />
+      ) : (
+        <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+          {rows.map((r) => (
+            <div key={r.id} className="stagger-item flex items-center justify-between gap-3 p-3 text-sm">
+              <span style={{ color: 'var(--ink-primary)' }}>
+                {r.demat_accounts?.holder_name ?? 'Unknown'}
+                <span style={{ color: 'var(--ink-muted)' }}> · {r.ipos?.company_name ?? 'Unknown IPO'}</span>
+              </span>
+              <Link to="/applications" className="link-accent text-xs font-medium">
+                Open Applications →
+              </Link>
+            </div>
+          ))}
         </div>
       )}
     </section>
