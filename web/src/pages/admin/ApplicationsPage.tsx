@@ -830,6 +830,18 @@ export function ApplicationsPage() {
                             )}
                           </div>
                         )}
+                        {/* ipoji's own words, not just our 3-state PENDING/
+                            APPROVED/CANCELLED simplification — "Request
+                            Accepted By Sponsor Bank" and "Bid placed
+                            successfully" both collapse to the same PENDING
+                            bucket, but they're not the same thing and the
+                            portal previously had no way to show that
+                            distinction at all. */}
+                        {a.ipoji_status_text && (
+                          <p className="mt-0.5 truncate" style={{ color: 'var(--ink-muted)' }} title={a.ipoji_status_text}>
+                            ipoji: {a.ipoji_status_text}
+                          </p>
+                        )}
                       </div>
 
                       <div className="min-w-[8rem] flex-1">

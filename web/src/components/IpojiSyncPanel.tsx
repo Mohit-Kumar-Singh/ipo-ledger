@@ -388,6 +388,7 @@ export function IpojiSyncPanel({
               is_backdated: hasBiddingClosed(r.matchedIpo!),
               imported_from_ipoji: true,
               ipoji_app_number: r.appNumber,
+              ipoji_status_text: r.status,
             })
             .select('id')
             .single()
@@ -400,6 +401,7 @@ export function IpojiSyncPanel({
             const { error: mandateErr } = await supabase.rpc('set_mandate_status_from_ipoji', {
               p_application_id: inserted.id,
               p_status: r.guessedMandate,
+              p_status_text: r.status,
             })
             if (mandateErr) {
               console.error('ipoji sync — initial mandate set failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, mandateErr)
@@ -431,6 +433,7 @@ export function IpojiSyncPanel({
           const { error } = await supabase.rpc('set_mandate_status_from_ipoji', {
             p_application_id: r.existingId,
             p_status: r.guessedMandate,
+            p_status_text: r.status,
           })
           if (error) console.error('ipoji sync — mandate update failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (mandate)`, error }

@@ -97,6 +97,7 @@ export interface Application {
   mandate_marked_by: string | null
   mandate_marked_at: string | null
   mandate_marked_by_ipoji: boolean
+  ipoji_status_text: string | null
 }
 
 export type MandateStatus = 'PENDING' | 'APPROVED' | 'CANCELLED'

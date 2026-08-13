@@ -22,7 +22,8 @@ interface FunderApplicationDetail {
   upiId: string | null
   lots: number
   createdAt: string
-  mandateApproved: boolean
+  mandateStatus: 'PENDING' | 'APPROVED' | 'CANCELLED'
+  ipojiStatusText: string | null
 }
 
 // One card per (funder name, IPO) — a funder who's currently live across
@@ -42,6 +43,7 @@ type ApplicationForFunderRow = {
   lots: number
   applied_at: string
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
+  ipoji_status_text: string | null
   ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
   demat_accounts: { holder_name: string } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
@@ -97,7 +99,8 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       upiId: r.bank_accounts?.upi_id ?? null,
       lots: r.lots,
       createdAt: r.applied_at,
-      mandateApproved: r.mandate_status === 'APPROVED',
+      mandateStatus: r.mandate_status,
+      ipojiStatusText: r.ipoji_status_text,
     })
   }
   return Array.from(cardsByIpo.values())
@@ -109,6 +112,22 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
 // message shorter) doesn't reliably get auto-linked by WhatsApp's mobile
 // client, so it just sat there as dead text instead of a tappable link.
 const PORTAL_URL = 'https://mohit-kumar-singh-ipo-ledger.vercel.app/'
+
+// Plain text glyphs, not color emoji — see the ✓ comment below for why
+// (missing glyphs on several WhatsApp fonts render as a blank box).
+// CANCELLED means the funder never actually approved the UPI block, ✗
+// makes that failure visible instead of the line just looking identical to
+// a still-pending one. A still-PENDING mandate whose raw ipoji text
+// mentions "bank" is at the sponsor-bank-accepted stage — further along
+// than a bare "bid placed" but not yet the investor's own approval — ⟳
+// marks that in-between state so it doesn't read as fully done (✓) or
+// untouched (nothing).
+function mandateSymbol(app: FunderApplicationDetail): string {
+  if (app.mandateStatus === 'CANCELLED') return ' ✗'
+  if (app.mandateStatus === 'APPROVED') return ' ✓'
+  if (app.ipojiStatusText && /bank/i.test(app.ipojiStatusText)) return ' ⟳'
+  return ''
+}
 
 function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean }): string {
   // Grouped by UPI ID, not one flat list — a funder who paid through two
@@ -128,13 +147,11 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
     // not prose — single backtick, WhatsApp's real monospace syntax; triple
     // backtick isn't a WhatsApp thing at all, that's Markdown/Discord's code
     // fence and it doesn't render as monospace here), numbered list
-    // (WhatsApp's own "N. " syntax, not a plain bullet). A trailing ✓ marks
-    // a mandate already approved — plain check-mark glyph (U+2713), not the
-    // ✅ color emoji, which several WhatsApp fonts don't have a glyph for
-    // and render as a blank/box instead of showing anything.
+    // (WhatsApp's own "N. " syntax, not a plain bullet). Trailing symbol
+    // per mandateSymbol() above.
     .map(
       ([upi, apps]) =>
-        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.mandateApproved ? ' ✓' : ''}`).join('\n')}`,
+        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${mandateSymbol(a)}`).join('\n')}`,
     )
     .join('\n\n')
 
@@ -185,7 +202,7 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, applied_at, mandate_status, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, applied_at, mandate_status, ipoji_status_text, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),

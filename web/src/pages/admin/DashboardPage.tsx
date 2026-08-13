@@ -202,6 +202,13 @@ export function DashboardPage() {
       // already covers every IPO, not just the top-8-by-open-date attribution set.
       const appliedDematIdsByIpo = new Map<string, Set<string>>()
       for (const r of boardRows) {
+        // A CANCELLED mandate means the funder never actually approved the
+        // UPI block — no money moved, so this account hasn't really applied
+        // in any way that should block it from the "accounts left" list.
+        // Same reasoning as Settings' "Cancelled mandates — can reapply"
+        // section; this is that same account showing up as still-available
+        // here instead of silently counting as done.
+        if (r.mandate_status === 'CANCELLED') continue
         if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
         appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
       }
