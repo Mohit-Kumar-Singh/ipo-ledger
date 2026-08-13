@@ -196,6 +196,7 @@ export function IposPage() {
   const [bulkSaving, setBulkSaving] = useState(false)
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 })
   const [bulkResult, setBulkResult] = useState<{ saved: number; skipped: number } | null>(null)
+  const [quickSyncing, setQuickSyncing] = useState(false)
 
   const [selectedIpos, setSelectedIpos] = useState<Set<string>>(new Set())
 
@@ -260,26 +261,29 @@ export function IposPage() {
   // detail (retail_subscription_rate included) and calls load() afterward,
   // so Dashboard/IPOs both pick up fresh data the same as a manual save —
   // no separate refresh step needed for either.
+  // Runs entirely in the background — the import panel (with its Current/
+  // Upcoming toggle, per-candidate list, progress bar) never opens for
+  // this; a toast reports the outcome once it's done, and the IPOs list
+  // just updates on its own (saveList already calls load()). The panel
+  // stays available for the manual Current/Upcoming/hand-pick flow, it's
+  // just not what this button drives anymore.
   async function quickImportAndSave() {
-    setShowImport(true)
-    setShowAddForm(false)
-    setEditingIpo(null)
-    setImportSource('current')
-    setImportLoading(true)
-    setImportError(null)
-    setCandidates([])
-    setSelected(new Set())
-    setBulkResult(null)
+    setQuickSyncing(true)
     const { data, error } = await invokeListCandidates('current')
-    setImportLoading(false)
     if (error || !data?.candidates) {
-      setImportError(await describeFunctionError(error, data ?? null))
+      showToast(`Couldn't sync from ipoji: ${await describeFunctionError(error, data ?? null)}`, 'critical')
+      setQuickSyncing(false)
       return
     }
-    setCandidates(data.candidates)
     const eligible = data.candidates.filter(isEligible)
-    setSelected(new Set(eligible.map((c) => c.source_url)))
-    await saveList(eligible)
+    const result = await saveList(eligible)
+    setQuickSyncing(false)
+    if (result) {
+      showToast(
+        `Synced from ipoji — ${result.saved} saved${result.skipped > 0 ? `, ${result.skipped} skipped` : ''}.`,
+        result.skipped > 0 && result.saved === 0 ? 'warning' : 'good',
+      )
+    }
   }
 
   async function saveSelected() {
@@ -352,6 +356,7 @@ export function IposPage() {
     // like nothing had happened.
     setShowImport(false)
     setCandidates([])
+    return { saved, skipped }
   }
 
   function toggleIpoSelected(id: string) {
@@ -469,18 +474,19 @@ export function IposPage() {
                 )}
               </>
             )}
-            {/* One click: fetch current IPOs from ipoji, select every
-                eligible one, save — the three manual steps this used to
-                take collapsed into the icon itself, per request. */}
+            {/* One click, entirely in the background: fetch current IPOs
+                from ipoji, select every eligible one, save — no panel, no
+                visible steps, just a spin while it runs and a toast when
+                it's done. */}
             <button
               onClick={quickImportAndSave}
-              disabled={importLoading || bulkSaving}
+              disabled={quickSyncing}
               aria-label="Sync current IPOs from ipoji.com"
               title="Sync current IPOs from ipoji.com"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
               style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
             >
-              <SyncIcon size={16} className={importLoading || bulkSaving ? 'animate-spin' : undefined} />
+              <SyncIcon size={16} className={quickSyncing ? 'animate-spin' : undefined} />
             </button>
             <button
               onClick={() => {

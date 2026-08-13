@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { bidCutoffMs } from '../lib/ipoStatus'
 
 interface IpoTimelineProps {
   openDate: string | null
@@ -40,6 +41,16 @@ function toMidnightUtc(iso: string): number {
   return Date.UTC(y, m - 1, d)
 }
 
+// Every stage lands at its date's midnight UTC EXCEPT Close — retail
+// bidding actually cuts off at 4:50pm IST on the close date itself, not at
+// midnight, so treating "Close" as reached only once that real cutoff has
+// passed (not just once the calendar date arrives) keeps this in sync with
+// isOpenForBidding/hasBiddingClosed, which already enforce the same cutoff
+// for eligibility elsewhere.
+function stageInstantMs(label: string, dateIso: string): number {
+  return label === 'Close' ? bidCutoffMs(dateIso) : toMidnightUtc(dateIso)
+}
+
 // 12h, not a per-second/per-minute tick — the underlying stage dates only
 // change daily at most, so anything finer than "twice a day" is spending
 // re-renders on a value that can't have meaningfully moved. Recomputing on
@@ -61,8 +72,6 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
     return () => clearInterval(id)
   }, [])
 
-  const todayIso = new Date(now).toISOString().slice(0, 10)
-
   const stages: Stage[] = [
     { label: 'Open', date: openDate, estimated: false },
     { label: 'Close', date: closeDate, estimated: false },
@@ -70,14 +79,15 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
     { label: 'Listing', date: listingDate, estimated: true },
   ]
 
-  // The latest stage whose date has actually arrived — matches the
+  // The latest stage whose instant has actually arrived — matches the
   // reference's currentIdx (0 = "we're in the Open window" for its Open
-  // examples, -1 = "hasn't opened yet" for its Upcoming ones). Still
-  // date-based (which stage is "current" for bolding), independent of the
-  // continuous fill below.
+  // examples, -1 = "hasn't opened yet" for its Upcoming ones). Close uses
+  // its real 4:50pm IST cutoff (stageInstantMs), not just its calendar
+  // date, so this stays "Open" (not "Close") for the rest of the close
+  // date's afternoon, matching isOpenForBidding elsewhere.
   let currentIdx = -1
   stages.forEach((s, i) => {
-    if (s.date && s.date <= todayIso) currentIdx = i
+    if (s.date && stageInstantMs(s.label, s.date) <= now) currentIdx = i
   })
   const segmentCount = stages.length - 1
 
@@ -91,11 +101,12 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
   const segmentFill = Array.from({ length: segmentCount }, (_, i) => {
     const startDate = stages[i].date
     const endDate = stages[i + 1].date
-    if (!startDate || startDate > todayIso) return 0 // segment hasn't started
+    if (!startDate) return 0 // segment hasn't started
+    const startTs = stageInstantMs(stages[i].label, startDate)
+    if (now < startTs) return 0 // segment hasn't started
     if (!endDate) return 0 // started, but next stage date unknown — nothing to interpolate toward
-    if (endDate <= todayIso) return 1 // segment has fully elapsed
-    const startTs = toMidnightUtc(startDate)
-    const endTs = toMidnightUtc(endDate)
+    const endTs = stageInstantMs(stages[i + 1].label, endDate)
+    if (now >= endTs) return 1 // segment has fully elapsed
     if (endTs <= startTs) return 1 // guard against equal/out-of-order dates
     return Math.min(1, Math.max(0, (now - startTs) / (endTs - startTs)))
   })
