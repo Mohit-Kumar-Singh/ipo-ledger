@@ -76,7 +76,15 @@ interface FunderAllottedCard {
   gmpPercent: number | null
   holderNames: string[]
   totalLots: number
+  // Weighted-average cut% across every demat account this funder's money
+  // ended up in for this IPO — different holders can carry different
+  // profit_share_percent (e.g. one account's owner takes 25%, another's
+  // takes 30%), and a single funder's allotted lots can straddle both. A
+  // flat "just use whichever row built the card first" number would be
+  // wrong the moment that happens, so this is accumulated per-lot below
+  // (_cutWeightedSum / totalLots) rather than read off one row.
   cutPercent: number
+  _cutWeightedSum: number
 }
 
 function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllottedCard[] {
@@ -101,7 +109,8 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
         gmpPercent: parseGmpPercent(r.ipos.gmp_notes),
         holderNames: [],
         totalLots: 0,
-        cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
+        cutPercent: 25,
+        _cutWeightedSum: 0,
       }
       cardsForIpo.push(card)
     } else if (name.length > card.funderName.length) {
@@ -111,10 +120,13 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
     const holder = r.demat_accounts?.holder_name ?? 'Unknown'
     if (!card.holderNames.includes(holder)) card.holderNames.push(holder)
     card.totalLots += r.lots
+    card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
   }
-  return Array.from(cardsByIpo.values())
-    .flat()
-    .sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
+  const cards = Array.from(cardsByIpo.values()).flat()
+  for (const c of cards) {
+    if (c.totalLots > 0) c.cutPercent = c._cutWeightedSum / c.totalLots
+  }
+  return cards.sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
 // Projected profit, computed the same way the sold-payout messages already
@@ -149,7 +161,16 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
     ? `Listing date of ${card.ipoName} IPO is  \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
     : `Listing date isn't out yet.`
 
-  const intro = `Hi ${card.funderName}, good news  🎉🎉— your application(s) got *allotted* in \`${card.ipoName}\`:\n\n${list}`
+  // Unicode escapes, not literal characters — a literal 🎉 pasted straight
+  // into this file got mangled into UTF-8-interpreted-as-Latin1-then-
+  // re-encoded mojibake (confirmed via a hex dump of the built output: the
+  // party-popper's real UTF-8 bytes F0 9F 8E 89 came out as C3 B0 C5 B8 C5
+  // BD E2 80 B0 instead), which is exactly the kind of thing that renders
+  // as a blank/broken glyph on WhatsApp. \u{...} escapes are pure source
+  // text — nothing about how this file gets saved/read can corrupt them.
+  const PARTY = '\u{1F389}'
+  const EM_DASH = '—'
+  const intro = `Hi ${card.funderName}, good news  ${PARTY}${PARTY}${EM_DASH} your application(s) got *allotted* in \`${card.ipoName}\`:\n\n${list}`
 
   if (!card.priceHigh) {
     // No price band on file — skip the profit math rather than show ₹0s.
@@ -157,13 +178,18 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   }
 
   const b = expectedProfitBreakdown(card)
+  // Rounds to a whole percent when the weighted average lands on/near one
+  // (the common case — one holder, or several holders all sharing the same
+  // profit_share_percent), otherwise shows one decimal so a genuine mixed-
+  // cut average (e.g. 25%/30% split) isn't silently misrepresented as 28%.
+  const cutPercentLabel = `${Math.round(card.cutPercent) === card.cutPercent ? card.cutPercent : card.cutPercent.toFixed(1)}%`
   return (
     `${intro}\n\n` +
     `_Expected profit_\n` +
     `${rupees(b.yourProfitPerLot)}*${card.totalLots} (no. of ipo alloted)=  *${rupees(b.netYourProfit)}*\n` +
     `> ${rupees(b.lotAmount)} +  ${b.gmpPercent}% (GMP)≈ ${rupees(b.soldPrice)} ( sold price)\n` +
     `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot \n` +
-    `> ${rupees(b.profitPerLot)}− ${card.cutPercent}% (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
+    `> ${rupees(b.profitPerLot)}− ${cutPercentLabel} (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
     `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share ) = ${rupees(b.yourProfitPerLot)} your profit/lot\n` +
     `> Amount to return = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) =  ${rupees(b.amountToReturn)}\n\n` +
     `${listingLine}\n\n\n` +
