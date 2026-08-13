@@ -5,7 +5,7 @@ import { Command } from 'cmdk'
 import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { isOpenForBidding } from '../../lib/ipoStatus'
+import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
@@ -76,7 +76,7 @@ function isEligibleForNotAllotted(
 }
 
 type ApplicationRow = Application & {
-  ipos: Pick<Ipo, 'company_name' | 'allotment_date' | 'is_archived'>
+  ipos: Pick<Ipo, 'company_name' | 'allotment_date' | 'is_archived' | 'open_date' | 'close_date'>
   // null when RLS withholds the full row — that only happens for a
   // funder-only viewer (their linked bank/UPI paid for someone else's
   // demat), and those rows are filtered out of this list before render (see
@@ -172,7 +172,7 @@ export function ApplicationsPage() {
     const { data, error } = await supabase
       .from('applications')
       .select(
-        '*, ipos(company_name, allotment_date, is_archived), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
+        '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
     if (error) {
@@ -713,7 +713,15 @@ export function ApplicationsPage() {
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
                           </p>
-                          {a.is_backdated && (
+                          {/* Not just the stored flag — a badge earned at
+                              creation time (e.g. every ipoji-synced row used
+                              to hardcode is_backdated:true regardless of
+                              whether the IPO was actually closed yet) reads
+                              wrong forever once the flag is stale. Gating on
+                              the IPO's own close date too means this
+                              self-corrects for already-existing rows without
+                              needing a data migration. */}
+                          {a.is_backdated && hasBiddingClosed(a.ipos) && (
                             <span
                               className="shrink-0"
                               title="This application was created in backdated format."

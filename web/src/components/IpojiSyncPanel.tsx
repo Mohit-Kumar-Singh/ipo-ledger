@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { InfoIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
+import { hasBiddingClosed } from '../lib/ipoStatus'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Deliberately ONE PAGE per run, not auto-paginated. An earlier version
@@ -379,7 +380,12 @@ export function IpojiSyncPanel({
               category: 'RETAIL',
               lots: r.lots!,
               bid_amount: r.amountNum,
-              is_backdated: true,
+              // Was hardcoded true — every ipoji-synced application showed
+              // the "Backdated" badge even when it was a completely normal
+              // same-window application, just recorded via sync instead of
+              // by hand. Only genuinely true once this IPO's bidding has
+              // actually closed (see hasBiddingClosed's 4:50pm IST cutoff).
+              is_backdated: hasBiddingClosed(r.matchedIpo!),
               imported_from_ipoji: true,
               ipoji_app_number: r.appNumber,
             })

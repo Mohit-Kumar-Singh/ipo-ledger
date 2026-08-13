@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckIcon } from '@primer/octicons-react'
+import { CheckIcon, SyncIcon } from '@primer/octicons-react'
 import { Archive, Pencil, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
+import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
 import { showToast } from '../../lib/toast'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
@@ -74,8 +75,12 @@ function deriveStatus(ipo: Ipo): { label: string; badge: string } {
   if (ipo.allotment_out == null && ipo.allotment_date && today >= ipo.allotment_date) {
     return { label: 'Allotment out', badge: 'badge-warning' }
   }
-  if (today > ipo.close_date) return { label: 'Closed', badge: 'badge-neutral' }
-  if (today >= ipo.open_date) return { label: 'Open', badge: 'badge-good' }
+  // Cutoff-aware (4:50pm IST on close_date), not just a calendar-date
+  // compare — see hasBiddingClosed/isOpenForBidding in ipoStatus.ts for why
+  // pure-date comparison was wrong (stayed "Open" until midnight instead of
+  // flipping the moment bidding actually ends that afternoon).
+  if (hasBiddingClosed(ipo)) return { label: 'Closed', badge: 'badge-neutral' }
+  if (isOpenForBidding(ipo)) return { label: 'Open', badge: 'badge-good' }
   return { label: 'Upcoming', badge: 'badge-info' }
 }
 
@@ -210,6 +215,15 @@ export function IposPage() {
     load()
   }, [])
 
+  // Raw fetch only — no component state touched — so quickImportAndSave
+  // below can read the result directly instead of racing React's state
+  // update timing.
+  async function invokeListCandidates(source: 'current' | 'upcoming') {
+    return supabase.functions.invoke<{ candidates?: ImportCandidate[]; error?: string }>('import-ipos', {
+      body: { mode: 'list', source },
+    })
+  }
+
   async function fetchCandidates(source: 'current' | 'upcoming') {
     setImportSource(source)
     setImportLoading(true)
@@ -217,10 +231,7 @@ export function IposPage() {
     setCandidates([])
     setSelected(new Set())
     setBulkResult(null)
-    const { data, error } = await supabase.functions.invoke<{ candidates?: ImportCandidate[]; error?: string }>(
-      'import-ipos',
-      { body: { mode: 'list', source } },
-    )
+    const { data, error } = await invokeListCandidates(source)
     setImportLoading(false)
     if (error || !data?.candidates) {
       setImportError(await describeFunctionError(error, data ?? null))
@@ -242,8 +253,45 @@ export function IposPage() {
     setSelected(new Set(candidates.filter(isEligible).map((c) => c.source_url)))
   }
 
+  // The "i" quick-sync button's whole job in one click: fetch current
+  // IPOs, select every eligible one, save them — same three manual steps
+  // (Import -> Current IPOs -> Select all eligible -> Save) collapsed into
+  // one action. Reuses saveList, which already fetches each candidate's
+  // detail (retail_subscription_rate included) and calls load() afterward,
+  // so Dashboard/IPOs both pick up fresh data the same as a manual save —
+  // no separate refresh step needed for either.
+  async function quickImportAndSave() {
+    setShowImport(true)
+    setShowAddForm(false)
+    setEditingIpo(null)
+    setImportSource('current')
+    setImportLoading(true)
+    setImportError(null)
+    setCandidates([])
+    setSelected(new Set())
+    setBulkResult(null)
+    const { data, error } = await invokeListCandidates('current')
+    setImportLoading(false)
+    if (error || !data?.candidates) {
+      setImportError(await describeFunctionError(error, data ?? null))
+      return
+    }
+    setCandidates(data.candidates)
+    const eligible = data.candidates.filter(isEligible)
+    setSelected(new Set(eligible.map((c) => c.source_url)))
+    await saveList(eligible)
+  }
+
   async function saveSelected() {
-    const chosen = candidates.filter((c) => selected.has(c.source_url))
+    await saveList(candidates.filter((c) => selected.has(c.source_url)))
+  }
+
+  // Split out of saveSelected so the one-click "quick sync" button below
+  // can save a freshly-fetched candidate list directly instead of reading
+  // `candidates`/`selected` state — those setters wouldn't have committed
+  // yet within the same async call, so reading them right after would see
+  // stale (likely empty) values instead of what was just fetched.
+  async function saveList(chosen: ImportCandidate[]) {
     if (chosen.length === 0) return
 
     setBulkSaving(true)
@@ -421,15 +469,18 @@ export function IposPage() {
                 )}
               </>
             )}
+            {/* One click: fetch current IPOs from ipoji, select every
+                eligible one, save — the three manual steps this used to
+                take collapsed into the icon itself, per request. */}
             <button
-              onClick={() => {
-                setShowImport((s) => !s)
-                setShowAddForm(false)
-                setEditingIpo(null)
-              }}
-              className="btn-secondary"
+              onClick={quickImportAndSave}
+              disabled={importLoading || bulkSaving}
+              aria-label="Sync current IPOs from ipoji.com"
+              title="Sync current IPOs from ipoji.com"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+              style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
             >
-              {showImport ? 'Cancel' : 'Import from ipoji.com'}
+              <SyncIcon size={16} className={importLoading || bulkSaving ? 'animate-spin' : undefined} />
             </button>
             <button
               onClick={() => {
