@@ -130,8 +130,7 @@ export function BankAccountsPage() {
             Bank / UPI accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {banks.length} saved — pick any of these for any demat account when you apply, so one bank/UPI can be
-            reused across holders and one holder can use several.
+            {banks.length} saved
           </p>
         </div>
         {/* Select-all/bulk-delete lives here now, next to the Add button,
