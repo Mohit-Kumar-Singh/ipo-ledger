@@ -124,15 +124,17 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
   }
   const total = card.applications.length
   const body = Array.from(groups.entries())
-    // _via_ italic, ```UPI ID``` monospace (reads as a distinct account
-    // label, not prose), numbered list (WhatsApp's own "N. " syntax, not a
-    // plain bullet) — every symbol here is one of WhatsApp's documented
-    // formatting shortcuts, not decoration. A trailing ✅ marks a mandate
-    // already approved, so the funder can see at a glance which of these
-    // still need action on their end and which are already done.
+    // _via_ italic, `UPI ID` monospace (reads as a distinct account label,
+    // not prose — single backtick, WhatsApp's real monospace syntax; triple
+    // backtick isn't a WhatsApp thing at all, that's Markdown/Discord's code
+    // fence and it doesn't render as monospace here), numbered list
+    // (WhatsApp's own "N. " syntax, not a plain bullet). A trailing ✓ marks
+    // a mandate already approved — plain check-mark glyph (U+2713), not the
+    // ✅ color emoji, which several WhatsApp fonts don't have a glyph for
+    // and render as a blank/box instead of showing anything.
     .map(
       ([upi, apps]) =>
-        `_via_ \`\`\`${upi}\`\`\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.mandateApproved ? ' ✅' : ''}`).join('\n')}`,
+        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.mandateApproved ? ' ✓' : ''}`).join('\n')}`,
     )
     .join('\n\n')
 
@@ -142,7 +144,7 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
 
   return (
     `${intro}\n\n${body}\n\n` +
-    `\`\`\`Total = ${total}\`\`\`\n\n` +
+    `\`Total = ${total}\`\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
 }
