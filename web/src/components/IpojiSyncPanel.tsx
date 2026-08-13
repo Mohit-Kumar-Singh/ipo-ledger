@@ -591,17 +591,28 @@ export function IpojiSyncPanel({
                   </tbody>
                 </table>
               </div>
-              <button
-                onClick={handleImport}
-                disabled={
-                  submitting || (toCreate.length === 0 && toUpdateMandate.length === 0 && toBackfillAppNumber.length === 0)
-                }
-                className="btn-primary mt-3"
-              >
-                {submitting
-                  ? 'Importing…'
-                  : `Import ${toCreate.length}, update ${toUpdateMandate.length} mandate(s), backfill ${toBackfillAppNumber.length} app #`}
-              </button>
+              {toCreate.length === 0 && toUpdateMandate.length === 0 && toBackfillAppNumber.length === 0 ? (
+                // Nothing actionable (e.g. every row was already applied) —
+                // this used to leave Import disabled with no way off the
+                // review table short of closing the whole panel. Same spot,
+                // same size, but now just clears the preview so the next
+                // page's paste can go straight in.
+                <button
+                  onClick={() => {
+                    setRows(null)
+                    setPasteText('')
+                  }}
+                  className="btn-secondary mt-3"
+                >
+                  Nothing to import — clear
+                </button>
+              ) : (
+                <button onClick={handleImport} disabled={submitting} className="btn-primary mt-3">
+                  {submitting
+                    ? 'Importing…'
+                    : `Import ${toCreate.length}, update ${toUpdateMandate.length} mandate(s), backfill ${toBackfillAppNumber.length} app #`}
+                </button>
+              )}
             </div>
           )}
 
