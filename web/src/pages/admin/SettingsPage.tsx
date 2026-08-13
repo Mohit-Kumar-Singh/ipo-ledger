@@ -161,6 +161,7 @@ interface CancelledMandateRow {
   id: string
   ipos: { company_name: string } | null
   demat_accounts: { holder_name: string } | null
+  bank_accounts: { account_holder_name: string | null } | null
 }
 
 // A CANCELLED mandate means the funder never actually approved the UPI
@@ -176,7 +177,7 @@ function CancelledMandatesSection() {
   useEffect(() => {
     supabase
       .from('applications')
-      .select('id, ipos(company_name), demat_accounts(holder_name)')
+      .select('id, ipos(company_name), demat_accounts(holder_name), bank_accounts(account_holder_name)')
       .eq('mandate_status', 'CANCELLED')
       .eq('status', 'APPLIED')
       .then(({ data }) => {
@@ -204,6 +205,9 @@ function CancelledMandatesSection() {
             <div key={r.id} className="stagger-item flex items-center justify-between gap-3 p-3 text-sm">
               <span style={{ color: 'var(--ink-primary)' }}>
                 {r.demat_accounts?.holder_name ?? 'Unknown'}
+                {r.bank_accounts?.account_holder_name && (
+                  <span style={{ color: 'var(--ink-muted)' }}> (funded by {r.bank_accounts.account_holder_name})</span>
+                )}
                 <span style={{ color: 'var(--ink-muted)' }}> · {r.ipos?.company_name ?? 'Unknown IPO'}</span>
               </span>
               <Link to="/applications" className="link-accent text-xs font-medium">

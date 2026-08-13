@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { isLiveIpo } from '../../lib/ipoStatus'
+import { sameIdentity } from '../../lib/applicationAttribution'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ArchivedSection } from '../../components/ArchivedSection'
@@ -21,6 +22,7 @@ interface FunderApplicationDetail {
   upiId: string | null
   lots: number
   createdAt: string
+  mandateApproved: boolean
 }
 
 // One card per (funder name, IPO) — a funder who's currently live across
@@ -39,6 +41,7 @@ type ApplicationForFunderRow = {
   ipo_id: string
   lots: number
   applied_at: string
+  mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipos: { company_name: string; open_date: string; close_date: string; listing_date: string | null } | null
   demat_accounts: { holder_name: string } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
@@ -58,37 +61,48 @@ function isToday(isoTimestamp: string): boolean {
 // Excludes self-funded applications (no bank_account_id, so no one else to
 // message) and anything not currently live — a funder shouldn't get pinged
 // about an IPO that already closed and settled months ago. Grouped by name
-// rather than bank_account_id, so "Jiggi paid via two different UPI IDs for
-// the same IPO" still collapses into one card listing both applications
-// (each application line shows its own UPI ID regardless).
+// PER IPO, using the same fuzzy sameIdentity() this app already uses for
+// attribution credit — not an exact string match, which used to split one
+// real person into several separate cards/messages the moment they funded
+// through UPI accounts with differently-spelled holder names ("Avinash" vs
+// "Avinash sir"), each producing its own card even for the same IPO. Each
+// application line still shows its own UPI ID regardless of which spelling
+// merged into the card.
 function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
-  const byKey = new Map<string, FunderIpoCard>()
+  const cardsByIpo = new Map<string, FunderIpoCard[]>()
   for (const r of rows) {
     const name = r.bank_accounts?.account_holder_name
     if (!name || !r.ipos || !isLiveIpo(r.ipos)) continue
-    const key = `${name}::${r.ipo_id}`
-    if (!byKey.has(key)) {
-      byKey.set(key, {
-        key,
+    if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
+    const cardsForIpo = cardsByIpo.get(r.ipo_id)!
+    let card = cardsForIpo.find((c) => sameIdentity(c.funderName, name))
+    if (!card) {
+      card = {
+        key: `${r.ipo_id}::${cardsForIpo.length}`,
         funderName: name,
         phone: r.bank_accounts?.phone_e164 ?? null,
         ipoId: r.ipo_id,
         ipoName: r.ipos.company_name,
         applications: [],
-      })
+      }
+      cardsForIpo.push(card)
+    } else if (name.length > card.funderName.length) {
+      // Prefer the fuller spelling as the canonical display name, same
+      // "longer wins" rule the attribution credit-merge already uses.
+      card.funderName = name
     }
-    const card = byKey.get(key)!
     if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
     card.applications.push({
       holderName: r.demat_accounts?.holder_name ?? 'Unknown',
       upiId: r.bank_accounts?.upi_id ?? null,
       lots: r.lots,
       createdAt: r.applied_at,
+      mandateApproved: r.mandate_status === 'APPROVED',
     })
   }
-  return Array.from(byKey.values()).sort(
-    (a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName),
-  )
+  return Array.from(cardsByIpo.values())
+    .flat()
+    .sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
 // Full URL, protocol included — a bare domain (tried first, to keep the
@@ -102,21 +116,23 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
   // through which one, not a single undifferentiated list. "No UPI ID"
   // entries (bank-only, no UPI recorded) get their own group rather than
   // silently folding into whichever named group happens to sort first.
-  const groups = new Map<string, string[]>()
+  const groups = new Map<string, FunderApplicationDetail[]>()
   for (const app of card.applications) {
     const key = app.upiId ?? 'No UPI ID'
     if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(app.holderName)
+    groups.get(key)!.push(app)
   }
   const total = card.applications.length
   const body = Array.from(groups.entries())
     // _via_ italic, ```UPI ID``` monospace (reads as a distinct account
     // label, not prose), numbered list (WhatsApp's own "N. " syntax, not a
     // plain bullet) — every symbol here is one of WhatsApp's documented
-    // formatting shortcuts, not decoration.
+    // formatting shortcuts, not decoration. A trailing ✅ marks a mandate
+    // already approved, so the funder can see at a glance which of these
+    // still need action on their end and which are already done.
     .map(
-      ([upi, names]) =>
-        `_via_ \`\`\`${upi}\`\`\` :-\n${names.map((n, i) => `${i + 1}. ${n}`).join('\n')}`,
+      ([upi, apps]) =>
+        `_via_ \`\`\`${upi}\`\`\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.mandateApproved ? ' ✅' : ''}`).join('\n')}`,
     )
     .join('\n\n')
 
@@ -167,7 +183,7 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
-              'ipo_id, lots, applied_at, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
+              'ipo_id, lots, applied_at, mandate_status, ipos(company_name, open_date, close_date, listing_date), demat_accounts(holder_name), bank_accounts(account_holder_name, phone_e164, upi_id)',
             )
             .not('bank_account_id', 'is', null)
         : Promise.resolve({ data: [], error: null }),

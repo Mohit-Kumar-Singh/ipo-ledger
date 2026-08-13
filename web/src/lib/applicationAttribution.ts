@@ -28,7 +28,7 @@ export interface IpoAttribution {
 // prefix-match the longer one keeps the legitimate "nickname vs full name"
 // merge (one name has no second token to conflict with) while refusing to
 // merge two full names that happen to start the same way.
-function sameIdentity(a: string, b: string): boolean {
+export function sameIdentity(a: string, b: string): boolean {
   const ta = a.trim().toLowerCase().split(/\s+/)
   const tb = b.trim().toLowerCase().split(/\s+/)
   if (ta[0] !== tb[0]) return false
