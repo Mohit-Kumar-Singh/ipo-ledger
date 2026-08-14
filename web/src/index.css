@@ -424,6 +424,19 @@ table {
     margin-left: 0;
     pointer-events: none;
   }
+  /* Nav row icons default to flex-start (icon, then the label that fades to
+     0-width when collapsed) — fine expanded, but left the icon sitting off
+     to the left of the 64px collapsed rail instead of centered under it,
+     visibly misaligned against the identity avatar and the toggle buttons
+     above it (both of which center via items-center on a flex-col). Same
+     scoping trick as sidebar-fade-collapsed — only takes effect at the
+     desktop breakpoint the collapse rail itself applies at, so a mobile
+     view carrying a stale collapsed=true state (collapse is desktop-only,
+     but the boolean itself isn't reset on resize) still shows the normal
+     icon+label row instead of an oddly-centered one. */
+  .nav-link-collapsed {
+    justify-content: center;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar-fade {

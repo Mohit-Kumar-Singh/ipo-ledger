@@ -364,7 +364,9 @@ export function AppShell() {
                 onClick={() => setNavOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
                 title={collapsed ? l.label : undefined}
-                className="mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
+                className={`mb-1 flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)] ${
+                  collapsed ? 'nav-link-collapsed' : ''
+                }`}
                 style={{
                   color: isActive ? 'var(--accent)' : 'var(--header-fg)',
                   // Left corners square, not the uniform 6px the inactive
@@ -425,7 +427,9 @@ export function AppShell() {
               type="button"
               onClick={signOut}
               title={collapsed ? 'Sign out' : undefined}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
+              className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)] ${
+                collapsed ? 'nav-link-collapsed' : ''
+              }`}
               style={{ color: 'var(--header-fg)' }}
             >
               <SignOutIcon size={16} fill="var(--header-fg-muted)" />
