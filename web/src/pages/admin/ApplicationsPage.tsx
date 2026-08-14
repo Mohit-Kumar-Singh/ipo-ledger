@@ -52,17 +52,10 @@ function upiIdFor(a: ApplicationRow): string {
 
 // Clusters cancelled-mandate applications together within each IPO instead
 // of leaving them scattered wherever recency/funder/UPI sort happened to
-// land them — 'Active' sorts before 'Cancelled mandate' alphabetically, so
-// the cancelled ones fall to the bottom of each IPO group.
-function mandateGroupFor(a: ApplicationRow): string {
-  return a.mandate_status === 'CANCELLED' ? 'Cancelled mandate' : 'Active'
-}
-
 // Shared by the grouping useMemo and the render below — one place that
 // knows how each SortMode maps to a group key, so the two can't drift.
 function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: Map<string, string>): string {
   if (mode === 'upi') return upiIdFor(a)
-  if (mode === 'cancelled') return mandateGroupFor(a)
   return funderNameFor(a, resolvedBankNames)
 }
 
@@ -414,18 +407,31 @@ export function ApplicationsPage() {
     () => visibleApplications.filter((a) => !a.imported_from_ipoji).length,
     [visibleApplications],
   )
+  const cancelledCount = useMemo(
+    () => visibleApplications.filter((a) => a.mandate_status === 'CANCELLED').length,
+    [visibleApplications],
+  )
 
   const groupedApplications = useMemo(() => {
-    // "Not on ipoji" is a FILTER, not just a sort — only rows never
-    // confirmed against ipoji at all (imported_from_ipoji false) show up,
-    // since those are exactly the ones worth a second look: either a
-    // legitimate manual/backdated entry, or a mistaken duplicate/typo that
-    // never actually existed and should just be deleted. Anything a sync
-    // has ever matched (even once) drops out of this view — see
-    // toSyncExisting in IpojiSyncPanel, which flips imported_from_ipoji to
-    // true the moment a match is found, even for an existing manually-made row.
+    // "Not on ipoji" and "Cancelled mandate" are FILTERS, not just sorts —
+    // each restricts to only the rows that matter for that specific review
+    // task, instead of showing everything with the relevant ones merely
+    // clustered together. "Not on ipoji": rows never confirmed against
+    // ipoji at all (imported_from_ipoji false) — either a legitimate
+    // manual/backdated entry, or a mistaken duplicate/typo that never
+    // actually existed and should just be deleted. Anything a sync has ever
+    // matched (even once) drops out of this view — see toSyncExisting in
+    // IpojiSyncPanel, which flips imported_from_ipoji to true the moment a
+    // match is found, even for an existing manually-made row. "Cancelled
+    // mandate": only rows whose mandate actually got cancelled — the
+    // account is free to reapply (Settings' own cancelled-mandates section
+    // covers the same list from a different angle).
     const source =
-      sortMode === 'not_on_ipoji' ? visibleApplications.filter((a) => !a.imported_from_ipoji) : visibleApplications
+      sortMode === 'not_on_ipoji'
+        ? visibleApplications.filter((a) => !a.imported_from_ipoji)
+        : sortMode === 'cancelled'
+          ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
+          : visibleApplications
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
     for (const a of source) {
       const key = a.ipo_id
@@ -433,7 +439,7 @@ export function ApplicationsPage() {
       groups.get(key)!.items.push(a)
     }
     const result = Array.from(groups.values())
-    if (sortMode === 'funder' || sortMode === 'upi' || sortMode === 'cancelled') {
+    if (sortMode === 'funder' || sortMode === 'upi') {
       const groupKeyFor = (a: ApplicationRow) => sortGroupKeyFor(sortMode, a, resolvedBankInfo)
       for (const g of result) {
         g.items.sort((a, b) => {
@@ -441,6 +447,13 @@ export function ApplicationsPage() {
           return byKey !== 0 ? byKey : b.applied_at.localeCompare(a.applied_at)
         })
       }
+    }
+    // "Recent" orders IPO sections alphabetically by name — previously they
+    // just followed whichever order applications happened to arrive in
+    // (most-recently-active IPO first), which wasn't actually alphabetical
+    // or particularly predictable once several IPOs had recent activity.
+    if (sortMode === 'recent') {
+      result.sort((a, b) => a.ipoName.localeCompare(b.ipoName))
     }
     return result
   }, [visibleApplications, sortMode, resolvedBankInfo])
@@ -528,7 +541,7 @@ export function ApplicationsPage() {
                 ['recent', 'Recent'],
                 ['funder', 'Who funded it'],
                 ['upi', 'UPI ID'],
-                ['cancelled', 'Cancelled mandate'],
+                ['cancelled', `Cancelled mandate (${cancelledCount})`],
                 // A FILTER, not a sort — see groupedApplications — restricted
                 // to rows never confirmed against ipoji at all, for spotting
                 // ones created by mistake and cleaning them up.
@@ -668,7 +681,7 @@ export function ApplicationsPage() {
                 {items.map((a, i) => {
                   const groupKeyFor = (x: ApplicationRow) => sortGroupKeyFor(sortMode, x, resolvedBankInfo)
                   const showFunderHeader =
-                    (sortMode === 'funder' || sortMode === 'upi' || sortMode === 'cancelled') &&
+                    (sortMode === 'funder' || sortMode === 'upi') &&
                     (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
                   // Items are already sorted by group key within this IPO's
                   // list, so the run sharing `a`'s key is contiguous — count
@@ -684,7 +697,6 @@ export function ApplicationsPage() {
                     >
                       {sortMode === 'upi' && `Paid via ${upiIdFor(a)}`}
                       {sortMode === 'funder' && `Funded by ${funderNameFor(a, resolvedBankInfo)}`}
-                      {sortMode === 'cancelled' && mandateGroupFor(a)}
                       {' · '}
                       {groupCount} application{groupCount === 1 ? '' : 's'}
                     </div>
