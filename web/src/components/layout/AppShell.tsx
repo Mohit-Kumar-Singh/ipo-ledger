@@ -9,7 +9,6 @@ import {
   HomeIcon,
   LawIcon,
   GraphIcon,
-  PeopleIcon,
   ScreenFullIcon,
   ScreenNormalIcon,
   SidebarCollapseIcon,
@@ -27,9 +26,10 @@ import { OnboardingTour } from '../OnboardingTour'
 
 // No /profile entry — the identity card above this nav (see below) links
 // there directly now, so a second nav item to the same place was redundant.
+// No /accounts entry either — that page now lives as a collapsible section
+// at the bottom of Profile instead of its own sidebar destination.
 const links = [
   { to: '/', label: 'Dashboard', icon: HomeIcon },
-  { to: '/accounts', label: 'Accounts', icon: PeopleIcon },
   { to: '/bank-accounts', label: 'Bank / UPI accounts', icon: LawIcon },
   { to: '/ipos', label: 'IPOs', icon: GraphIcon },
   { to: '/applications', label: 'Applications', icon: FileIcon },

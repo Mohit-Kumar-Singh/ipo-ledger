@@ -1,10 +1,23 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { CreditCardIcon, LawIcon, MailIcon, DeviceMobileIcon, SearchIcon, ShieldCheckIcon, PersonIcon, XIcon } from '@primer/octicons-react'
+import {
+  ChevronDownIcon,
+  CreditCardIcon,
+  LawIcon,
+  MailIcon,
+  DeviceMobileIcon,
+  InfoIcon,
+  PeopleIcon,
+  SearchIcon,
+  ShieldCheckIcon,
+  PersonIcon,
+  XIcon,
+} from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AttributionChart } from '../components/AttributionChart'
 import { computeIpoAttribution, type IpoAttribution } from '../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../lib/dashboardAttribution'
+import { AccountsPage } from './admin/AccountsPage'
 import type {
   ApplicationAttributionRow,
   BankAccount,
@@ -512,7 +525,7 @@ export function ProfilePage() {
           after the other. */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
         <div className="space-y-6 xl:col-span-1">
-      <form onSubmit={handleSubmit} className="card animate-page-in space-y-4 p-5">
+      <div className="card animate-page-in space-y-4 p-5">
         <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
           <div
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold"
@@ -535,138 +548,153 @@ export function ProfilePage() {
           </div>
         </div>
 
-        <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-          Full name
-          <div className="mt-1 flex items-center gap-2">
-            <PersonIcon size={15} fill="var(--ink-muted)" />
-            <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
-          </div>
-          <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Shown in the sidebar, and used to sign messages — e.g. "— {fullName.trim() || 'your name'}".
-          </p>
-        </label>
-
-        <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-          <span className="flex items-baseline justify-between gap-2">
-            Phone number
-            <span className="text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
-              optional, 10 digits
+        {/* Name + phone + PAN, merged into this one card instead of two
+            separate ones — still two independent submits underneath (PAN is
+            a distinct, self-attested action with its own consequences), but
+            visually one "your details" block. Every explanatory paragraph
+            that used to sit as permanent text under a field is now an (i)
+            tooltip on hover instead, next to that field's label. */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+            <span className="flex items-center gap-1.5">
+              Full name
+              <span
+                title={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`}
+                style={{ cursor: 'help', display: 'inline-flex' }}
+              >
+                <InfoIcon size={12} fill="var(--ink-muted)" />
+              </span>
             </span>
-          </span>
-          <div className="mt-1 flex items-center gap-2">
-            <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
-            <span
-              className="rounded-md border px-3 py-2 text-sm"
-              style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
-            >
-              +91
+            <div className="mt-1 flex items-center gap-2">
+              <PersonIcon size={15} fill="var(--ink-muted)" />
+              <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
+            </div>
+          </label>
+
+          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+            <span className="flex items-center gap-1.5">
+              Phone number
+              <span title="Optional, 10 digits." style={{ cursor: 'help', display: 'inline-flex' }}>
+                <InfoIcon size={12} fill="var(--ink-muted)" />
+              </span>
             </span>
-            <input
-              inputMode="numeric"
-              maxLength={10}
-              value={phoneDigits}
-              onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-              className="input"
-              placeholder="9876543210"
-            />
-          </div>
-          {!phoneValid && (
-            <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
-              Must be exactly 10 digits.
-            </p>
-          )}
-        </label>
-
-        <div className="flex items-center gap-2 border-t pt-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}>
-          <MailIcon size={15} fill="var(--ink-muted)" />
-          {session?.user.email ?? session?.user.phone ?? '—'}
-        </div>
-
-        {error && <p className="badge badge-critical w-fit">{error}</p>}
-
-        <button type="submit" disabled={submitting} className="btn-primary py-2.5">
-          {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
-        </button>
-      </form>
-
-      <form onSubmit={handleSavePan} className="card animate-page-in space-y-3 p-5">
-        <div className="flex items-center gap-2">
-          <ShieldCheckIcon size={16} fill="var(--accent)" />
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Your PAN
-          </h2>
-        </div>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the
-          admin still approves each link.
-        </p>
-
-        {editingPan || !profile?.self_pan_masked ? (
-          <>
-            <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              PAN
-              <div className="mt-1 flex items-center gap-2">
-                <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                <input
-                  value={pan}
-                  onChange={(e) => setPan(e.target.value.toUpperCase())}
-                  maxLength={10}
-                  placeholder="ABCPD1234E"
-                  className="input font-mono uppercase"
-                />
-              </div>
-            </label>
-
-            {profile?.self_pan_hash && !profile?.self_pan_masked && (
-              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                A PAN is already on file from before this showed a preview — save it again to see it below.
+            <div className="mt-1 flex items-center gap-2">
+              <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
+              <span
+                className="rounded-md border px-3 py-2 text-sm"
+                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
+              >
+                +91
+              </span>
+              <input
+                inputMode="numeric"
+                maxLength={10}
+                value={phoneDigits}
+                onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+                className="input"
+                placeholder="9876543210"
+              />
+            </div>
+            {!phoneValid && (
+              <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
+                Must be exactly 10 digits.
               </p>
             )}
+          </label>
 
-            {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+          <div className="flex items-center gap-2 border-t pt-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}>
+            <MailIcon size={15} fill="var(--ink-muted)" />
+            {session?.user.email ?? session?.user.phone ?? '—'}
+          </div>
 
-            <div className="flex gap-2">
-              <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
-                {panSubmitting ? 'Saving…' : 'Save PAN'}
-              </button>
-              {profile?.self_pan_masked && (
+          {error && <p className="badge badge-critical w-fit">{error}</p>}
+
+          <button type="submit" disabled={submitting} className="btn-primary py-2.5">
+            {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
+          </button>
+        </form>
+
+        <form onSubmit={handleSavePan} className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex items-center gap-1.5">
+            <ShieldCheckIcon size={16} fill="var(--accent)" />
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              Your PAN
+            </h2>
+            <span
+              title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
+              style={{ cursor: 'help', display: 'inline-flex' }}
+            >
+              <InfoIcon size={12} fill="var(--ink-muted)" />
+            </span>
+          </div>
+
+          {editingPan || !profile?.self_pan_masked ? (
+            <>
+              <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                PAN
+                <div className="mt-1 flex items-center gap-2">
+                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                  <input
+                    value={pan}
+                    onChange={(e) => setPan(e.target.value.toUpperCase())}
+                    maxLength={10}
+                    placeholder="ABCPD1234E"
+                    className="input font-mono uppercase"
+                  />
+                </div>
+              </label>
+
+              {profile?.self_pan_hash && !profile?.self_pan_masked && (
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  A PAN is already on file from before this showed a preview — save it again to see it below.
+                </p>
+              )}
+
+              {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+
+              <div className="flex gap-2">
+                <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
+                  {panSubmitting ? 'Saving…' : 'Save PAN'}
+                </button>
+                {profile?.self_pan_masked && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingPan(false)
+                      setPan('')
+                      setPanResult(null)
+                    }}
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--ink-muted)' }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+                style={{ borderColor: 'var(--border-strong)' }}
+              >
+                <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
+                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                  {profile.self_pan_masked}
+                </span>
                 <button
                   type="button"
-                  onClick={() => {
-                    setEditingPan(false)
-                    setPan('')
-                    setPanResult(null)
-                  }}
-                  className="text-sm font-medium"
-                  style={{ color: 'var(--ink-muted)' }}
+                  onClick={() => setEditingPan(true)}
+                  className="link-accent shrink-0 text-xs font-medium"
                 >
-                  Cancel
+                  Change
                 </button>
-              )}
-            </div>
-          </>
-        ) : (
-          <>
-            <div
-              className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-              style={{ borderColor: 'var(--border-strong)' }}
-            >
-              <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
-                <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                {profile.self_pan_masked}
-              </span>
-              <button
-                type="button"
-                onClick={() => setEditingPan(true)}
-                className="link-accent shrink-0 text-xs font-medium"
-              >
-                Change
-              </button>
-            </div>
-            {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
-          </>
-        )}
-      </form>
+              </div>
+              {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
+            </>
+          )}
+        </form>
+      </div>
         </div>
 
         <div className="xl:col-span-2">
@@ -969,6 +997,42 @@ export function ProfilePage() {
       </div>
         </div>
       </div>
+
+      <AccountsSection />
     </div>
+  )
+}
+
+// Moved here from its own /accounts nav item — same AccountsPage component,
+// same functionality (add/edit/link/reveal-PAN etc.), unchanged; just
+// reached via a collapsible section at the bottom of Profile now instead of
+// a dedicated sidebar entry. Collapsed by default since it's a secondary,
+// occasional task from here, not the main reason someone's on this page.
+function AccountsSection() {
+  const [open, setOpen] = useState(false)
+  return (
+    <section className="card animate-page-in overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left transition-colors hover:bg-[var(--hover-surface)]"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <PeopleIcon size={16} fill="var(--accent)" />
+          Accounts
+        </span>
+        <span
+          className="inline-flex transition-transform duration-200"
+          style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : undefined }}
+        >
+          <ChevronDownIcon size={16} />
+        </span>
+      </button>
+      {open && (
+        <div className="border-t p-5" style={{ borderColor: 'var(--border)' }}>
+          <AccountsPage />
+        </div>
+      )}
+    </section>
   )
 }

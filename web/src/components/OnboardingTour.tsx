@@ -38,12 +38,15 @@ function steps(isAdmin: boolean): Step[] {
       body: 'A snapshot of open IPOs, recent applications, and allotment activity as soon as you sign in.',
     },
     {
-      target: '/accounts',
+      // No sidebar nav item to point at anymore — Accounts moved into a
+      // collapsible section at the bottom of Profile, reached via the
+      // identity card up top rather than its own nav entry.
+      target: null,
       icon: PeopleIcon,
       title: 'Accounts',
       body: isAdmin
-        ? 'Manage demat accounts and holders — link users, set profit share, and mark accounts active or inactive.'
-        : 'View the demat accounts linked to you and their details.',
+        ? 'Manage demat accounts and holders — link users, set profit share, and mark accounts active or inactive. Find it in a collapsible section at the bottom of your Profile page.'
+        : 'View the demat accounts linked to you and their details, in a collapsible section at the bottom of your Profile page.',
     },
     {
       target: '/bank-accounts',
