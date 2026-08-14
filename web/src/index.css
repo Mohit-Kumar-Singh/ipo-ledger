@@ -433,9 +433,14 @@ table {
      desktop breakpoint the collapse rail itself applies at, so a mobile
      view carrying a stale collapsed=true state (collapse is desktop-only,
      but the boolean itself isn't reset on resize) still shows the normal
-     icon+label row instead of an oddly-centered one. */
+     icon+label row instead of an oddly-centered one. justify-content alone
+     wasn't enough: the row's own gap-2.5 still reserves its 10px between the
+     icon and the label even once the label has faded to 0 width (a flex
+     gap applies regardless of a child's own size), which kept nudging the
+     icon a few px left of true center — zeroed here too. */
   .nav-link-collapsed {
     justify-content: center;
+    gap: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
