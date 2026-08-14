@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import {
   ArchiveIcon,
   BellIcon,
@@ -201,26 +201,37 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Identity block + collapse toggle — one merged section, not a
-            separate row above it. Collapsed (64px rail) can't lay the
-            32px avatar and a 24px button out side by side (only ~52px of
-            content width after margin/padding) — flex-col there instead
-            (avatar, then the toggle beneath it) instead of hiding the
-            toggle or shrinking things past comfortable tap-target size.
-            Expanded, it's the original single row: avatar, name/role,
-            toggle at the end. */}
-        <div
-          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-[margin,padding] duration-300 ${
+        {/* Identity block is now the whole card — a Link to /profile, not
+            just an avatar+name display. A dot badge (reusing pendingCount,
+            the same demat/bank link-request count the Dashboard nav badge
+            already tracks — it's exactly what Profile's own "pending
+            review"/"my requests" sections surface) marks that something on
+            Profile is worth a look. Collapsed (64px rail) can't lay the
+            32px avatar and text out side by side (only ~52px of content
+            width after margin/padding) — flex-col there instead. */}
+        <Link
+          to="/profile"
+          onClick={() => setNavOpen(false)}
+          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-colors hover:bg-[var(--accent-tint)] ${
             collapsed ? 'mx-1.5 flex-col gap-1.5 px-1.5' : 'mx-3 px-2'
           }`}
           style={{ background: 'var(--hover-surface)' }}
+          title={collapsed ? (profile?.full_name ?? undefined) : undefined}
         >
-          <div
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-            style={{ background: 'var(--accent)', color: '#ffffff' }}
-            title={collapsed ? (profile?.full_name ?? undefined) : undefined}
-          >
-            {initials}
+          <div className="relative shrink-0">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
+              style={{ background: 'var(--accent)', color: '#ffffff' }}
+            >
+              {initials}
+            </div>
+            {pendingCount > 0 && (
+              <span
+                aria-label={`${pendingCount} pending on Profile`}
+                className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
+                style={{ background: 'var(--critical)', border: '2px solid var(--surface)' }}
+              />
+            )}
           </div>
           <div className={`sidebar-fade min-w-0 flex-1 ${collapsed ? 'sidebar-fade-collapsed' : ''}`}>
             <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
@@ -230,10 +241,22 @@ export function AppShell() {
               {profile?.role ?? '…'}
             </p>
           </div>
+        </Link>
+
+        {/* Collapse + fullscreen toggles, combined into one row below the
+            identity card — previously the collapse toggle lived inside that
+            card (now a plain Link, with no room for a third interactive
+            element) and fullscreen had its own separate row underneath.
+            Icon-only pair now, no text labels — self-explanatory via title
+            tooltips, and it keeps this row compact in both collapsed and
+            expanded widths without any special-casing. */}
+        <div
+          className={`mb-1.5 flex items-center gap-1 rounded-md py-1.5 transition-[margin,padding] duration-300 ${
+            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 justify-start px-2'
+          }`}
+        >
           {/* Desktop only — mobile uses the off-canvas drawer instead of a
-              collapse rail, so this control has no meaning there. Always
-              rendered (not sidebar-fade'd away) so it stays reachable to
-              expand again once collapsed. */}
+              collapse rail, so this control has no meaning there. */}
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
@@ -244,21 +267,6 @@ export function AppShell() {
           >
             {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
           </button>
-        </div>
-
-        {/* Fullscreen toggle — moved in from a fixed top-right floating
-            button outside the sidebar entirely. Its own row (not squeezed
-            into the identity row above) so it doesn't reopen the same
-            64px-collapsed-rail width fight that row's own comment already
-            documents — one centered icon, full row width, needs no
-            special-casing between collapsed/expanded beyond the row's own
-            margin/padding, which already shrinks the same way every other
-            row here does. */}
-        <div
-          className={`mb-1.5 flex items-center rounded-md py-1.5 transition-[margin,padding] duration-300 ${
-            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 justify-start px-2'
-          }`}
-        >
           <button
             type="button"
             onClick={toggleFullscreen}
@@ -269,9 +277,6 @@ export function AppShell() {
           >
             {isFullscreen ? <ScreenNormalIcon size={14} /> : <ScreenFullIcon size={14} />}
           </button>
-          <span className={`sidebar-fade ml-2 text-xs font-medium ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg-muted)' }}>
-            {isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          </span>
         </div>
 
         {/* Nav — plain NavLink rows, not @primer/react's NavList/ActionList
