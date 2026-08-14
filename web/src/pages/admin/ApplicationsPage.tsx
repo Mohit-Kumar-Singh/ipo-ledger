@@ -67,14 +67,6 @@ function mandateGroupFor(a: ApplicationRow): string {
   return a.mandate_status === 'CANCELLED' ? 'Cancelled mandate' : 'Active'
 }
 
-// "Retail- 1 lot" / "Sni- 2 lots" — category + lots merged into one compact
-// label instead of two separate fields, since together they're really one
-// fact ("what kind of bid, how big").
-function categoryLotsLabel(a: ApplicationRow): string {
-  const category = a.category.charAt(0) + a.category.slice(1).toLowerCase()
-  return `${category}- ${a.lots} lot${a.lots === 1 ? '' : 's'}`
-}
-
 // Shared by the grouping useMemo and the render below — one place that
 // knows how each SortMode maps to a group key, so the two can't drift.
 function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: Map<string, string>): string {
@@ -850,7 +842,6 @@ export function ApplicationsPage() {
                             <p className="font-mono-ipo">App #{a.ipoji_app_number}</p>
                           </>
                         )}
-                        <p>{categoryLotsLabel(a)}</p>
                       </div>
 
                       {a.sell_price != null && (
