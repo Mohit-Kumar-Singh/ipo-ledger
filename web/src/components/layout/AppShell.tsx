@@ -9,20 +9,24 @@ import {
   HomeIcon,
   LawIcon,
   GraphIcon,
-  PersonIcon,
   PeopleIcon,
   ScreenFullIcon,
   ScreenNormalIcon,
   SidebarCollapseIcon,
   SidebarExpandIcon,
   SignOutIcon,
+  SunIcon,
+  MoonIcon,
   ThreeBarsIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../../contexts/AuthContext'
+import { useTheme } from '../../contexts/ThemeContext'
 import { supabase } from '../../lib/supabase'
 import { ToastHost } from '../ToastHost'
 import { OnboardingTour } from '../OnboardingTour'
 
+// No /profile entry — the identity card above this nav (see below) links
+// there directly now, so a second nav item to the same place was redundant.
 const links = [
   { to: '/', label: 'Dashboard', icon: HomeIcon },
   { to: '/accounts', label: 'Accounts', icon: PeopleIcon },
@@ -33,11 +37,11 @@ const links = [
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon },
-  { to: '/profile', label: 'Profile', icon: PersonIcon },
 ]
 
 export function AppShell() {
   const { profile, signOut } = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const [navOpen, setNavOpen] = useState(false)
   const [tourActive, setTourActive] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
@@ -276,6 +280,16 @@ export function AppShell() {
             style={{ color: 'var(--header-fg-muted)' }}
           >
             {isFullscreen ? <ScreenNormalIcon size={14} /> : <ScreenFullIcon size={14} />}
+          </button>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+            style={{ color: 'var(--header-fg-muted)' }}
+          >
+            {theme === 'dark' ? <SunIcon size={14} /> : <MoonIcon size={14} />}
           </button>
         </div>
 
