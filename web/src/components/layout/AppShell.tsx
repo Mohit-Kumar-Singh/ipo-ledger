@@ -211,96 +211,122 @@ export function AppShell() {
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
         }}
       >
-        {/* Identity block is now the whole card — a Link to /profile, not
-            just an avatar+name display. A dot badge (reusing pendingCount,
-            the same demat/bank link-request count the Dashboard nav badge
-            already tracks — it's exactly what Profile's own "pending
-            review"/"my requests" sections surface) marks that something on
-            Profile is worth a look. Collapsed (64px rail) can't lay the
-            32px avatar and text out side by side (only ~52px of content
-            width after margin/padding) — flex-col there instead. */}
-        <Link
-          to="/profile"
-          onClick={() => setNavOpen(false)}
-          className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-colors hover:bg-[var(--accent-tint)] ${
-            collapsed ? 'mx-1.5 flex-col gap-1.5 px-1.5' : 'mx-3 px-2'
-          }`}
-          style={{ background: 'var(--hover-surface)' }}
-          title={collapsed ? (profile?.full_name ?? undefined) : undefined}
-        >
-          <div className="relative shrink-0">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
-              style={{ background: 'var(--accent)', color: '#ffffff' }}
+        {/* The three toggle buttons render in two different arrangements
+            depending on collapsed state (see below), so they're built once
+            here and placed twice rather than duplicating each button's
+            markup. Expanded row order is Theme, Fullscreen, Collapse — the
+            collapsed stack keeps Collapse on top regardless, since that's
+            the one control someone collapsed the rail specifically to
+            reach again. */}
+        {(() => {
+          const collapseButton = (
+            // Desktop only — mobile uses the off-canvas drawer instead of a
+            // collapse rail, so this control has no meaning there.
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+              style={{ color: 'var(--header-fg-muted)' }}
             >
-              {initials}
-            </div>
-            {pendingCount > 0 && (
-              <span
-                aria-label={`${pendingCount} pending on Profile`}
-                className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
-                style={{ background: 'var(--critical)', border: '2px solid var(--surface)' }}
-              />
-            )}
-          </div>
-          <div className={`sidebar-fade min-w-0 flex-1 ${collapsed ? 'sidebar-fade-collapsed' : ''}`}>
-            <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
-              {profile?.full_name ?? '…'}
-            </p>
-            <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
-              {profile?.role ?? '…'}
-            </p>
-          </div>
-        </Link>
+              {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
+            </button>
+          )
+          const fullscreenButton = (
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+              style={{ color: 'var(--header-fg-muted)' }}
+            >
+              {isFullscreen ? <ScreenNormalIcon size={14} /> : <ScreenFullIcon size={14} />}
+            </button>
+          )
+          const themeButton = (
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+              style={{ color: 'var(--header-fg-muted)' }}
+            >
+              {theme === 'dark' ? <SunIcon size={14} /> : <MoonIcon size={14} />}
+            </button>
+          )
 
-        {/* Collapse + fullscreen + theme toggles, combined below the
-            identity card — previously the collapse toggle lived inside that
-            card (now a plain Link, with no room for a third interactive
-            element) and fullscreen had its own separate row underneath.
-            Icon-only, no text labels — self-explanatory via title tooltips.
-            Row when expanded, spaced evenly across the panel's full width
-            (justify-between, not clustered to the left) so all three sit as
-            far apart as the rail allows; stacked vertically when collapsed
-            (the 64px rail can't fit 3 icons in a row without them
-            overlapping or shrinking past a comfortable tap target). */}
-        <div
-          className={`mb-1.5 flex items-center gap-1 rounded-md py-1.5 transition-[margin,padding] duration-300 ${
-            collapsed ? 'mx-1.5 flex-col justify-center px-1.5' : 'mx-3 justify-between px-2'
-          }`}
-        >
-          {/* Desktop only — mobile uses the off-canvas drawer instead of a
-              collapse rail, so this control has no meaning there. */}
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
-          </button>
-          <button
-            type="button"
-            onClick={toggleFullscreen}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {isFullscreen ? <ScreenNormalIcon size={14} /> : <ScreenFullIcon size={14} />}
-          </button>
-          <button
-            type="button"
-            onClick={toggleTheme}
-            aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            {theme === 'dark' ? <SunIcon size={14} /> : <MoonIcon size={14} />}
-          </button>
-        </div>
+          return (
+            <>
+              {/* Identity block — a Link to /profile wrapping just the
+                  avatar+name/role now, not the whole row: when expanded, the
+                  three toggle buttons sit in this same row, after the name,
+                  so they're outside the <Link> (a <button> nested inside an
+                  <a> is invalid HTML and would double-fire on click). A dot
+                  badge (reusing pendingCount, the same demat/bank
+                  link-request count the Dashboard nav badge already tracks)
+                  marks that something on Profile is worth a look. Collapsed
+                  (64px rail) can't lay the 32px avatar and text out side by
+                  side (only ~52px of content width after margin/padding) —
+                  flex-col there instead, and the toggle buttons move to
+                  their own stacked group below instead of this row. */}
+              <div
+                className={`mt-4 mb-1.5 flex items-center gap-2.5 rounded-md py-2 transition-colors hover:bg-[var(--accent-tint)] ${
+                  collapsed ? 'mx-1.5 flex-col gap-1.5 px-1.5' : 'mx-3 px-2'
+                }`}
+                style={{ background: 'var(--hover-surface)' }}
+              >
+                <Link
+                  to="/profile"
+                  onClick={() => setNavOpen(false)}
+                  className={`flex min-w-0 items-center gap-2.5 ${collapsed ? 'flex-col gap-1.5' : 'flex-1'}`}
+                  title={collapsed ? (profile?.full_name ?? undefined) : undefined}
+                >
+                  <div className="relative shrink-0">
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold"
+                      style={{ background: 'var(--accent)', color: '#ffffff' }}
+                    >
+                      {initials}
+                    </div>
+                    {pendingCount > 0 && (
+                      <span
+                        aria-label={`${pendingCount} pending on Profile`}
+                        className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full"
+                        style={{ background: 'var(--critical)', border: '2px solid var(--surface)' }}
+                      />
+                    )}
+                  </div>
+                  <div className={`sidebar-fade min-w-0 flex-1 ${collapsed ? 'sidebar-fade-collapsed' : ''}`}>
+                    <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
+                      {profile?.full_name ?? '…'}
+                    </p>
+                    <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
+                      {profile?.role ?? '…'}
+                    </p>
+                  </div>
+                </Link>
+                {!collapsed && (
+                  <div className="flex shrink-0 items-center gap-1">
+                    {themeButton}
+                    {fullscreenButton}
+                    {collapseButton}
+                  </div>
+                )}
+              </div>
+
+              {collapsed && (
+                <div className="mx-1.5 mb-1.5 flex flex-col items-center justify-center gap-1 rounded-md px-1.5 py-1.5">
+                  {collapseButton}
+                  {fullscreenButton}
+                  {themeButton}
+                </div>
+              )}
+            </>
+          )
+        })()}
 
         {/* Nav — plain NavLink rows, not @primer/react's NavList/ActionList
             (removed app-wide: pulled in the whole primer/react +
