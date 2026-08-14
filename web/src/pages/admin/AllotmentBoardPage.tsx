@@ -446,11 +446,9 @@ export function AllotmentBoardPage() {
 
 // Same collapsible pattern as NotificationsPage's message list / SoldPayoutsSection
 // below — the per-account table can run long once an IPO has a lot of
-// applicants, and the payouts section above it is what usually needs
-// attention first once allotment's out. Open by default (still primary
-// content, unlike ArchivedSection's default-closed).
+// applicants. Collapsed by default, same as every other list on this page.
 function AccountListSection({ count, children }: { count: number; children: ReactNode }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   return (
     <div className="space-y-2">
       <button
@@ -504,8 +502,8 @@ function SoldPayoutsSection({
 }) {
   // Moved above the main applied-list table and made collapsible — sold/
   // payout status is the thing actually worth acting on once allotment's
-  // out, and once it's all settled it's just noise sitting open every visit.
-  const [open, setOpen] = useState(true)
+  // out, but still collapsed by default like every other list on this page.
+  const [open, setOpen] = useState(false)
   return (
     <div className="space-y-3">
       <button
@@ -536,8 +534,16 @@ function SoldPayoutsSection({
               <div key={row.application_id} className="card stagger-item p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    <p className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {row.holder_name}
+                      {row.is_funder_override && (
+                        <span
+                          className="shrink-0"
+                          title={`Funded by a transfer to a different UPI/bank account (${row.bank_account_holder_name ?? 'unknown'}), not the applicant's own.`}
+                        >
+                          {'\u{1F3F7}\u{FE0F}'}
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                       {row.lots} lot(s)

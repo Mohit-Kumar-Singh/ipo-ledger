@@ -88,7 +88,10 @@ interface FunderAllottedCard {
   priceHigh: number | null
   lotSize: number
   gmpPercent: number | null
-  holderNames: string[]
+  // Each holder tagged with whether ANY of their applications in this card
+  // were funded via a manual override (funder_override_id) — surfaced as
+  // the same 🏷️ tag ApplicationsPage/the allotment board already show.
+  holderNames: { name: string; isOverride: boolean }[]
   totalLots: number
   // Weighted-average cut% across every demat account this funder's money
   // ended up in for this IPO — different holders can carry different
@@ -133,7 +136,10 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
     }
     if (!card.phone && funder?.phone_e164) card.phone = funder.phone_e164
     const holder = r.demat_accounts?.holder_name ?? 'Unknown'
-    if (!card.holderNames.includes(holder)) card.holderNames.push(holder)
+    const isOverride = !!r.funder_override
+    const existingHolder = card.holderNames.find((h) => h.name === holder)
+    if (!existingHolder) card.holderNames.push({ name: holder, isOverride })
+    else if (isOverride) existingHolder.isOverride = true
     card.totalLots += r.lots
     card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
   }
@@ -220,18 +226,17 @@ function buildHolderAllottedCards(rows: ApplicationForFunderRow[]): HolderAllott
     .sort((a, b) => a.holderName.localeCompare(b.holderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
+// Deliberately bare — just the allotment fact and the listing date, no
+// profit numbers, no portal link. The funder gets the full breakdown in the
+// card above; the account holder doesn't need more than "you got shares."
 function buildHolderAllottedMessage(card: HolderAllottedCard): string {
   const PARTY = '\u{1F389}'
   const listingLine = card.listingDate
-    ? `Listing date is \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\`.`
+    ? `Listing date is \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
     : `Listing date isn't out yet.`
-  const overrideLine = card.hasOverride
-    ? `\n\n_(Funded via a transfer to a different UPI account, not your own.)_`
-    : ''
   return (
-    `Hi ${card.holderName}, good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
-    `you! (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'})${overrideLine}\n\n${listingLine}\n\n` +
-    `> Other updates are posted on ${PORTAL_URL}`
+    `Hi ${card.holderName}, Good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
+    `you! (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'})\n\n${listingLine}`
   )
 }
 
@@ -240,7 +245,10 @@ function rupees(n: number): string {
 }
 
 function buildFunderAllottedMessage(card: FunderAllottedCard): string {
-  const list = card.holderNames.map((n, i) => `${i + 1}. ${n}`).join('\n')
+  const list = card.holderNames.map((h, i) => `${i + 1}. ${h.name}${h.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}`).join('\n')
+  const footnote = card.holderNames.some((h) => h.isOverride)
+    ? `\n\n_🏷️ = funded via a transfer to a different UPI, not that your own UPI_`
+    : ''
   const listingLine = card.listingDate
     ? `Listing date of ${card.ipoName} IPO is  \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
     : `Listing date isn't out yet.`
@@ -258,7 +266,7 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
 
   if (!card.priceHigh) {
     // No price band on file — skip the profit math rather than show ₹0s.
-    return `${intro}\n\n> Other updates are posted on ${PORTAL_URL}`
+    return `${intro}${footnote}\n\n> Other updates are posted on ${PORTAL_URL}`
   }
 
   const b = expectedProfitBreakdown(card)
@@ -276,7 +284,7 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
     `> ${rupees(b.profitPerLot)}− ${cutPercentLabel} (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
     `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share ) = ${rupees(b.yourProfitPerLot)} your profit/lot\n` +
     `> Amount to return = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) =  ${rupees(b.amountToReturn)}\n\n` +
-    `${listingLine}\n\n\n` +
+    `${listingLine}${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
 }

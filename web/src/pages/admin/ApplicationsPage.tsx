@@ -156,12 +156,12 @@ export function ApplicationsPage() {
   const [bulkMarking, setBulkMarking] = useState(false)
   // Per-IPO group collapse — a portal with several IPOs' worth of
   // applications made this page a long scroll of every group always fully
-  // expanded. Keyed by ipo_id, expanded by default (empty set = nothing
-  // collapsed), so this only changes what a group looks like once someone
-  // actually collapses it.
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+  // expanded. Keyed by ipo_id, COLLAPSED by default (empty set = nothing
+  // expanded) — someone opening this page wants the list of IPOs, not every
+  // application under every one of them dumped open at once.
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
   function toggleGroupCollapsed(ipoId: string) {
-    setCollapsedGroups((s) => {
+    setExpandedGroups((s) => {
       const next = new Set(s)
       if (next.has(ipoId)) next.delete(ipoId)
       else next.add(ipoId)
@@ -666,7 +666,7 @@ export function ApplicationsPage() {
               eligibleIdsInGroup.length > 0 && eligibleIdsInGroup.every((id) => selectedForNotAllotted.has(id))
 
             const ipoId = items[0].ipo_id
-            const isCollapsed = collapsedGroups.has(ipoId)
+            const isCollapsed = !expandedGroups.has(ipoId)
 
             return (
             <div key={ipoId}>
