@@ -903,7 +903,13 @@ export function IpojiSyncPanel({
                 Mandate status is a best-effort guess from ipoji's own status text — double-check it
                 rather than treating it as certain.
               </p>
-              <div className="mt-2 overflow-x-auto">
+              {/* A big multi-page batch is dozens/hundreds of rows — capped
+                  height + its own scroll (both axes) keeps this table a
+                  constant size regardless of how many rows matched, instead
+                  of pushing "Import" far down the page. thead isn't sticky
+                  here (would need its own layout rework); the row count in
+                  the heading above already orients you without it. */}
+              <div className="mt-2 max-h-96 overflow-auto">
                 <table className="w-full text-xs">
                   <thead>
                     <tr style={{ color: 'var(--ink-muted)' }}>
