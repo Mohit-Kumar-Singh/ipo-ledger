@@ -299,14 +299,24 @@ export function AppShell() {
                       />
                     )}
                   </div>
-                  <div className={`sidebar-fade min-w-0 flex-1 ${collapsed ? 'sidebar-fade-collapsed' : ''}`}>
-                    <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
-                      {profile?.full_name ?? '…'}
-                    </p>
-                    <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
-                      {profile?.role ?? '…'}
-                    </p>
-                  </div>
+                  {/* Not rendered at all when collapsed — sidebar-fade only
+                      shrinks max-width to 0, it never touches height, so
+                      this block's two lines of text kept reserving their
+                      normal line-height as blank vertical space below the
+                      avatar even fully faded out. Skipping the render
+                      entirely (rather than fading an always-mounted block)
+                      is what actually collapses that space away, leaving
+                      just the circle. */}
+                  {!collapsed && (
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold" style={{ color: 'var(--header-fg)' }}>
+                        {profile?.full_name ?? '…'}
+                      </p>
+                      <p className="truncate text-[11px] capitalize" style={{ color: 'var(--header-fg-muted)' }}>
+                        {profile?.role ?? '…'}
+                      </p>
+                    </div>
+                  )}
                 </Link>
                 {!collapsed && (
                   <div className="flex shrink-0 items-center gap-1">
