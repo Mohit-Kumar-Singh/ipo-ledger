@@ -3,7 +3,6 @@ import {
   ChevronDownIcon,
   CreditCardIcon,
   LawIcon,
-  MailIcon,
   DeviceMobileIcon,
   InfoIcon,
   PaintbrushIcon,
@@ -515,19 +514,13 @@ export function ProfilePage() {
         </div>
       )}
 
-      {/* Everything below used to be one unbroken single column capped at
-          max-w-lg (32rem) — fine on a phone, but on any laptop/desktop it
-          left most of the page blank on both sides while every section
-          stacked into one long scroll regardless of how much horizontal
-          room there was. Grouped into two responsive rows instead: identity
-          (small, fixed-height forms) next to Recent IPOs (wants width for
-          its donut+legend rows) on top, then the demat and bank/UPI link
-          workflows side by side below — they're already parallel flows
-          (search → request → your requests), so mirroring them
-          side-by-side reads naturally instead of one long queue of one
-          after the other. */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <div className="space-y-6 xl:col-span-1">
+      {/* Identity/PAN card is a plain max-width column now — Recent IPOs
+          used to sit beside it (wanting the extra width for its donut+legend
+          rows), but moved further down the page (below the link-request
+          workflows) for a cleaner top-of-page focused on "your details"
+          alone, so this no longer needs the 3-column grid that gave it
+          somewhere to sit. */}
+      <div className="max-w-lg">
       <div className="card animate-page-in space-y-4 p-5">
         <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
           <div
@@ -541,13 +534,18 @@ export function ProfilePage() {
               .join('')
               .toUpperCase()}
           </div>
-          <div>
-            <p className="font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              {fullName || 'Your name'}
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <p className="truncate font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                {fullName || 'Your name'}
+              </p>
+              <span className="badge badge-info shrink-0" style={{ textTransform: 'capitalize' }}>
+                {profile?.role ?? 'member'}
+              </span>
+            </div>
+            <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {session?.user.email ?? session?.user.phone ?? '—'}
             </p>
-            <span className="badge badge-info mt-0.5" style={{ textTransform: 'capitalize' }}>
-              {profile?.role ?? 'member'}
-            </span>
           </div>
         </div>
 
@@ -557,7 +555,7 @@ export function ProfilePage() {
             visually one "your details" block. Every explanatory paragraph
             that used to sit as permanent text under a field is now an (i)
             tooltip on hover instead, next to that field's label. */}
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form id="profile-details-form" onSubmit={handleSubmit} className="space-y-4">
           <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
             <span className="flex items-center gap-1.5">
               Full name
@@ -605,16 +603,7 @@ export function ProfilePage() {
             )}
           </label>
 
-          <div className="flex items-center gap-2 border-t pt-4 text-sm" style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}>
-            <MailIcon size={15} fill="var(--ink-muted)" />
-            {session?.user.email ?? session?.user.phone ?? '—'}
-          </div>
-
           {error && <p className="badge badge-critical w-fit">{error}</p>}
-
-          <button type="submit" disabled={submitting} className="btn-primary py-2.5">
-            {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
-          </button>
         </form>
 
         <form onSubmit={handleSavePan} className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
@@ -697,38 +686,20 @@ export function ProfilePage() {
             </>
           )}
         </form>
-      </div>
-        </div>
 
-        <div className="xl:col-span-2">
-      <div className="card animate-page-in h-full space-y-4 p-5">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Recent IPOs
-        </h2>
-        {attributionError ? (
-          <p className="text-sm" style={{ color: 'var(--critical-text)' }}>
-            Couldn't load: {attributionError}
-          </p>
-        ) : attribution == null ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Loading…
-          </p>
-        ) : attribution.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No applications yet.
-          </p>
-        ) : (
-          // 2-up on wide screens instead of one stacked column — this used
-          // to be the very last section on the page, cut off from all the
-          // width the redesigned layout now gives it.
-          <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-            {attribution.map((a) => (
-              <AttributionChart key={a.ipoId} attribution={a} compact />
-            ))}
-          </div>
-        )}
+        {/* Submits the name/phone form above (id="profile-details-form"),
+            not this one — placed here instead so it reads as "save
+            everything on this card" from the bottom, below PAN, rather than
+            splitting the card's one save action in the middle of it. */}
+        <button
+          type="submit"
+          form="profile-details-form"
+          disabled={submitting}
+          className="btn-primary w-full py-2.5"
+        >
+          {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
+        </button>
       </div>
-        </div>
       </div>
 
       {(linkedDemat.length > 0 || linkedBank.length > 0) && (
@@ -1004,6 +975,31 @@ export function ProfilePage() {
         </div>
       </div>
 
+      <div className="card animate-page-in space-y-4 p-5">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Recent IPOs
+        </h2>
+        {attributionError ? (
+          <p className="text-sm" style={{ color: 'var(--critical-text)' }}>
+            Couldn't load: {attributionError}
+          </p>
+        ) : attribution == null ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : attribution.length === 0 ? (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No applications yet.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
+            {attribution.map((a) => (
+              <AttributionChart key={a.ipoId} attribution={a} compact />
+            ))}
+          </div>
+        )}
+      </div>
+
       <AppearanceSection />
       {isAdmin && <PanAccessLogSection />}
       <AccountsSection />
@@ -1093,6 +1089,10 @@ function dayKeyFor(iso: string): string {
 // Moved here from the deleted Settings page, unchanged — admin-only, still
 // grouped by day and collapsible (most recent day open by default).
 function PanAccessLogSection() {
+  // Whole section collapsed by default now too — same card-with-chevron
+  // shape as AccountsSection below, instead of always sitting open with
+  // just its per-day groups collapsed underneath.
+  const [open, setOpen] = useState(false)
   const [rows, setRows] = useState<PanAccessLogRow[]>([])
   const [loading, setLoading] = useState(true)
   const [openDays, setOpenDays] = useState<Set<string>>(new Set())
@@ -1131,80 +1131,96 @@ function PanAccessLogSection() {
   }
 
   return (
-    <section>
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-        <ShieldCheckIcon size={15} fill="var(--violet)" />
-        PAN access log
-      </h2>
-      <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-        Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose
-        PAN, and when. Grouped by day, most recent first.
-      </p>
-      {loading ? (
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Loading…
-        </p>
-      ) : dayGroups.length === 0 ? (
-        <p className="card p-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-          No PAN reveals logged yet.
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {dayGroups.map(([day, dayRows]) => {
-            const open = openDays.has(day)
-            return (
-              <div key={day} className="card overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleDay(day)}
-                  className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ color: 'var(--ink-primary)' }}
-                >
-                  <span>
-                    {open ? '▾' : '▸'}{' '}
-                    {new Date(dayRows[0].accessed_at).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      day: 'numeric',
-                      month: 'short',
-                      year: 'numeric',
-                    })}
-                  </span>
-                  <span className="badge badge-neutral shrink-0">{dayRows.length}</span>
-                </button>
-                {open && (
-                  <table className="w-full text-sm">
-                    <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
-                      <tr>
-                        <th className="px-4 py-2 font-medium">When</th>
-                        <th className="px-4 py-2 font-medium">PAN of</th>
-                        <th className="px-4 py-2 font-medium">Accessed by</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
-                      {dayRows.map((r) => (
-                        <tr key={r.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-                          <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
-                            {new Date(r.accessed_at).toLocaleTimeString()}
-                          </td>
-                          <td className="px-4 py-2.5" style={{ color: 'var(--ink-primary)' }}>
-                            {r.demat_accounts?.holder_name ?? '—'}
-                          </td>
-                          <td className="px-4 py-2.5">
-                            {r.profiles?.full_name ?? '—'}
-                            {r.is_self_reveal && (
-                              <span className="ml-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                                (self)
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )
-          })}
+    <section className="card animate-page-in overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-2 p-5 text-left transition-colors hover:bg-[var(--hover-surface)]"
+      >
+        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <ShieldCheckIcon size={16} fill="var(--violet)" />
+          PAN access log
+        </span>
+        <span
+          className="inline-flex transition-transform duration-200"
+          style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : undefined }}
+        >
+          <ChevronDownIcon size={16} />
+        </span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t p-5" style={{ borderColor: 'var(--border)' }}>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose
+            PAN, and when. Grouped by day, most recent first.
+          </p>
+          {loading ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              Loading…
+            </p>
+          ) : dayGroups.length === 0 ? (
+            <p className="p-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+              No PAN reveals logged yet.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {dayGroups.map(([day, dayRows]) => {
+                const dayOpen = openDays.has(day)
+                return (
+                  <div key={day} className="rounded-md border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleDay(day)}
+                      className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
+                      style={{ color: 'var(--ink-primary)' }}
+                    >
+                      <span>
+                        {dayOpen ? '▾' : '▸'}{' '}
+                        {new Date(dayRows[0].accessed_at).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
+                      <span className="badge badge-neutral shrink-0">{dayRows.length}</span>
+                    </button>
+                    {dayOpen && (
+                      <table className="w-full text-sm">
+                        <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
+                          <tr>
+                            <th className="px-4 py-2 font-medium">When</th>
+                            <th className="px-4 py-2 font-medium">PAN of</th>
+                            <th className="px-4 py-2 font-medium">Accessed by</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
+                          {dayRows.map((r) => (
+                            <tr key={r.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
+                              <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
+                                {new Date(r.accessed_at).toLocaleTimeString()}
+                              </td>
+                              <td className="px-4 py-2.5" style={{ color: 'var(--ink-primary)' }}>
+                                {r.demat_accounts?.holder_name ?? '—'}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                {r.profiles?.full_name ?? '—'}
+                                {r.is_self_reveal && (
+                                  <span className="ml-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                    (self)
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </section>
