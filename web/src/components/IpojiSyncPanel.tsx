@@ -4,32 +4,33 @@ import { supabase } from '../lib/supabase'
 import { hasBiddingClosed } from '../lib/ipoStatus'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
-// Deliberately ONE PAGE per run, not auto-paginated. An earlier version
-// tried to detect and click ipoji's "Next" control automatically — with no
+// Deliberately ONE PAGE scraped per run — an earlier version tried to
+// detect and click ipoji's "Next" control automatically; with no
 // visibility into ipoji's real pager markup, that guess ended up clicking
 // the wrong element (observed: it left the list showing no results at all
-// after advancing). Multi-page IPOs just mean running this script again
-// after you click Next yourself — completely safe to do, since the portal
-// dedupes by ipoji's own application number, so pasting page 2's output
-// after page 1's only ever adds what's new.
-
+// after advancing), and separately, ipoji's "Next" turned out to be a REAL
+// full-page navigation (not an SPA update), which destroys any in-memory
+// script state either way — confirmed live, "Preserve log" doesn't help.
+// What DOES survive that navigation (confirmed live, across real multi-page
+// runs) is localStorage — this script merges each page's scrape into a
+// localStorage-backed accumulator keyed by ipoji's own application number,
+// so running it again on page 2 adds only what's new. "Show all" then
+// displays everything accumulated so far, on whichever page you're on.
+//
 // Console script the user runs themselves, once per page, while logged into
 // ipoji in their own browser (Orders/Bids -> Current tab) — reads the page
 // they're already looking at, opens each card's detail sheet for its UPI ID
-// and PAN (the only place ipoji shows either), and shows a JSON summary in
-// an on-page textarea for the user to select-all/copy manually — confirmed
-// live that ipoji blocks navigator.clipboard writes outright (the promise
-// never resolves), so a plain textarea (needing no special permission) is
-// the only reliable way to get the data out. No ipoji credential ever
-// touches this app; this only ever sees what the user explicitly pastes
-// back in. Text-line heuristic (not
-// brittle CSS selectors) because ipoji's classes are opaque Bootstrap
-// utility names, not semantic — see IpojiSyncPanel below for why a shape
-// mismatch fails loudly instead of silently importing garbage. The earlier
-// "fast" no-click variant was dropped — PAN is what makes account matching
-// reliable (name matching alone collides/misses), so there was no real case
-// left for the version that skips it.
+// and PAN (the only place ipoji shows either), and shows the running total
+// in an on-page box with a "Show all"/"Copy all" — confirmed live that
+// ipoji blocks navigator.clipboard writes outright (the call just never
+// resolves), so Copy falls back to auto-selecting a textarea for a manual
+// Ctrl+C when that happens. No ipoji credential ever touches this app; this
+// only ever sees what the user explicitly pastes back in. Text-line
+// heuristic (not brittle CSS selectors) because ipoji's classes are opaque
+// Bootstrap utility names, not semantic — see IpojiSyncPanel below for why
+// a shape mismatch fails loudly instead of silently importing garbage.
 const SYNC_SCRIPT = `(async () => {
+  const KEY = 'ipojiAccumV1';
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const cards = [...document.querySelectorAll('.order-card-v2')];
   const rows = []; const errors = [];
@@ -102,31 +103,111 @@ const SYNC_SCRIPT = `(async () => {
     } catch (e) {
       errors.push({ card: i, stage: 'click', error: String(e) });
     }
-    console.log('ipoji sync — card', i, row.upiId ? 'got UPI' : 'no UPI', row.panNumber ? 'got PAN' : 'no PAN');
     rows.push(row);
   }
-  const out = JSON.stringify(rows, null, 2);
-  // Shown on-page instead of attempted via navigator.clipboard — confirmed
-  // live that ipoji blocks clipboard writes outright (the call just never
-  // resolves). A plain textarea needs no special permission; select-all
-  // and copy manually.
-  document.querySelectorAll('#__ipojiSyncBox').forEach((el) => el.remove());
+
+  // Merge into whatever's already stored, deduped by ipoji's own app
+  // number — localStorage (unlike sessionStorage, confirmed live not to
+  // survive) persists across ipoji's real page reloads on Next.
+  let store;
+  try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { store = {}; }
+  let added = 0;
+  for (const r of rows) {
+    if (r.appNumber && !store[r.appNumber]) added++;
+    if (r.appNumber) store[r.appNumber] = r;
+  }
+  localStorage.setItem(KEY, JSON.stringify(store));
+  const total = Object.keys(store).length;
+  const statusCounts = {};
+  for (const r of Object.values(store)) statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
+
+  document.querySelectorAll('#__ipojiAccumBox,#__ipojiAccumStyle').forEach((el) => el.remove());
+
+  const style = document.createElement('style');
+  style.id = '__ipojiAccumStyle';
+  style.textContent = \`
+    #__ipojiAccumBox { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    #__ipojiAccumBox * { box-sizing: border-box; }
+    #__ipojiAccumBox button { font-family: inherit; }
+    .ia-btn { border-radius: 999px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: filter .15s; }
+    .ia-btn:hover { filter: brightness(0.96); }
+    .ia-btn-primary { background: #4f46e5; color: #fff; }
+    .ia-btn-secondary { background: #eef0ff; color: #4f46e5; }
+    .ia-btn-danger { background: #fdecea; color: #d93025; }
+    .ia-btn-ghost { background: transparent; color: #6b7280; }
+    .ia-pill { display: inline-flex; align-items: center; gap: 6px; background: #e8f5e9; color: #1e7e34; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
+  \`;
+  document.head.appendChild(style);
+
   const box = document.createElement('div');
-  box.id = '__ipojiSyncBox';
-  box.style.cssText = 'position:fixed;inset:5% 5%;z-index:999999;background:#fff;border:3px solid #333;border-radius:8px;padding:12px;display:flex;flex-direction:column;gap:8px;box-shadow:0 4px 24px rgba(0,0,0,.4);font-family:sans-serif;';
+  box.id = '__ipojiAccumBox';
+  box.style.cssText = 'position:fixed;inset:5% 6%;z-index:999999;background:#f4f5fb;color:#1a1a2e;' +
+    'border-radius:18px;padding:0;display:flex;flex-direction:column;overflow:hidden;' +
+    'box-shadow:0 20px 60px rgba(30,20,80,.35);';
+
+  const statusLine = Object.entries(statusCounts).map(([s, n]) => s + ': <b>' + n + '</b>').join(' &nbsp;\\u00b7&nbsp; ');
+
   box.innerHTML =
-    '<div style="font:14px sans-serif;color:#111;">' + rows.length + ' application(s) from this page' +
-    (errors.length ? ' (' + errors.length + " card(s) didn't match the expected layout — skipped, see console)" : '') +
-    '. Ctrl+A then Ctrl+C inside the box to copy, paste into the sync panel below, then close this. If there are more pages, click Next on ipoji and run this script again for that page.</div>' +
-    '<textarea id="__ipojiSyncTA" style="flex:1;width:100%;font:12px monospace;color:#111;" readonly></textarea>' +
-    '<button id="__ipojiSyncClose" style="align-self:flex-start;padding:6px 14px;">Close</button>';
+    '<div style="padding:18px 22px;background:#fff;border-bottom:1px solid #ececf5;display:flex;align-items:center;justify-content:space-between;">' +
+      '<div>' +
+        '<div style="font-size:15px;font-weight:700;color:#2b2350;">ipoji sync \\u2014 accumulator</div>' +
+        '<div style="font-size:12px;color:#8a8aa3;margin-top:2px;">This page: ' + rows.length + ' card(s), <span style="color:#4f46e5;font-weight:700;">' + added + ' new</span>' +
+          (errors.length ? ' &nbsp;\\u00b7&nbsp; <span style="color:#d93025;">' + errors.length + ' skipped</span>' : '') +
+        '</div>' +
+      '</div>' +
+      '<span class="ia-pill">\\u2713 ' + total + ' total stored</span>' +
+    '</div>' +
+    '<div style="padding:10px 22px;background:#fbfbff;border-bottom:1px solid #ececf5;font-size:12px;color:#6b6b85;">' +
+      (statusLine || 'No rows stored yet') +
+    '</div>' +
+    '<div style="padding:12px 22px;background:#fff;border-bottom:1px solid #ececf5;font-size:12px;color:#6b6b85;">' +
+      'Click <b>Next</b> on ipoji, then run this script again on that page. When you\\'re on the last page, click <b>Show all</b>.' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;padding:14px 22px;background:#fff;border-bottom:1px solid #ececf5;">' +
+      '<button id="__ipojiShowAll" class="ia-btn ia-btn-secondary">Show all (' + total + ')</button>' +
+      '<button id="__ipojiCopyAll" class="ia-btn ia-btn-primary">\\ud83d\\udccb Copy all</button>' +
+      '<div style="flex:1;"></div>' +
+      '<button id="__ipojiClearAll" class="ia-btn ia-btn-danger">Clear stored data</button>' +
+      '<button id="__ipojiAccumClose" class="ia-btn ia-btn-ghost">Close (clears data) \\u2715</button>' +
+    '</div>' +
+    '<div id="__ipojiCopyStatus" style="display:none;padding:10px 22px;font-size:12px;font-weight:600;"></div>' +
+    '<textarea id="__ipojiAccumTA" style="flex:1;width:100%;border:0;outline:0;resize:none;' +
+      'padding:16px 22px;font:12px/1.6 \\'IBM Plex Mono\\',Consolas,monospace;color:#2b2350;background:#f4f5fb;display:none;" readonly></textarea>';
   document.body.appendChild(box);
-  const ta = document.getElementById('__ipojiSyncTA');
-  ta.value = out;
-  ta.focus();
-  ta.select();
-  document.getElementById('__ipojiSyncClose').onclick = () => box.remove();
-  console.log('ipoji sync — parsed', rows, 'errors', errors);
+
+  const ta = document.getElementById('__ipojiAccumTA');
+  const status = document.getElementById('__ipojiCopyStatus');
+  const fill = () => { ta.value = JSON.stringify(Object.values(store), null, 2); ta.style.display = 'block'; };
+
+  // Closing means "done with this batch" — clearing the accumulator here
+  // (rather than only via the separate Clear button) means the next sync
+  // for a different IPO/day can't silently inherit stale rows from this one.
+  document.getElementById('__ipojiAccumClose').onclick = () => {
+    localStorage.removeItem(KEY);
+    box.remove();
+    style.remove();
+  };
+  document.getElementById('__ipojiClearAll').onclick = () => {
+    if (confirm('Clear all ' + total + ' stored rows?')) { localStorage.removeItem(KEY); box.remove(); style.remove(); }
+  };
+  document.getElementById('__ipojiShowAll').onclick = () => { fill(); ta.focus(); ta.select(); };
+  document.getElementById('__ipojiCopyAll').onclick = async () => {
+    fill();
+    status.style.display = 'block';
+    try {
+      await navigator.clipboard.writeText(ta.value);
+      status.style.background = '#e8f5e9';
+      status.style.color = '#1e7e34';
+      status.textContent = '\\u2713 Copied ' + total + ' row(s) to clipboard.';
+    } catch {
+      ta.focus();
+      ta.select();
+      status.style.background = '#fff4e5';
+      status.style.color = '#b26a00';
+      status.textContent = 'Clipboard blocked by ipoji \\u2014 text is selected, press Ctrl+C to copy.';
+    }
+  };
+  console.log('ipoji sync accumulate \\u2014 this page', rows, 'errors', errors, 'total stored', total);
 })();`
 
 interface ScrapedRow {
@@ -297,6 +378,107 @@ function guessMandateStatus(ipojiStatus: string): MandateStatus {
   return 'PENDING'
 }
 
+// Minimal local mirror of import-ipos' response shapes (IposPage.tsx keeps
+// its own copy for its own manual/bulk import UI) — this panel only needs
+// enough to create a missing IPO row, not the full picker experience.
+interface ImportCandidate {
+  company_name: string
+  open_date: string | null
+  close_date: string | null
+  price_low: number | null
+  price_high: number | null
+  lot_size: number | null
+  gmp: string | null
+  issue_size: string | null
+  source_url: string
+}
+
+interface ImportDetail {
+  allotment_date: string | null
+  listing_date: string | null
+  registrar: Ipo['registrar'] | null
+  issue_size: string | null
+  retail_issue_size: string | null
+  retail_subscription_rate: string | null
+  allotment_out: boolean | null
+}
+
+// Same prefix/substring rule as matchIpo above, just against ipoji's own
+// list-candidate names instead of this portal's saved IPOs.
+function matchCandidateName(ipojiName: string, candidates: ImportCandidate[]): ImportCandidate | null {
+  const n = normalize(ipojiName)
+  if (!n) return null
+  return (
+    candidates.find((c) => {
+      const full = normalize(c.company_name)
+      return full.startsWith(n) || n.startsWith(full) || full.includes(n)
+    }) ?? null
+  )
+}
+
+// A scraped application can name an IPO this portal has no row for at all
+// (never imported, never manually added) — previously that row just sat
+// unmatched forever with no way to import it short of leaving this panel,
+// going to the IPOs page, importing it by hand, then coming back to paste
+// again. Reuses the exact same two-step ipoji fetch (list candidates, then
+// that candidate's detail page for allotment/listing date + registrar) and
+// upsert-by-name pattern IposPage's own "Import from ipoji.com" flow uses,
+// so a sync-created IPO is indistinguishable from one added the normal way.
+async function fetchAndCreateMissingIpo(ipojiName: string): Promise<Ipo | null> {
+  const { data: listData } = await supabase.functions.invoke<{ candidates?: ImportCandidate[] }>('import-ipos', {
+    body: { mode: 'list', source: 'current' },
+  })
+  const candidate = matchCandidateName(ipojiName, listData?.candidates ?? [])
+  if (!candidate || !candidate.open_date || !candidate.close_date || !candidate.lot_size) return null
+
+  const { data: detail } = await supabase.functions.invoke<ImportDetail>('import-ipos', {
+    body: { mode: 'detail', detail_url: candidate.source_url },
+  })
+
+  const payload = {
+    company_name: candidate.company_name.trim().replace(/\s+/g, ' '),
+    price_low: candidate.price_low,
+    price_high: candidate.price_high,
+    lot_size: candidate.lot_size,
+    open_date: candidate.open_date,
+    close_date: candidate.close_date,
+    allotment_date: detail?.allotment_date ?? null,
+    listing_date: detail?.listing_date ?? null,
+    registrar: detail?.registrar ?? 'OTHER',
+    gmp_notes: candidate.gmp,
+    issue_size: detail?.issue_size ?? candidate.issue_size,
+    retail_issue_size: detail?.retail_issue_size ?? null,
+    retail_subscription_rate: detail?.retail_subscription_rate ?? null,
+    ...(detail?.allotment_out != null ? { allotment_out: detail.allotment_out } : {}),
+  }
+
+  // Same ilike-then-insert/update-on-conflict pattern as IposPage's
+  // upsertIpo — a concurrent cron import or a second sync run racing this
+  // one shouldn't ever produce a duplicate row for the same company.
+  const { data: existingRows } = await supabase
+    .from('ipos')
+    .select('*')
+    .ilike('company_name', payload.company_name)
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (existingRows?.[0]) {
+    const { data: updated } = await supabase.from('ipos').update(payload).eq('id', existingRows[0].id).select('*').single()
+    return (updated as Ipo) ?? (existingRows[0] as Ipo)
+  }
+  const { data: inserted, error } = await supabase.from('ipos').insert(payload).select('*').single()
+  if (!error) return inserted as Ipo
+  if (error.code === '23505') {
+    const { data: retryExisting } = await supabase
+      .from('ipos')
+      .select('*')
+      .ilike('company_name', payload.company_name)
+      .limit(1)
+    return (retryExisting?.[0] as Ipo) ?? null
+  }
+  console.error('ipoji sync — failed to create missing IPO', ipojiName, error)
+  return null
+}
+
 export function IpojiSyncPanel({
   open,
   ipos,
@@ -304,6 +486,7 @@ export function IpojiSyncPanel({
   banks,
   existingByKey,
   onImported,
+  onIposCreated,
   lookupsLoading,
 }: {
   // Owned by the parent, not this component — the trigger button lives in
@@ -316,6 +499,11 @@ export function IpojiSyncPanel({
   banks: BankAccount[]
   existingByKey: Map<string, { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null }>
   onImported: () => void
+  // Called after this panel creates one or more IPOs that didn't exist in
+  // the portal at all — lets the parent refresh its own `ipos` prop so a
+  // second paste (or the plain "New application" form) sees them without a
+  // manual page reload.
+  onIposCreated: () => void
   lookupsLoading: boolean
 }) {
   const [scriptCopied, setScriptCopied] = useState(false)
@@ -331,9 +519,14 @@ export function IpojiSyncPanel({
     failed: number
   } | null>(null)
   const [errorDetails, setErrorDetails] = useState<string[]>([])
+  const [creatingIpos, setCreatingIpos] = useState(false)
+  const [createdIpoNames, setCreatedIpoNames] = useState<string[]>([])
+  const [unmatchableIpoNames, setUnmatchableIpoNames] = useState<string[]>([])
 
   async function handleParse() {
     setResult(null)
+    setCreatedIpoNames([])
+    setUnmatchableIpoNames([])
     const { rows: scraped, skippedLabels } = parseScrapedRows(pasteText)
     if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
@@ -345,9 +538,36 @@ export function IpojiSyncPanel({
         ? `Couldn't read ${skippedLabels.length} row(s), add manually: ${skippedLabels.join('; ')}. The rest parsed fine below.`
         : null,
     )
+
+    // Any ipoji IPO name this portal has no row for at all gets created
+    // for real before matching runs — otherwise every application under it
+    // would report an unmatched IPO forever, with no way to fix that short
+    // of leaving this panel to import it by hand first. Distinct names only
+    // (one fetch-and-create per IPO, not per application row).
+    let effectiveIpos = ipos
+    const unmatchedNames = Array.from(new Set(scraped.map((r) => r.ipo).filter((name) => !matchIpo(name, ipos))))
+    if (unmatchedNames.length > 0) {
+      setCreatingIpos(true)
+      const created: string[] = []
+      const unmatchable: string[] = []
+      for (const name of unmatchedNames) {
+        const ipo = await fetchAndCreateMissingIpo(name)
+        if (ipo) {
+          effectiveIpos = [...effectiveIpos, ipo]
+          created.push(ipo.company_name)
+        } else {
+          unmatchable.push(name)
+        }
+      }
+      setCreatingIpos(false)
+      setCreatedIpoNames(created)
+      setUnmatchableIpoNames(unmatchable)
+      if (created.length > 0) onIposCreated()
+    }
+
     const matched: MatchedRow[] = await Promise.all(
       scraped.map(async (r) => {
-        const matchedIpo = matchIpo(r.ipo, ipos)
+        const matchedIpo = matchIpo(r.ipo, effectiveIpos)
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
         const matchedBank = matchBank(r.upiId, banks)
         const { lots, amount: amountNum } = defaultLotsAndAmount(matchedIpo)
@@ -516,7 +736,9 @@ export function IpojiSyncPanel({
                   'is safe, already-applied entries are automatically skipped.\n\n' +
                   "Lots/amount aren't scraped — they're assumed to be 1 lot at the IPO's own " +
                   'cutoff price (true for every application seen so far); edit an imported ' +
-                  'application afterward if someone actually applied for more than one lot.'
+                  'application afterward if someone actually applied for more than one lot.\n\n' +
+                  "If a scraped application's IPO isn't in this portal at all yet, Preview fetches " +
+                  "it from ipoji's own current-IPO list and creates it automatically before matching."
                 }
                 style={{ cursor: 'help', display: 'inline-flex' }}
               >
@@ -567,6 +789,23 @@ export function IpojiSyncPanel({
             >
               {lookupsLoading ? 'Loading IPOs/accounts…' : 'Preview'}
             </button>
+            {creatingIpos && (
+              <p className="mt-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                Checking ipoji for IPO(s) this portal doesn't have yet…
+              </p>
+            )}
+            {createdIpoNames.length > 0 && (
+              <p className="mt-2 text-xs" style={{ color: 'var(--good)' }}>
+                Created {createdIpoNames.length} new IPO{createdIpoNames.length === 1 ? '' : 's'} from ipoji:{' '}
+                {createdIpoNames.join(', ')}.
+              </p>
+            )}
+            {unmatchableIpoNames.length > 0 && (
+              <p className="mt-2 text-xs" style={{ color: 'var(--warning-text)' }}>
+                Couldn't find {unmatchableIpoNames.join(', ')} on ipoji's current list — add it manually on the
+                IPOs page, then paste again.
+              </p>
+            )}
           </div>
 
           {rows && (

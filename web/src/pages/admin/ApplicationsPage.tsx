@@ -469,6 +469,7 @@ export function ApplicationsPage() {
             banks={banks}
             existingByKey={existingByKey}
             onImported={loadApplications}
+            onIposCreated={loadFormData}
             lookupsLoading={formDataLoading}
           />
         </Suspense>
