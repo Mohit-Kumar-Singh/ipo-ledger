@@ -65,6 +65,21 @@ interface HighGmpAlert {
   gmpNotes: string
 }
 
+// One block per IPO, one line per funder within it — the funder is ALWAYS
+// named (not just when an IPO has more than one), since hiding it for the
+// single-funder case is exactly the bug that made Dhoot's funder (Avinash)
+// silently disappear from the panel while another IPO's second funder
+// showed up fine right next to it.
+interface ExpectedProfitFunderLine {
+  funderName: string
+  holderNames: string
+  profit: number
+}
+interface ExpectedProfitIpoBlock {
+  ipoName: string
+  funders: ExpectedProfitFunderLine[]
+}
+
 interface DashboardData {
   closingToday: Ipo[]
   pendingMandate: AllotmentBoardRow[]
@@ -80,7 +95,7 @@ interface DashboardData {
   // updates" cards (buildFunderAllottedCards/expectedProfitBreakdown,
   // shared via lib/expectedProfit.ts so the two numbers can't drift apart).
   expectedProfitTotal: number
-  expectedProfitTooltip: string
+  expectedProfitByIpo: ExpectedProfitIpoBlock[]
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -128,29 +143,23 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
     .sort((a, b) => b.amount - a.amount)
 }
 
-// One block per IPO, one line per funder within it — e.g.
-//   Milky Mist Dairy Food
-//   Manjeet, Amit, Saksham = ₹1,798
-//   from Dhoot: Priya = ₹899
-// The funder name only shows when an IPO has more than one funder card —
-// with just one, the holder names alone already say who this line is
-// about, so a redundant "from X" prefix would just be noise.
-function buildExpectedProfitTooltip(cards: FunderAllottedCard[]): string {
-  if (cards.length === 0) return 'No allotted applications with a price band on file yet.'
-  const byIpo = new Map<string, FunderAllottedCard[]>()
+// One block per IPO, one line per funder within it — funder is always
+// named, every time, no matter how many funder cards an IPO has. Confirmed
+// bug in the earlier version: it only prefixed "from {funder}" when an IPO
+// had MORE than one funder card, so a single-funder IPO's funder name
+// (e.g. Dhoot funded by Avinash) silently vanished from the panel while a
+// two-funder IPO right next to it showed both names fine.
+function buildExpectedProfitByIpo(cards: FunderAllottedCard[]): ExpectedProfitIpoBlock[] {
+  const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
-    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, [])
-    byIpo.get(c.ipoName)!.push(c)
-  }
-  const blocks = Array.from(byIpo.entries()).map(([ipoName, ipoCards]) => {
-    const lines = ipoCards.map((c) => {
-      const names = c.holderNames.map((h) => h.name).join(', ')
-      const profit = rupees(expectedProfitBreakdown(c).netYourProfit)
-      return ipoCards.length > 1 ? `from ${c.funderName}: ${names} = ${profit}` : `${names} = ${profit}`
+    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, { ipoName: c.ipoName, funders: [] })
+    byIpo.get(c.ipoName)!.funders.push({
+      funderName: c.funderName,
+      holderNames: c.holderNames.map((h) => h.name).join(', '),
+      profit: expectedProfitBreakdown(c).netYourProfit,
     })
-    return `${ipoName}\n${lines.join('\n')}`
-  })
-  return blocks.join('\n\n')
+  }
+  return Array.from(byIpo.values())
 }
 
 export function DashboardPage() {
@@ -348,7 +357,7 @@ export function DashboardPage() {
         (sum, c) => sum + expectedProfitBreakdown(c).netYourProfit,
         0,
       )
-      const expectedProfitTooltip = buildExpectedProfitTooltip(profitCards)
+      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards)
 
       setData({
         closingToday: (closingToday.data ?? []) as Ipo[],
@@ -362,7 +371,7 @@ export function DashboardPage() {
         ipoProgress,
         highGmpAlerts,
         expectedProfitTotal,
-        expectedProfitTooltip,
+        expectedProfitByIpo,
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
@@ -437,8 +446,18 @@ export function DashboardPage() {
             fix and the Settings cancelled-mandates section). */}
         <StatTile icon={FileIcon} label="IPOs applied" value={data.totalApplied} tone="info" to="/applications" />
         {/* Exact close_date === today, not a 7-day window — see load()'s
-            closingToday query. */}
-        <StatTile icon={ClockIcon} label="Closing today" value={data.closingToday.length} tone="info" to="/ipos" />
+            closingToday query. Bidding actually cuts off at 4:50 PM on the
+            close date, not midnight — surfaced in the hover panel so
+            "closing today" reads as "still time until 4:50 PM," not
+            "already over." */}
+        <StatTile
+          icon={ClockIcon}
+          label="Closing today"
+          value={data.closingToday.length}
+          tone="info"
+          to="/ipos"
+          panel={<ClosingTodayPanel ipos={data.closingToday} />}
+        />
         <StatTile
           icon={LawIcon}
           label="Awaiting mandate approval"
@@ -452,6 +471,7 @@ export function DashboardPage() {
           value={data.allottedNotSold.length}
           tone="good"
           to="/allotment"
+          panel={<AllottedNotSoldPanel rows={data.allottedNotSold} />}
         />
         {isAdmin && (
           <StatTile
@@ -460,7 +480,10 @@ export function DashboardPage() {
             value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
             tone="warning"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
-            to="/applications"
+            // Where the money's owed actually gets marked paid — Applications
+            // has no payout UI at all, that's Allotment board's job.
+            to="/allotment"
+            panel={<PendingPayoutsPanel payouts={data.pendingPayouts} />}
           />
         )}
         {isAdmin && (
@@ -471,7 +494,7 @@ export function DashboardPage() {
             tone="good"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
             to="/notifications"
-            title={data.expectedProfitTooltip}
+            panel={<ExpectedProfitPanel blocks={data.expectedProfitByIpo} />}
           />
         )}
       </div>
@@ -608,7 +631,7 @@ function StatTile({
   tone = 'info',
   format,
   to,
-  title,
+  panel,
 }: {
   icon: typeof ClockIcon
   label: string
@@ -620,10 +643,10 @@ function StatTile({
   // that says action is needed shouldn't have to go hunt for where to act
   // on it.
   to?: string
-  // Native browser tooltip (title attribute) — used by "Expected profit" to
-  // show the per-IPO/per-funder breakdown on hover without building a whole
-  // custom tooltip component for one tile.
-  title?: string
+  // Rich hover panel (HoverCard below) — a real styled card with its own
+  // rows, not a plain-text browser tooltip. Optional: tiles with nothing
+  // worth breaking down (IPOs applied, Awaiting mandate approval) skip it.
+  panel?: ReactNode
 }) {
   const toneColor = {
     info: 'var(--accent)',
@@ -660,17 +683,146 @@ function StatTile({
     </>
   )
 
-  if (to) {
-    return (
-      <Link to={to} title={title} className="glass-card tile-hover stagger-item flex flex-col p-3">
-        {inner}
-      </Link>
-    )
-  }
-  return (
-    <div title={title} className="glass-card tile-hover stagger-item flex flex-col p-3">
+  const tile = to ? (
+    <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-3">
       {inner}
+    </Link>
+  ) : (
+    <div className="glass-card tile-hover stagger-item flex flex-col p-3">{inner}</div>
+  )
+
+  if (!panel) return tile
+  return (
+    <HoverCard tone={tone} panel={panel}>
+      {tile}
+    </HoverCard>
+  )
+}
+
+// A real floating card on hover/focus, not a plain-text browser tooltip —
+// tinted by the tile's own tone, with a little pop-in so it feels like part
+// of the tile rather than a bolted-on afterthought. CSS-only (group-hover),
+// no JS positioning library needed for a fixed "just below the tile" spot.
+function HoverCard({ children, panel, tone }: { children: ReactNode; panel: ReactNode; tone: 'info' | 'warning' | 'good' | 'critical' }) {
+  const toneColor = {
+    info: 'var(--accent)',
+    warning: 'var(--warning)',
+    good: 'var(--good)',
+    critical: 'var(--critical)',
+  }[tone]
+  return (
+    <div className="group relative">
+      {children}
+      <div
+        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-72 max-w-[88vw] -translate-x-1/2 translate-y-1 opacity-0 transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
+      >
+        <div
+          className="overflow-hidden rounded-xl border p-3 text-xs shadow-2xl backdrop-blur-md"
+          style={{
+            borderColor: toneColor,
+            borderTopWidth: '2px',
+            background: 'var(--surface)',
+            maxHeight: '18rem',
+            overflowY: 'auto',
+            boxShadow: `0 12px 32px -8px ${toneColor}55, 0 4px 12px -2px rgba(0,0,0,0.25)`,
+          }}
+        >
+          {panel}
+        </div>
+      </div>
     </div>
+  )
+}
+
+function ClosingTodayPanel({ ipos }: { ipos: Ipo[] }) {
+  if (ipos.length === 0) return <PanelEmpty>Nothing closing today.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {ipos.map((ipo) => (
+        <div key={ipo.id} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {ipo.company_name}
+          </span>
+          {/* Bidding cuts off at 4:50 PM on the close date, not midnight —
+              worth saying explicitly so "closing today" reads as "still
+              time left," not "already over." */}
+          <span className="shrink-0" style={{ color: 'var(--ink-muted)' }}>
+            closes 4:50 PM
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
+  if (rows.length === 0) return <PanelEmpty>Nothing outstanding.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.application_id} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {r.holder_name}
+          </span>
+          <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
+            {r.company_name} · {r.listing_date ?? 'no listing date yet'}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PendingPayoutsPanel({ payouts }: { payouts: PendingPayout[] }) {
+  if (payouts.length === 0) return <PanelEmpty>Nothing owed right now.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {payouts.map((p) => (
+        <div key={p.name} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {p.name}
+          </span>
+          <span className="shrink-0" style={{ color: 'var(--warning)' }}>
+            {rupees(p.amount)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
+  if (blocks.length === 0) return <PanelEmpty>No allotted applications with a price band on file yet.</PanelEmpty>
+  return (
+    <div className="space-y-2.5">
+      {blocks.map((b) => (
+        <div key={b.ipoName}>
+          <p className="mb-1 truncate font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            {b.ipoName}
+          </p>
+          <div className="space-y-1">
+            {b.funders.map((f, i) => (
+              <div key={i} className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate" style={{ color: 'var(--ink-secondary)' }}>
+                  <span style={{ color: 'var(--ink-muted)' }}>{f.funderName}:</span> {f.holderNames}
+                </span>
+                <span className="shrink-0 font-medium" style={{ color: 'var(--good)' }}>
+                  {rupees(f.profit)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PanelEmpty({ children }: { children: ReactNode }) {
+  return (
+    <p className="p-1" style={{ color: 'var(--ink-muted)' }}>
+      {children}
+    </p>
   )
 }
 
