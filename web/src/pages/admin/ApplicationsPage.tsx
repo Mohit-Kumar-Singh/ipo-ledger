@@ -2,7 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent,
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, PersonIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, PersonIcon, SearchIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isOpenForBidding } from '../../lib/ipoStatus'
@@ -117,6 +117,7 @@ export function ApplicationsPage() {
   const [backdatedMode, setBackdatedMode] = useState(false)
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
+  const [searchQuery, setSearchQuery] = useState('')
   const todayStr = new Date().toISOString().slice(0, 10)
   // Funder-only rows (RLS grants SELECT on the application itself, but not
   // the full demat_accounts row) come back with demat_accounts = null — this
@@ -432,13 +433,25 @@ export function ApplicationsPage() {
         : sortMode === 'cancelled'
           ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
           : visibleApplications
-    // Groups are built from `source`, which is already ordered by
+    // Free-text search — matches holder name, IPO name, or funder name.
+    // Applied after the sort-mode filter above, so e.g. searching within
+    // "Not on ipoji" still only searches that already-narrowed set.
+    const q = searchQuery.trim().toLowerCase()
+    const searched = q
+      ? source.filter((a) => {
+          const holder = (a.demat_accounts?.holder_name ?? resolvedDematInfo.get(a.demat_id)?.holder_name ?? '').toLowerCase()
+          const ipoName = (a.ipos?.company_name ?? '').toLowerCase()
+          const funder = funderNameFor(a, resolvedBankInfo).toLowerCase()
+          return holder.includes(q) || ipoName.includes(q) || funder.includes(q)
+        })
+      : source
+    // Groups are built from `searched`, which is already ordered by
     // applied_at desc (the query's own order) — a Map's insertion order is
     // preserved, so the first application seen for each IPO is its most
     // recent one, meaning the group order below is already "IPO with the
     // most recent activity first" for free. Don't re-sort it.
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
-    for (const a of source) {
+    for (const a of searched) {
       const key = a.ipo_id
       if (!groups.has(key)) groups.set(key, { ipoName: a.ipos?.company_name ?? 'Unknown IPO', items: [] })
       groups.get(key)!.items.push(a)
@@ -464,7 +477,7 @@ export function ApplicationsPage() {
       }
     }
     return result
-  }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo])
+  }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo, searchQuery])
 
   // (ipo_id, demat_id) -> {id, mandate_status} for applications already on
   // file — the sync panel's own dedupe check against what ipoji reports (so
@@ -538,6 +551,18 @@ export function ApplicationsPage() {
             lookupsLoading={formDataLoading}
           />
         </Suspense>
+      )}
+
+      {!showForm && visibleApplications.length > 0 && (
+        <div className="relative max-w-sm">
+          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by holder, IPO, or funder…"
+            className="input pl-9"
+          />
+        </div>
       )}
 
       {!showForm && visibleApplications.length > 0 && (

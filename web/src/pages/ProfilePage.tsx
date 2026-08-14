@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   ChevronDownIcon,
   CreditCardIcon,
@@ -6,6 +6,7 @@ import {
   MailIcon,
   DeviceMobileIcon,
   InfoIcon,
+  PaintbrushIcon,
   PeopleIcon,
   SearchIcon,
   ShieldCheckIcon,
@@ -15,6 +16,8 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { AttributionChart } from '../components/AttributionChart'
+import { ThemeToggle } from '../components/ThemeToggle'
+import { useTheme } from '../contexts/ThemeContext'
 import { computeIpoAttribution, type IpoAttribution } from '../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../lib/dashboardAttribution'
 import { AccountsPage } from './admin/AccountsPage'
@@ -782,13 +785,15 @@ export function ProfilePage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-6">
       <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a demat account
+          <span
+            title="Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up here, and only the name and a masked phone number."
+            style={{ cursor: 'help', display: 'inline-flex' }}
+          >
+            <InfoIcon size={12} fill="var(--ink-muted)" />
+          </span>
         </h2>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up
-          here, and only the name and a masked phone number.
-        </p>
         <div className="flex items-center gap-2">
           <SearchIcon size={15} fill="var(--ink-muted)" />
           <input
@@ -883,14 +888,15 @@ export function ProfilePage() {
         <div className="space-y-6">
 
       <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-5">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a bank/UPI account
+          <span
+            title="For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4 digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead."
+            style={{ cursor: 'help', display: 'inline-flex' }}
+          >
+            <InfoIcon size={12} fill="var(--ink-muted)" />
+          </span>
         </h2>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4
-          digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new
-          bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead.
-        </p>
         <div className="flex items-center gap-2">
           <SearchIcon size={15} fill="var(--ink-muted)" />
           <input
@@ -998,6 +1004,8 @@ export function ProfilePage() {
         </div>
       </div>
 
+      <AppearanceSection />
+      {isAdmin && <PanAccessLogSection />}
       <AccountsSection />
     </div>
   )
@@ -1031,6 +1039,172 @@ function AccountsSection() {
       {open && (
         <div className="border-t p-5" style={{ borderColor: 'var(--border)' }}>
           <AccountsPage />
+        </div>
+      )}
+    </section>
+  )
+}
+
+// Moved here from the now-deleted Settings page — Settings only ever held
+// this and the PAN access log below, both of which read more like personal
+// preferences/your-own-activity than admin-only "settings" (this one isn't
+// even admin-gated), so there was no real page left once both moved.
+function AppearanceSection() {
+  const { theme } = useTheme()
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <PaintbrushIcon size={15} fill="var(--accent)" />
+        Appearance
+      </h2>
+      <div className="card flex items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+            Theme
+          </p>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Currently {theme === 'dark' ? 'dark' : 'light'}.
+          </p>
+        </div>
+        <ThemeToggle />
+      </div>
+    </section>
+  )
+}
+
+interface PanAccessLogRow {
+  id: string
+  demat_id: string
+  accessed_by: string
+  accessed_at: string
+  is_self_reveal: boolean
+  demat_accounts: { holder_name: string } | null
+  profiles: { full_name: string } | null
+}
+
+// Local calendar day, not UTC — a reveal at 11pm IST is "today" to whoever's
+// looking, even though its accessed_at timestamp may already have rolled
+// into tomorrow in UTC.
+function dayKeyFor(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// Moved here from the deleted Settings page, unchanged — admin-only, still
+// grouped by day and collapsible (most recent day open by default).
+function PanAccessLogSection() {
+  const [rows, setRows] = useState<PanAccessLogRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [openDays, setOpenDays] = useState<Set<string>>(new Set())
+
+  useEffect(() => {
+    supabase
+      .from('pan_access_log')
+      .select('*, demat_accounts(holder_name), profiles(full_name)')
+      .order('accessed_at', { ascending: false })
+      .limit(200)
+      .then(({ data }) => {
+        const loaded = (data ?? []) as unknown as PanAccessLogRow[]
+        setRows(loaded)
+        if (loaded.length > 0) setOpenDays(new Set([dayKeyFor(loaded[0].accessed_at)]))
+        setLoading(false)
+      })
+  }, [])
+
+  const dayGroups = useMemo(() => {
+    const groups = new Map<string, PanAccessLogRow[]>()
+    for (const r of rows) {
+      const key = dayKeyFor(r.accessed_at)
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(r)
+    }
+    return Array.from(groups.entries())
+  }, [rows])
+
+  function toggleDay(key: string) {
+    setOpenDays((s) => {
+      const next = new Set(s)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        <ShieldCheckIcon size={15} fill="var(--violet)" />
+        PAN access log
+      </h2>
+      <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+        Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose
+        PAN, and when. Grouped by day, most recent first.
+      </p>
+      {loading ? (
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Loading…
+        </p>
+      ) : dayGroups.length === 0 ? (
+        <p className="card p-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No PAN reveals logged yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {dayGroups.map(([day, dayRows]) => {
+            const open = openDays.has(day)
+            return (
+              <div key={day} className="card overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleDay(day)}
+                  className="flex w-full items-center justify-between gap-2 p-3 text-left text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: 'var(--ink-primary)' }}
+                >
+                  <span>
+                    {open ? '▾' : '▸'}{' '}
+                    {new Date(dayRows[0].accessed_at).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </span>
+                  <span className="badge badge-neutral shrink-0">{dayRows.length}</span>
+                </button>
+                {open && (
+                  <table className="w-full text-sm">
+                    <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
+                      <tr>
+                        <th className="px-4 py-2 font-medium">When</th>
+                        <th className="px-4 py-2 font-medium">PAN of</th>
+                        <th className="px-4 py-2 font-medium">Accessed by</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
+                      {dayRows.map((r) => (
+                        <tr key={r.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
+                          <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
+                            {new Date(r.accessed_at).toLocaleTimeString()}
+                          </td>
+                          <td className="px-4 py-2.5" style={{ color: 'var(--ink-primary)' }}>
+                            {r.demat_accounts?.holder_name ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {r.profiles?.full_name ?? '—'}
+                            {r.is_self_reveal && (
+                              <span className="ml-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                (self)
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </section>

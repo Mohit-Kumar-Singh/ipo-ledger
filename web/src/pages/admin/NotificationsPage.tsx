@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -583,14 +584,16 @@ export function NotificationsPage() {
         <InlineSpinner />
       ) : (
         <>
-          <NotificationsTable
-            notifications={visibleNotifications}
-            emptyLabel="No messages sent yet."
-            isAdmin={isAdmin}
-            retrying={retrying}
-            onDispatch={dispatch}
-            phoneNames={phoneNames}
-          />
+          <NotificationsListSection count={visibleNotifications.length}>
+            <NotificationsTable
+              notifications={visibleNotifications}
+              emptyLabel="No messages sent yet."
+              isAdmin={isAdmin}
+              retrying={retrying}
+              onDispatch={dispatch}
+              phoneNames={phoneNames}
+            />
+          </NotificationsListSection>
 
           {/* Notifications for an application whose IPO ended up NOT_ALLOTTED
               (or never got an allotment status at all) more than 3 days past
@@ -612,6 +615,34 @@ export function NotificationsPage() {
         </>
       )}
     </div>
+  )
+}
+
+// Wraps the main (non-archived) message list — below the Allotment
+// updates/Funders cards, this flat table of every sent message was always
+// fully expanded and could run long. Collapsible now, open by default (it's
+// still the primary content, unlike ArchivedSection's own default-closed).
+function NotificationsListSection({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(true)
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 text-sm font-semibold"
+        style={{ color: 'var(--ink-secondary)' }}
+      >
+        <span
+          className="inline-flex transition-transform duration-200"
+          style={{ transform: open ? 'rotate(180deg)' : undefined }}
+        >
+          <ChevronDownIcon size={14} />
+        </span>
+        Messages
+        <span className="badge badge-neutral">{count}</span>
+      </button>
+      {open && children}
+    </section>
   )
 }
 

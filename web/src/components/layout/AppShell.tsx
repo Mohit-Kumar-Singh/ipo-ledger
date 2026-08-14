@@ -5,7 +5,6 @@ import {
   BellIcon,
   ChecklistIcon,
   FileIcon,
-  GearIcon,
   HomeIcon,
   LawIcon,
   GraphIcon,
@@ -27,7 +26,10 @@ import { OnboardingTour } from '../OnboardingTour'
 // No /profile entry — the identity card above this nav (see below) links
 // there directly now, so a second nav item to the same place was redundant.
 // No /accounts entry either — that page now lives as a collapsible section
-// at the bottom of Profile instead of its own sidebar destination.
+// at the bottom of Profile instead of its own sidebar destination. No
+// /settings entry — Settings only ever held Appearance (theme, now also on
+// Profile plus the toggle below) and the PAN access log (moved to Profile,
+// admin-only) — nothing left to have its own page for.
 const links = [
   { to: '/', label: 'Dashboard', icon: HomeIcon },
   { to: '/bank-accounts', label: 'Bank / UPI accounts', icon: LawIcon },
@@ -36,7 +38,6 @@ const links = [
   { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon },
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
-  { to: '/settings', label: 'Settings', icon: GearIcon },
 ]
 
 export function AppShell() {

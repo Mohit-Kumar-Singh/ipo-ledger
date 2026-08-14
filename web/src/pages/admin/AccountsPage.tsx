@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, ChevronDownIcon, CreditCardIcon, HashIcon, LinkIcon, PencilIcon, DeviceMobileIcon, TrashIcon } from '@primer/octicons-react'
+import { AlertIcon, ChevronDownIcon, CreditCardIcon, HashIcon, LinkIcon, PencilIcon, DeviceMobileIcon, SearchIcon, TrashIcon } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -159,8 +159,15 @@ export function AccountsPage() {
     load()
   }
 
-  const activeAccounts = accounts.filter((a) => a.is_active)
-  const inactiveAccounts = accounts.filter((a) => !a.is_active)
+  // Client-side only — the whole list is already fetched, and it's small
+  // enough (a household's worth of accounts, not thousands) that filtering
+  // in memory is simpler than a server round-trip per keystroke.
+  const [search, setSearch] = useState('')
+  const searchedAccounts = search.trim()
+    ? accounts.filter((a) => a.holder_name.toLowerCase().includes(search.trim().toLowerCase()))
+    : accounts
+  const activeAccounts = searchedAccounts.filter((a) => a.is_active)
+  const inactiveAccounts = searchedAccounts.filter((a) => !a.is_active)
 
   return (
     <div className="space-y-6">
@@ -195,6 +202,18 @@ export function AccountsPage() {
             load()
           }}
         />
+      )}
+
+      {accounts.length > 0 && (
+        <div className="relative">
+          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by holder name…"
+            className="input pl-9"
+          />
+        </div>
       )}
 
       {duplicatePanIds.size > 0 && (
