@@ -168,6 +168,11 @@ export interface AllotmentBoardRow {
   // someone else transferred money in rather than the applicant's own UPI
   // paying. See migration 0067.
   is_funder_override: boolean
+  // The IPO's own close_date — used to tell apart a PENDING mandate that
+  // can still be approved (before 4:50pm IST that day) from one sitting
+  // PENDING after the bidding cutoff, where approving no longer does
+  // anything. See migration 0069.
+  close_date: string
 }
 
 export interface RegistrarLink {

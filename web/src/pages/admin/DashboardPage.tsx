@@ -5,7 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { IpoDashboardCard } from '../../components/IpoDashboardCard'
-import { isLiveIpo } from '../../lib/ipoStatus'
+import { bidCutoffMs, isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
@@ -187,7 +187,7 @@ export function DashboardPage() {
   // navigating away and back (or a page reload) reset it and re-fired the
   // toast on every single visit. localStorage persists across all of that;
   // the guard is "have we already shown it today," not "this mount."
-  const hasShownGmpToast = useRef(localStorage.getItem('gmpToastShownDate') === new Date().toISOString().slice(0, 10))
+  const hasShownGmpToast = useRef(localStorage.getItem('gmpToastShownDate') === nowIst().dateStr)
 
   async function markPayoutPaid(line: PendingPayoutLine) {
     setMarkingPaid(line.applicationId + line.field)
@@ -210,7 +210,12 @@ export function DashboardPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const todayStr = new Date().toISOString().slice(0, 10)
+      // IST, not the device/browser/server's own local date — a plain
+      // `new Date().toISOString().slice(0, 10)` reads UTC, which is still
+      // "yesterday" for the first 5.5 hours of every IST day (00:00-05:29
+      // IST = the previous UTC date). That's exactly what made an IPO that
+      // actually closed the day before still show up under "closing today."
+      const todayStr = nowIst().dateStr
 
       // Link requests moved off the Dashboard entirely (review now lives on
       // Profile, with a toast on arrival instead of a permanent tile/list
@@ -317,7 +322,7 @@ export function DashboardPage() {
       // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
       // heads-up (2 days / 1 day before open) — shown here so it's visible
       // in the UI too, not just via WhatsApp.
-      const todayForGmp = new Date().toISOString().slice(0, 10)
+      const todayForGmp = todayStr
       const in2DaysForGmp = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)
       const highGmpAlerts: HighGmpAlert[] = ((allIpos.data ?? []) as Ipo[])
         .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmp)
@@ -359,13 +364,23 @@ export function DashboardPage() {
       )
       const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards)
 
+      // Real mandate_status (0047/0048), not the previous proxy of "every
+      // still-APPLIED application" — that counted plenty of applications
+      // whose mandate was already approved and were just waiting on
+      // allotment, nothing to do with mandate status at all. Further
+      // narrowed to only mandates that can STILL actually be approved —
+      // approval on the sponsor bank's side has to happen before bidding
+      // itself cuts off (4:50pm IST on the IPO's close_date, same cutoff
+      // isOpenForBidding/hasBiddingClosed enforce for applying); a mandate
+      // still PENDING after that point isn't "awaiting action" anymore,
+      // there's no window left to act in.
+      const actionablePendingMandate = boardRows.filter(
+        (r) => r.mandate_status === 'PENDING' && Date.now() <= bidCutoffMs(r.close_date),
+      )
+
       setData({
         closingToday: (closingToday.data ?? []) as Ipo[],
-        // Real mandate_status (0047/0048), not the previous proxy of "every
-        // still-APPLIED application" — that counted plenty of applications
-        // whose mandate was already approved and were just waiting on
-        // allotment, nothing to do with mandate status at all.
-        pendingMandate: boardRows.filter((r) => r.mandate_status === 'PENDING'),
+        pendingMandate: actionablePendingMandate,
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
         ipoProgress,
@@ -423,6 +438,15 @@ export function DashboardPage() {
   // progress ring), not an error.
   const attributionByIpoId = new Map(data.attribution.map((a) => [a.ipoId, a]))
 
+  // Soonest listing first — nulls (no listing date yet) sort last, same
+  // ordering as the hover panel above so the two never disagree.
+  const sortedAllottedNotSold = [...data.allottedNotSold].sort((a, b) => {
+    if (!a.listing_date && !b.listing_date) return 0
+    if (!a.listing_date) return 1
+    if (!b.listing_date) return -1
+    return a.listing_date.localeCompare(b.listing_date)
+  })
+
   return (
     <div className="space-y-8">
       <div>
@@ -464,6 +488,7 @@ export function DashboardPage() {
           value={data.pendingMandate.length}
           tone="warning"
           to="/applications"
+          panel={<PendingMandatePanel rows={data.pendingMandate} />}
         />
         <StatTile
           icon={CheckCircleIcon}
@@ -565,13 +590,13 @@ export function DashboardPage() {
         </Section>
 
         <Section title="Allotted, not yet sold" empty="Nothing outstanding">
-          {data.allottedNotSold.map((r) => (
+          {sortedAllottedNotSold.map((r) => (
             <Row key={r.application_id} initial={r.holder_name[0]} tone="good" to="/allotment">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
               <span style={{ color: 'var(--ink-muted)' }}>
-                {r.company_name} · listing {r.listing_date ?? '—'}
+                {r.company_name} · listing {r.listing_date ? formatOrdinalDate(r.listing_date) : '—'}
               </span>
             </Row>
           ))}
@@ -713,8 +738,14 @@ function HoverCard({ children, panel, tone }: { children: ReactNode; panel: Reac
   return (
     <div className="group relative">
       {children}
+      {/* Right-anchored to the tile, not centered — a centered panel run off
+          the right edge of the viewport for the last tile in each row (its
+          right half got clipped, unreadable). Anchoring to the tile's right
+          edge and growing leftward keeps it on-screen for every tile in a
+          left-to-right grid, since there's always room to the left of the
+          rightmost tile but not necessarily room to the right of it. */}
       <div
-        className="pointer-events-none absolute left-1/2 top-full z-30 mt-2 w-72 max-w-[88vw] -translate-x-1/2 translate-y-1 opacity-0 transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
+        className="pointer-events-none absolute top-full right-0 z-30 mt-2 w-72 max-w-[88vw] translate-y-1 opacity-0 transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
       >
         <div
           className="overflow-hidden rounded-xl border p-3 text-xs shadow-2xl backdrop-blur-md"
@@ -755,8 +786,19 @@ function ClosingTodayPanel({ ipos }: { ipos: Ipo[] }) {
   )
 }
 
-function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
-  if (rows.length === 0) return <PanelEmpty>Nothing outstanding.</PanelEmpty>
+// "17th Aug", not the raw "2026-08-17" — every other date-facing spot in
+// this app (WhatsApp messages, IpoDashboardCard) already reads this way;
+// the panel's plain ISO string was the odd one out.
+function formatOrdinalDate(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  const day = d.getUTCDate()
+  const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th'
+  const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
+  return `${day}${suffix} ${month}`
+}
+
+function PendingMandatePanel({ rows }: { rows: AllotmentBoardRow[] }) {
+  if (rows.length === 0) return <PanelEmpty>Nothing awaiting approval right now.</PanelEmpty>
   return (
     <div className="space-y-1.5">
       {rows.map((r) => (
@@ -765,7 +807,33 @@ function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
             {r.holder_name}
           </span>
           <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-            {r.company_name} · {r.listing_date ?? 'no listing date yet'}
+            {r.company_name} · closes {formatOrdinalDate(r.close_date)}, 4:50 PM
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
+  if (rows.length === 0) return <PanelEmpty>Nothing outstanding.</PanelEmpty>
+  // Soonest listing first — nulls (no listing date yet) sort last, not
+  // first, since those aren't the ones anyone needs to act on soon.
+  const sorted = [...rows].sort((a, b) => {
+    if (!a.listing_date && !b.listing_date) return 0
+    if (!a.listing_date) return 1
+    if (!b.listing_date) return -1
+    return a.listing_date.localeCompare(b.listing_date)
+  })
+  return (
+    <div className="space-y-1.5">
+      {sorted.map((r) => (
+        <div key={r.application_id} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {r.holder_name}
+          </span>
+          <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
+            {r.company_name} · {r.listing_date ? formatOrdinalDate(r.listing_date) : 'no listing date yet'}
           </span>
         </div>
       ))}

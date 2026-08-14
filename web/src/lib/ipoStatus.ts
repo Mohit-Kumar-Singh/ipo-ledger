@@ -27,8 +27,14 @@ const BID_CUTOFF_MINUTE = 50
 // "Now," expressed as IST wall-clock fields — shifts the UTC clock by IST's
 // offset and then reads UTC getters off the shifted value, which is the
 // standard trick for getting a fixed-offset zone's wall-clock time without
-// a timezone database.
-function nowIst(): { dateStr: string; hour: number; minute: number } {
+// a timezone database. Exported — every "what's today's date" check in this
+// app (e.g. Dashboard's "closing today" tile) needs to agree on IST, not
+// whatever the visitor's device/browser timezone or the server's UTC clock
+// happens to be; `new Date().toISOString().slice(0, 10)` silently rolls
+// over a day early/late for part of the IST day (00:00-05:29 IST is still
+// the previous UTC date), which is exactly what made an IPO that actually
+// closed the day before still show up as "closing today."
+export function nowIst(): { dateStr: string; hour: number; minute: number } {
   const ist = new Date(Date.now() + IST_OFFSET_MS)
   return { dateStr: ist.toISOString().slice(0, 10), hour: ist.getUTCHours(), minute: ist.getUTCMinutes() }
 }
