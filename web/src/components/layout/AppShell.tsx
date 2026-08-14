@@ -247,16 +247,18 @@ export function AppShell() {
           </div>
         </Link>
 
-        {/* Collapse + fullscreen toggles, combined into one row below the
+        {/* Collapse + fullscreen + theme toggles, combined below the
             identity card — previously the collapse toggle lived inside that
             card (now a plain Link, with no room for a third interactive
             element) and fullscreen had its own separate row underneath.
-            Icon-only pair now, no text labels — self-explanatory via title
-            tooltips, and it keeps this row compact in both collapsed and
-            expanded widths without any special-casing. */}
+            Icon-only, no text labels — self-explanatory via title tooltips.
+            Row when expanded (plenty of width for 3 icons side by side);
+            stacked vertically when collapsed (the 64px rail can't fit 3
+            icons in a row without them overlapping or shrinking past a
+            comfortable tap target). */}
         <div
           className={`mb-1.5 flex items-center gap-1 rounded-md py-1.5 transition-[margin,padding] duration-300 ${
-            collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 justify-start px-2'
+            collapsed ? 'mx-1.5 flex-col justify-center px-1.5' : 'mx-3 justify-start px-2'
           }`}
         >
           {/* Desktop only — mobile uses the off-canvas drawer instead of a
