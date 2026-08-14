@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -50,6 +51,7 @@ function sellPricePerShareFrom(form: SoldFormState, row: AllotmentBoardRow): num
 export function AllotmentBoardPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const [searchParams] = useSearchParams()
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [selectedIpoId, setSelectedIpoId] = useState('')
   const [rows, setRows] = useState<AllotmentBoardRow[]>([])
@@ -67,7 +69,7 @@ export function AllotmentBoardPage() {
   // that might have just auto-archived the currently-selected IPO (see
   // maybeAutoArchiveIpo below), so it drops out of the list right away
   // instead of sitting there stale until a manual page reload.
-  function loadIpos() {
+  function loadIpos(onLoaded?: (loaded: Ipo[]) => void) {
     const todayStr = new Date().toISOString().slice(0, 10)
     supabase
       .from('ipos')
@@ -76,11 +78,21 @@ export function AllotmentBoardPage() {
       .lte('allotment_date', todayStr)
       .eq('is_archived', false)
       .order('allotment_date', { ascending: false })
-      .then(({ data }) => setIpos((data ?? []) as Ipo[]))
+      .then(({ data }) => {
+        const loaded = (data ?? []) as Ipo[]
+        setIpos(loaded)
+        onLoaded?.(loaded)
+      })
   }
 
   useEffect(() => {
-    loadIpos()
+    // Deep-link from the Dashboard's "N allotted" badge (?ipo=<id>) —
+    // auto-select that IPO's board the moment the dropdown's own options
+    // have loaded, instead of leaving the visitor to pick it again by hand.
+    const ipoIdParam = searchParams.get('ipo')
+    loadIpos((loaded) => {
+      if (ipoIdParam && loaded.some((i) => i.id === ipoIdParam)) loadBoard(ipoIdParam)
+    })
     supabase
       .from('registrar_links')
       .select('*')
@@ -89,6 +101,7 @@ export function AllotmentBoardPage() {
         for (const l of (data ?? []) as RegistrarLink[]) map[l.registrar] = l.check_url
         setRegistrarLinks(map)
       })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function loadBoard(ipoId: string) {

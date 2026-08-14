@@ -46,6 +46,7 @@ interface IpoProgress {
   gmpNotes: string | null
   subscriptionRate: string | null
   remainingHolderNames: string[]
+  allottedCount: number
 }
 
 const HIGH_GMP_THRESHOLD = 15
@@ -213,6 +214,14 @@ export function DashboardPage() {
         if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
         appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
       }
+      // Distinct demat accounts marked ALLOTTED (or already SOLD — still
+      // allotted, just further along) per IPO — feeds the Dashboard card's
+      // "N allotted" badge that deep-links into that IPO's allotment board.
+      const allottedCountByIpo = new Map<string, number>()
+      for (const r of boardRows) {
+        if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+        allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
+      }
       const activeDematAccounts = (activeAccounts.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[]
       const totalActive = activeDematAccounts.length
       const ipoProgress: IpoProgress[] = ((allIpos.data ?? []) as Ipo[])
@@ -236,6 +245,7 @@ export function DashboardPage() {
             gmpNotes: ipo.gmp_notes,
             subscriptionRate: ipo.retail_subscription_rate,
             remainingHolderNames,
+            allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
           }
         })
         // No point showing a progress tile for an IPO nobody has applied to
@@ -425,6 +435,8 @@ export function DashboardPage() {
                 attribution={attributionByIpoId.get(p.ipoId)}
                 expanded={expandedIpoIds.has(p.ipoId)}
                 onToggleExpanded={() => toggleExpanded(p.ipoId)}
+                allottedCount={p.allottedCount}
+                ipoId={p.ipoId}
               />
             ))}
           </div>

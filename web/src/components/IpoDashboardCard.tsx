@@ -1,3 +1,5 @@
+import { Link } from 'react-router-dom'
+import { CheckCircleIcon } from '@primer/octicons-react'
 import { AttributionChart } from './AttributionChart'
 import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
@@ -24,6 +26,8 @@ export function IpoDashboardCard({
   attribution,
   expanded,
   onToggleExpanded,
+  allottedCount,
+  ipoId,
 }: {
   companyName: string
   openDate: string
@@ -38,6 +42,11 @@ export function IpoDashboardCard({
   attribution: IpoAttribution | undefined
   expanded: boolean
   onToggleExpanded: () => void
+  // How many demat accounts are already marked ALLOTTED (or SOLD) for this
+  // IPO — 0 hides the badge entirely rather than showing "0 allotted"
+  // before anyone's marked anything yet.
+  allottedCount: number
+  ipoId: string
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const canExpand = accountsLeft > 0
@@ -48,9 +57,22 @@ export function IpoDashboardCard({
           IpoProgressGauge itself, directly under the applied/total ratio
           it's derived from, since it's a reading of the ring, not a
           separate header-level fact. */}
-      <h3 className="mb-3 truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-        {companyName}
-      </h3>
+      <div className="mb-3 flex items-center gap-2">
+        <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          {companyName}
+        </h3>
+        {allottedCount > 0 && (
+          <Link
+            to={`/allotment?ipo=${ipoId}`}
+            onClick={(e) => e.stopPropagation()}
+            title={`${allottedCount} account(s) marked allotted — open the allotment board`}
+            className="badge badge-good inline-flex shrink-0 items-center gap-1 text-xs no-underline"
+          >
+            <CheckCircleIcon size={12} />
+            {allottedCount} allotted
+          </Link>
+        )}
+      </div>
 
       {gmpNotes && (
         <p
