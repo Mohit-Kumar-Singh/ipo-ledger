@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { InfoIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
-import { hasBiddingClosed } from '../lib/ipoStatus'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Fully automatic across every page — confirmed live (5-page real run).
@@ -696,12 +695,20 @@ export function IpojiSyncPanel({
               category: 'RETAIL',
               lots: r.lots!,
               bid_amount: r.amountNum,
-              // Was hardcoded true — every ipoji-synced application showed
-              // the "Backdated" badge even when it was a completely normal
-              // same-window application, just recorded via sync instead of
-              // by hand. Only genuinely true once this IPO's bidding has
-              // actually closed (see hasBiddingClosed's 4:50pm IST cutoff).
-              is_backdated: hasBiddingClosed(r.matchedIpo!),
+              // Always false, deliberately — was previously
+              // hasBiddingClosed(r.matchedIpo!), which was still wrong: that
+              // checks whether the IPO's window is closed AT SYNC TIME, not
+              // whether the bid itself was placed late, and a sync can run
+              // any time after the bid was placed (even days later, well
+              // after the IPO closed). "Backdated" is a PORTAL-entry-timing
+              // concept — did an admin type this in after the fact — not an
+              // ipoji-bidding-timing one. Every application ipoji shows at
+              // all was, by construction, placed while bidding was still
+              // genuinely open (ipoji itself refuses bids after its own
+              // cutoff), so nothing scraped from ipoji is ever legitimately
+              // "backdated." Only the manual "+ Backdated application" flow
+              // (NewApplicationForm's `backdated` prop) should ever set this.
+              is_backdated: false,
               imported_from_ipoji: true,
               ipoji_app_number: r.appNumber,
               ipoji_status_text: r.status,

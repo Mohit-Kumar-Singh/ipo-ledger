@@ -2,10 +2,10 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent,
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, PersonIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
+import { isOpenForBidding } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
@@ -742,15 +742,15 @@ export function ApplicationsPage() {
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
                           </p>
-                          {/* Not just the stored flag — a badge earned at
-                              creation time (e.g. every ipoji-synced row used
-                              to hardcode is_backdated:true regardless of
-                              whether the IPO was actually closed yet) reads
-                              wrong forever once the flag is stale. Gating on
-                              the IPO's own close date too means this
-                              self-corrects for already-existing rows without
-                              needing a data migration. */}
-                          {a.is_backdated && hasBiddingClosed(a.ipos) && (
+                          {/* is_backdated is now only ever set true by the
+                              explicit "+ Backdated application" flow —
+                              ipoji-synced rows never set it (migration 0064
+                              corrected every row the old buggy sync logic
+                              had wrongly flagged), since anything ipoji
+                              shows at all was, by construction, placed while
+                              bidding was genuinely open. No runtime gate
+                              needed anymore; the stored flag is trustworthy. */}
+                          {a.is_backdated && (
                             <span
                               className="shrink-0"
                               title="This application was created in backdated format."
@@ -758,9 +758,13 @@ export function ApplicationsPage() {
                               <HistoryIcon size={13} fill="var(--warning)" aria-label="Backdated" />
                             </span>
                           )}
-                          {a.imported_from_ipoji && (
+                          {a.imported_from_ipoji ? (
                             <span className="shrink-0" title="Imported from ipoji via the sync panel.">
                               <SyncIcon size={13} fill="var(--accent)" aria-label="Synced from ipoji" />
+                            </span>
+                          ) : (
+                            <span className="shrink-0" title="Added manually, not synced from ipoji.">
+                              <PersonIcon size={13} fill="var(--ink-muted)" aria-label="Added manually" />
                             </span>
                           )}
                           {a.funder_override_id && (
