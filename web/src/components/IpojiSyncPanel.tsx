@@ -168,7 +168,7 @@ const SYNC_SCRIPT = `(async () => {
       '<button id="__ipojiCopyAll" class="ia-btn ia-btn-primary">\\ud83d\\udccb Copy all</button>' +
       '<div style="flex:1;"></div>' +
       '<button id="__ipojiClearAll" class="ia-btn ia-btn-danger">Clear stored data</button>' +
-      '<button id="__ipojiAccumClose" class="ia-btn ia-btn-ghost">Close (clears data) \\u2715</button>' +
+      '<button id="__ipojiAccumClose" class="ia-btn ia-btn-ghost">Close \\u2715</button>' +
     '</div>' +
     '<div id="__ipojiCopyStatus" style="display:none;padding:10px 22px;font-size:12px;font-weight:600;"></div>' +
     '<textarea id="__ipojiAccumTA" style="flex:1;width:100%;border:0;outline:0;resize:none;' +
@@ -179,11 +179,13 @@ const SYNC_SCRIPT = `(async () => {
   const status = document.getElementById('__ipojiCopyStatus');
   const fill = () => { ta.value = JSON.stringify(Object.values(store), null, 2); ta.style.display = 'block'; };
 
-  // Closing means "done with this batch" — clearing the accumulator here
-  // (rather than only via the separate Clear button) means the next sync
-  // for a different IPO/day can't silently inherit stale rows from this one.
+  // Close only dismisses the box — the accumulator itself is untouched, so
+  // running this again on the next page still merges into what's already
+  // stored. Closing used to also clear localStorage, which meant closing
+  // between pages (to see the page underneath, or by mis-click) silently
+  // threw away everything scraped so far. Clear stored data is the only
+  // way to actually reset now — a deliberate, separate action.
   document.getElementById('__ipojiAccumClose').onclick = () => {
-    localStorage.removeItem(KEY);
     box.remove();
     style.remove();
   };
@@ -240,19 +242,34 @@ function normalize(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, '')
 }
 
-// ipoji shows truncated/caps company names ("DHOOTTRANS") that don't
-// literally equal our full company_name ("Dhoot Transmission") — a prefix
-// match on the normalized strings covers ipoji's actual abbreviation style
-// without guessing at a fuzzy-distance threshold.
-function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
+// ipoji's own shorthand comes in two different styles, not just one — a
+// truncated/caps prefix of the name ("DHOOTTRANS" for "Dhoot Transmission"),
+// which the prefix/substring check below covers, OR a first-letter acronym
+// of each word ("BLEL" for "Behari Lal Engineering Limited" — none of
+// DHOOTTRANS's rules matched that one at all, since "blel" isn't a prefix,
+// suffix, or substring of "beharilalengineeringlimited"). Both are real,
+// observed ipoji abbreviation styles, so both get checked.
+function acronym(name: string): string {
+  return name
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .join('')
+    .toLowerCase()
+}
+
+function nameMatches(ipojiName: string, companyName: string): boolean {
   const n = normalize(ipojiName)
-  if (!n) return null
-  return (
-    ipos.find((i) => {
-      const full = normalize(i.company_name)
-      return full.startsWith(n) || n.startsWith(full) || full.includes(n)
-    }) ?? null
-  )
+  if (!n) return false
+  const full = normalize(companyName)
+  if (full.startsWith(n) || n.startsWith(full) || full.includes(n)) return true
+  const acr = acronym(companyName)
+  return acr.length > 0 && (acr === n || acr.startsWith(n) || n.startsWith(acr))
+}
+
+function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
+  if (!normalize(ipojiName)) return null
+  return ipos.find((i) => nameMatches(ipojiName, i.company_name)) ?? null
 }
 
 function matchDematByName(applicantName: string, accounts: DematAccount[]): DematAccount | null {
@@ -406,14 +423,8 @@ interface ImportDetail {
 // Same prefix/substring rule as matchIpo above, just against ipoji's own
 // list-candidate names instead of this portal's saved IPOs.
 function matchCandidateName(ipojiName: string, candidates: ImportCandidate[]): ImportCandidate | null {
-  const n = normalize(ipojiName)
-  if (!n) return null
-  return (
-    candidates.find((c) => {
-      const full = normalize(c.company_name)
-      return full.startsWith(n) || n.startsWith(full) || full.includes(n)
-    }) ?? null
-  )
+  if (!normalize(ipojiName)) return null
+  return candidates.find((c) => nameMatches(ipojiName, c.company_name)) ?? null
 }
 
 // A scraped application can name an IPO this portal has no row for at all
