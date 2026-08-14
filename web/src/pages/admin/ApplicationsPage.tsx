@@ -432,6 +432,11 @@ export function ApplicationsPage() {
         : sortMode === 'cancelled'
           ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
           : visibleApplications
+    // Groups are built from `source`, which is already ordered by
+    // applied_at desc (the query's own order) — a Map's insertion order is
+    // preserved, so the first application seen for each IPO is its most
+    // recent one, meaning the group order below is already "IPO with the
+    // most recent activity first" for free. Don't re-sort it.
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
     for (const a of source) {
       const key = a.ipo_id
@@ -447,16 +452,19 @@ export function ApplicationsPage() {
           return byKey !== 0 ? byKey : b.applied_at.localeCompare(a.applied_at)
         })
       }
-    }
-    // "Recent" orders IPO sections alphabetically by name — previously they
-    // just followed whichever order applications happened to arrive in
-    // (most-recently-active IPO first), which wasn't actually alphabetical
-    // or particularly predictable once several IPOs had recent activity.
-    if (sortMode === 'recent') {
-      result.sort((a, b) => a.ipoName.localeCompare(b.ipoName))
+    } else {
+      // "Recent" (and the two filter modes, which fall through here too)
+      // — within each IPO's group, accounts sort alphabetically by holder
+      // name instead of just staying in applied_at order, so a long list
+      // under one IPO is actually easy to scan for a specific person.
+      const holderNameFor = (a: ApplicationRow) =>
+        a.demat_accounts?.holder_name ?? resolvedDematInfo.get(a.demat_id)?.holder_name ?? ''
+      for (const g of result) {
+        g.items.sort((a, b) => holderNameFor(a).localeCompare(holderNameFor(b)))
+      }
     }
     return result
-  }, [visibleApplications, sortMode, resolvedBankInfo])
+  }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo])
 
   // (ipo_id, demat_id) -> {id, mandate_status} for applications already on
   // file — the sync panel's own dedupe check against what ipoji reports (so
