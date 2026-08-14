@@ -855,7 +855,11 @@ export function IpojiSyncPanel({
                 }
               }}
               placeholder="Paste what the script showed you here, then press Enter…"
-              className="input mt-2 h-24 w-full font-mono text-xs"
+              // A big multi-page paste is hundreds of lines of JSON — fixed
+              // height + resize-none + its own scrollbar keeps this box a
+              // constant size regardless of paste size (or a manual drag),
+              // instead of growing the whole page down with it.
+              className="input mt-2 h-24 w-full resize-none overflow-y-auto font-mono text-xs"
             />
             {parseError && (
               <p className="mt-1 text-xs" style={{ color: 'var(--critical-text)' }}>
