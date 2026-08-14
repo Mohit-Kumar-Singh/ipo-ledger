@@ -26,6 +26,12 @@ interface FunderApplicationDetail {
   createdAt: string
   mandateStatus: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipojiStatusText: string | null
+  // Funding credit for this one application was manually reassigned to a
+  // different bank/UPI account (funder_override_id, migration 0063) —
+  // someone transferred money in rather than the applicant's own UPI
+  // paying. Flagged in the message alongside the row, same 🏷️ tag
+  // ApplicationsPage/the allotment board already show for this.
+  isOverride: boolean
 }
 
 // One card per (funder name, IPO) — a funder who's currently live across
@@ -56,7 +62,7 @@ type ApplicationForFunderRow = {
     lot_size: number
     gmp_notes: string | null
   } | null
-  demat_accounts: { holder_name: string; profit_share_percent: number } | null
+  demat_accounts: { holder_name: string; profit_share_percent: number; phone_e164: string | null } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
   // Manual funder-credit override (migration 0063) — wins over bank_accounts
   // wherever "who funded this" is computed, via effectiveFunder() below.
@@ -158,6 +164,75 @@ function expectedProfitBreakdown(card: FunderAllottedCard) {
   const investedTotal = lotAmount * card.totalLots
   const amountToReturn = investedTotal + netYourProfit
   return { lotAmount, gmpPercent, soldPrice, profitPerLot, netProfitPerLot, yourProfitPerLot, netYourProfit, investedTotal, amountToReturn }
+}
+
+// One card per (demat account holder, IPO) whose application got allotted —
+// distinct from FunderAllottedCard above, which is the profit-projection
+// message aimed at whoever FUNDED it. This is the plain "you got shares"
+// notice aimed at the account HOLDER themselves, sent to their own
+// phone_e164 on file — the two are often different people (a family
+// member's demat account funded by someone else), and each needs their own
+// message: the funder cares about the payout, the holder just needs to know
+// their name got allotted.
+interface HolderAllottedCard {
+  key: string
+  holderName: string
+  phone: string | null
+  ipoId: string
+  ipoName: string
+  listingDate: string | null
+  totalLots: number
+  // True if any application in this card had its funding credit manually
+  // reassigned to someone else's UPI (funder_override_id) — surfaced in the
+  // message so the holder knows who actually paid for it.
+  hasOverride: boolean
+}
+
+function buildHolderAllottedCards(rows: ApplicationForFunderRow[]): HolderAllottedCard[] {
+  const cardsByIpo = new Map<string, HolderAllottedCard[]>()
+  for (const r of rows) {
+    const holder = r.demat_accounts
+    if (!holder?.phone_e164 || !r.ipos) continue
+    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+    if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
+    const cardsForIpo = cardsByIpo.get(r.ipo_id)!
+    // Keyed by phone, not name — two different demat accounts can share a
+    // holder name; they never share a phone number.
+    let card = cardsForIpo.find((c) => c.phone === holder.phone_e164)
+    if (!card) {
+      card = {
+        key: `holder-allotted::${r.ipo_id}::${holder.phone_e164}`,
+        holderName: holder.holder_name,
+        phone: holder.phone_e164,
+        ipoId: r.ipo_id,
+        ipoName: r.ipos.company_name,
+        listingDate: r.ipos.listing_date,
+        totalLots: 0,
+        hasOverride: false,
+      }
+      cardsForIpo.push(card)
+    }
+    card.totalLots += r.lots
+    if (r.funder_override) card.hasOverride = true
+  }
+  return Array.from(cardsByIpo.values())
+    .flat()
+    .sort((a, b) => a.holderName.localeCompare(b.holderName) || a.ipoName.localeCompare(b.ipoName))
+}
+
+function buildHolderAllottedMessage(card: HolderAllottedCard): string {
+  const PARTY = '\u{1F389}'
+  const listingLine = card.listingDate
+    ? `Listing date is \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\`.`
+    : `Listing date isn't out yet.`
+  const overrideLine = card.hasOverride
+    ? `\n\n_(Funded via a transfer to a different UPI account, not your own.)_`
+    : ''
+  return (
+    `Hi ${card.holderName}, good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
+    `you! (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'})${overrideLine}\n\n${listingLine}\n\n` +
+    `> Other updates are posted on ${PORTAL_URL}`
+  )
 }
 
 function rupees(n: number): string {
@@ -262,6 +337,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       createdAt: r.applied_at,
       mandateStatus: r.mandate_status,
       ipojiStatusText: r.ipoji_status_text,
+      isOverride: !!r.funder_override,
     })
   }
   return Array.from(cardsByIpo.values())
@@ -312,7 +388,7 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
     // per mandateSymbol() above.
     .map(
       ([upi, apps]) =>
-        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${mandateSymbol(a)}`).join('\n')}`,
+        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}${mandateSymbol(a)}`).join('\n')}`,
     )
     .join('\n\n')
 
@@ -320,9 +396,13 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
     ? `Hi ${card.funderName}, here's what you funded *today* for *${card.ipoName}*:`
     : `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:`
 
+  const footnote = card.applications.some((a) => a.isOverride)
+    ? `\n\n_🏷️ = funded via a transfer to a different UPI, not that applicant's own._`
+    : ''
+
   return (
     `${intro}\n\n${body}\n\n` +
-    `\`Total = ${total}\`\n\n` +
+    `\`Total = ${total}\`${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
 }
@@ -333,6 +413,7 @@ export function NotificationsPage() {
   const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
+  const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState<string | null>(null)
   // Notification rows only ever stored a raw phone number ("To") — useless
@@ -371,7 +452,7 @@ export function NotificationsPage() {
               // (see effectiveFunder()).
               'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
                 'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
-                'demat_accounts(holder_name, profit_share_percent), ' +
+                'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
                 'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
                 'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
             )
@@ -393,6 +474,7 @@ export function NotificationsPage() {
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
     setFunderCards(buildFunderIpoCards(funderRows))
     setAllottedCards(buildFunderAllottedCards(funderRows))
+    setHolderAllottedCards(buildHolderAllottedCards(funderRows))
 
     // Bank/UPI names win over demat holder names on a shared phone number —
     // a notification's "To" is almost always the funder who needs to act on
@@ -488,6 +570,58 @@ export function NotificationsPage() {
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
                     title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send on WhatsApp
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {isAdmin && !loading && holderAllottedCards.length > 0 && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Notify holders — allotted
+          </h2>
+          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            One card per account holder per IPO where their own application got allotted — a plain "you got shares"
+            notice sent to the account holder themselves, separate from the funder's profit-projection message above.
+          </p>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {holderAllottedCards.map((c) => {
+              const message = buildHolderAllottedMessage(c)
+              return (
+                <div key={c.key} className="aura-card stagger-item flex flex-col gap-2 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.holderName}
+                        {c.hasOverride && (
+                          <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
+                            {'\u{1F3F7}\u{FE0F}'}
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName}
+                      </p>
+                    </div>
+                    <span className="badge badge-good shrink-0 text-xs">{c.totalLots} lot(s)</span>
+                  </div>
+                  <div
+                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
+                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+                  >
+                    {message}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this account'}
                     className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Send on WhatsApp

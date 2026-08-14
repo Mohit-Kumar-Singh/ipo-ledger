@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -308,6 +308,7 @@ export function AllotmentBoardPage() {
       )}
 
       {!loading && selectedIpoId && (
+        <AccountListSection count={sortedRows.length}>
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
@@ -347,7 +348,17 @@ export function AllotmentBoardPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {row.holder_name}
+                    <span className="inline-flex items-center gap-1.5">
+                      {row.holder_name}
+                      {row.is_funder_override && (
+                        <span
+                          className="shrink-0"
+                          title={`Funded by a transfer to a different UPI/bank account (${row.bank_account_holder_name ?? 'unknown'}), not the applicant's own.`}
+                        >
+                          {'\u{1F3F7}\u{FE0F}'}
+                        </span>
+                      )}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5">{row.bank_account_holder_name ?? '—'}</td>
                   <td className="px-4 py-2.5">
@@ -427,7 +438,37 @@ export function AllotmentBoardPage() {
             </tbody>
           </table>
         </div>
+        </AccountListSection>
       )}
+    </div>
+  )
+}
+
+// Same collapsible pattern as NotificationsPage's message list / SoldPayoutsSection
+// below — the per-account table can run long once an IPO has a lot of
+// applicants, and the payouts section above it is what usually needs
+// attention first once allotment's out. Open by default (still primary
+// content, unlike ArchivedSection's default-closed).
+function AccountListSection({ count, children }: { count: number; children: ReactNode }) {
+  const [open, setOpen] = useState(true)
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 text-sm font-semibold"
+        style={{ color: 'var(--ink-secondary)' }}
+      >
+        <span
+          className="inline-flex transition-transform duration-200"
+          style={{ transform: open ? 'rotate(180deg)' : undefined }}
+        >
+          ▾
+        </span>
+        Accounts
+        <span className="badge badge-neutral">{count}</span>
+      </button>
+      {open && children}
     </div>
   )
 }

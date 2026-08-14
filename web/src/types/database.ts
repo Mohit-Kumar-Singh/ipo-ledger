@@ -159,6 +159,11 @@ export interface AllotmentBoardRow {
   bank_account_phone: string | null
   mandate_status: MandateStatus
   ipo_is_archived: boolean
+  // Funding credit for this application was manually reassigned to a
+  // different bank/UPI account (funder_override_id, migration 0063) — i.e.
+  // someone else transferred money in rather than the applicant's own UPI
+  // paying. See migration 0067.
+  is_funder_override: boolean
 }
 
 export interface RegistrarLink {
