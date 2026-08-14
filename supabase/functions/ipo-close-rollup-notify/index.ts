@@ -39,6 +39,10 @@ interface AppRow {
   ipos: { company_name: string }
   demat_accounts: { holder_name: string; phone_e164: string }
   bank_accounts: BankRow | null
+  // Manual funder-credit override (funder_override_id, migration 0063) —
+  // wins over bank_accounts when set, same rule every other funder-facing
+  // consumer in the app follows.
+  funder_override: BankRow | null
 }
 
 // Same rule as send-whatsapp's resolveFunder: no bank account, or one
@@ -101,12 +105,23 @@ Deno.serve(async (req) => {
     let queued = 0
 
     for (const ipo of closingIpos ?? []) {
-      const { data: rows } = await admin
+      // bank_accounts embedded twice (bank_account_id + funder_override_id,
+      // migration 0063) — needs the FK named explicitly on both or
+      // PostgREST can't tell which relationship a bare bank_accounts(...)
+      // means and errors instead of returning rows. Same fix as
+      // send-whatsapp's queueForApplication; this function had the same gap.
+      const { data: rows, error: rowsError } = await admin
         .from('applications')
         .select(
-          'id, demat_id, created_at, ipo_id, ipos(company_name), demat_accounts(holder_name, phone_e164), bank_accounts(account_holder_name, phone_e164)',
+          'id, demat_id, created_at, ipo_id, ipos(company_name), demat_accounts(holder_name, phone_e164), ' +
+            'bank_accounts!bank_account_id(account_holder_name, phone_e164), ' +
+            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164)',
         )
         .eq('ipo_id', ipo.id)
+      if (rowsError) {
+        console.error('ipo-close-rollup-notify — failed to load applications for', ipo.company_name, rowsError)
+        continue
+      }
       if (!rows || rows.length === 0) continue
 
       // Group applications by funder identity (phone), each funder's own
@@ -115,7 +130,7 @@ Deno.serve(async (req) => {
       for (const r of rows as unknown as AppRow[]) {
         const holderName = r.demat_accounts.holder_name
         const holderPhone = r.demat_accounts.phone_e164
-        const funder = resolveFunder(holderName, holderPhone, r.bank_accounts)
+        const funder = resolveFunder(holderName, holderPhone, r.funder_override ?? r.bank_accounts)
         if (!funder.phone) continue
         if (!byFunderPhone.has(funder.phone)) {
           byFunderPhone.set(funder.phone, { name: funder.name, holdersByDate: new Map() })

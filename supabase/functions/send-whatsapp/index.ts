@@ -119,19 +119,37 @@ async function queueForApplication(applicationId: string, templateKind: Template
     .maybeSingle()
   if (existing) return // idempotency: webhook redelivery guard
 
-  const { data: app } = await admin
+  // bank_accounts is embedded twice (bank_account_id — the literal paying
+  // UPI — and funder_override_id, an independent manual credit override,
+  // migration 0063) — PostgREST needs the FK named explicitly on both or it
+  // can't tell which relationship a bare bank_accounts(...) means, and
+  // throws "more than one relationship was found" instead of returning
+  // rows. This is exactly the ambiguity ApplicationsPage/NotificationsPage
+  // were fixed for in v1.95.0 — this Edge Function was missed at the time,
+  // silently breaking every APPLIED/ALLOTTED notification queued after
+  // migration 0063 went live (the error was never logged: the old code only
+  // checked `if (!app) return`, not the query's own error).
+  const { data: app, error: appError } = await admin
     .from('applications')
     .select(
-      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), bank_accounts(account_holder_name, bank_name, last4, upi_id, phone_e164)',
+      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), ' +
+        'bank_accounts!bank_account_id(account_holder_name, bank_name, last4, upi_id, phone_e164), ' +
+        'funder_override:bank_accounts!funder_override_id(account_holder_name, bank_name, last4, upi_id, phone_e164)',
     )
     .eq('id', applicationId)
     .single()
+  if (appError) {
+    console.error('queueForApplication — failed to load application', applicationId, appError)
+    return
+  }
   if (!app) return
 
   const holderName = app.demat_accounts.holder_name as string
   const holderPhone = app.demat_accounts.phone_e164 as string
   const companyName = app.ipos.company_name as string
-  const b = app.bank_accounts as BankRow | null
+  // Funder override wins when set — same "who gets funding credit" rule
+  // every other funder-facing consumer in the app already follows.
+  const b = (app.funder_override ?? app.bank_accounts) as BankRow | null
   const funder = resolveFunder(holderName, holderPhone, b)
   const bankDetail = formatBankDetail(b)
   const bankLabel = funder.sameAsHolder ? bankDetail || 'your linked bank' : bankDetail || 'their bank/UPI'
