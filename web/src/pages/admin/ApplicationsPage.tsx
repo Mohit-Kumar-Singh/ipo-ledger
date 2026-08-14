@@ -58,7 +58,23 @@ function upiIdFor(a: ApplicationRow): string {
   return a.bank_accounts?.upi_id ?? 'No UPI ID'
 }
 
-type SortMode = 'recent' | 'funder' | 'upi'
+// Clusters cancelled-mandate applications together within each IPO instead
+// of leaving them scattered wherever recency/funder/UPI sort happened to
+// land them — 'Active' sorts before 'Cancelled mandate' alphabetically, so
+// the cancelled ones fall to the bottom of each IPO group.
+function mandateGroupFor(a: ApplicationRow): string {
+  return a.mandate_status === 'CANCELLED' ? 'Cancelled mandate' : 'Active'
+}
+
+// Shared by the grouping useMemo and the render below — one place that
+// knows how each SortMode maps to a group key, so the two can't drift.
+function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: Map<string, string>): string {
+  if (mode === 'upi') return upiIdFor(a)
+  if (mode === 'cancelled') return mandateGroupFor(a)
+  return funderNameFor(a, resolvedBankNames)
+}
+
+type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled'
 
 // Same eligibility rule the existing single-row "Not allotted" button
 // already used (owner + still APPLIED + allotment_date actually passed) —
@@ -395,7 +411,7 @@ export function ApplicationsPage() {
     }
     const result = Array.from(groups.values())
     if (sortMode !== 'recent') {
-      const groupKeyFor = (a: ApplicationRow) => (sortMode === 'upi' ? upiIdFor(a) : funderNameFor(a, resolvedBankInfo))
+      const groupKeyFor = (a: ApplicationRow) => sortGroupKeyFor(sortMode, a, resolvedBankInfo)
       for (const g of result) {
         g.items.sort((a, b) => {
           const byKey = groupKeyFor(a).localeCompare(groupKeyFor(b))
@@ -484,6 +500,7 @@ export function ApplicationsPage() {
                 ['recent', 'Recent'],
                 ['funder', 'Who funded it'],
                 ['upi', 'UPI ID'],
+                ['cancelled', 'Cancelled mandate'],
               ] as [SortMode, string][]
             ).map(([mode, label]) => (
               <button
@@ -617,7 +634,7 @@ export function ApplicationsPage() {
               {isCollapsed ? null : (
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
-                  const groupKeyFor = (x: ApplicationRow) => (sortMode === 'upi' ? upiIdFor(x) : funderNameFor(x, resolvedBankInfo))
+                  const groupKeyFor = (x: ApplicationRow) => sortGroupKeyFor(sortMode, x, resolvedBankInfo)
                   const showFunderHeader = sortMode !== 'recent' && (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
                   // Items are already sorted by group key within this IPO's
                   // list, so the run sharing `a`'s key is contiguous — count
@@ -631,7 +648,9 @@ export function ApplicationsPage() {
                       className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase"
                       style={{ color: 'var(--ink-muted)', background: 'var(--hover-surface)' }}
                     >
-                      {sortMode === 'upi' ? `Paid via ${upiIdFor(a)}` : `Funded by ${funderNameFor(a, resolvedBankInfo)}`}
+                      {sortMode === 'upi' && `Paid via ${upiIdFor(a)}`}
+                      {sortMode === 'funder' && `Funded by ${funderNameFor(a, resolvedBankInfo)}`}
+                      {sortMode === 'cancelled' && mandateGroupFor(a)}
                       {' · '}
                       {groupCount} application{groupCount === 1 ? '' : 's'}
                     </div>
