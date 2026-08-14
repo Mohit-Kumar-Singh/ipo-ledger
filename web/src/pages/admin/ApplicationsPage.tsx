@@ -2,7 +2,7 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent,
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
@@ -65,6 +65,14 @@ function upiIdFor(a: ApplicationRow): string {
 // the cancelled ones fall to the bottom of each IPO group.
 function mandateGroupFor(a: ApplicationRow): string {
   return a.mandate_status === 'CANCELLED' ? 'Cancelled mandate' : 'Active'
+}
+
+// "Retail- 1 lot" / "Sni- 2 lots" — category + lots merged into one compact
+// label instead of two separate fields, since together they're really one
+// fact ("what kind of bid, how big").
+function categoryLotsLabel(a: ApplicationRow): string {
+  const category = a.category.charAt(0) + a.category.slice(1).toLowerCase()
+  return `${category}- ${a.lots} lot${a.lots === 1 ? '' : 's'}`
 }
 
 // Shared by the grouping useMemo and the render below — one place that
@@ -842,6 +850,7 @@ export function ApplicationsPage() {
                             <p className="font-mono-ipo">App #{a.ipoji_app_number}</p>
                           </>
                         )}
+                        <p>{categoryLotsLabel(a)}</p>
                       </div>
 
                       {a.sell_price != null && (
@@ -1121,6 +1130,17 @@ function NewApplicationForm({
   // handed money over off-app and someone else's own UPI placed the bid.
   // Never touched by the ipoji sync; only ever set here, by hand.
   const [funderOverrideId, setFunderOverrideId] = useState(existing?.funder_override_id ?? '')
+  // An override only means anything if it's actually a DIFFERENT account
+  // from the one that paid — picking a funder whose UPI happens to match
+  // the bank account already selected isn't really an override at all, so
+  // this snaps back to "same as bank account used" the moment that happens,
+  // instead of silently storing a no-op override.
+  useEffect(() => {
+    if (!funderOverrideId || !bankAccountId || funderOverrideId === bankAccountId) return
+    const bankUpi = banks.find((b) => b.id === bankAccountId)?.upi_id?.trim().toLowerCase()
+    const funderUpi = banks.find((b) => b.id === funderOverrideId)?.upi_id?.trim().toLowerCase()
+    if (bankUpi && funderUpi && bankUpi === funderUpi) setFunderOverrideId('')
+  }, [bankAccountId, funderOverrideId, banks])
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
   const [saleMode, setSaleMode] = useState<SaleEntryMode>('total')
@@ -1283,7 +1303,19 @@ function NewApplicationForm({
           ]}
         />
       </Field>
-      <Field label="Funder (if different from the account used)">
+      <Field
+        label={
+          <span className="inline-flex items-center gap-1.5">
+            Funder
+            <span
+              title="Only needed when the real funder handed money over some other way and someone else's UPI actually paid — e.g. they gave you cash/a transfer and you applied using your own account. This overrides who gets funding credit (pie chart, profit-split messages) everywhere; it never affects mandate tracking, and the ipoji sync never sets or changes it."
+              style={{ cursor: 'help', display: 'inline-flex' }}
+            >
+              <InfoIcon size={13} fill="var(--ink-muted)" />
+            </span>
+          </span>
+        }
+      >
         <Combobox
           aria-label="Funder override"
           placeholder="Same as bank account used"
@@ -1300,12 +1332,6 @@ function NewApplicationForm({
               })),
           ]}
         />
-        <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          Only needed when the real funder handed money over some other way and someone else's UPI actually paid —
-          e.g. they gave you cash/a transfer and you applied using your own account. This overrides who gets
-          funding credit (pie chart, profit-split messages) everywhere; it never affects mandate tracking, and the
-          ipoji sync never sets or changes it.
-        </p>
       </Field>
       <Field label="Category">
         <select value={category} onChange={(e) => setCategory(e.target.value as ApplicationCategory)} className="input">
@@ -1494,7 +1520,7 @@ function MultiDematSelect({
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
       <span className="flex items-baseline justify-between gap-2">
