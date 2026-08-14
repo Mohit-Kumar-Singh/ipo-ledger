@@ -180,6 +180,15 @@ export function AllotmentBoardPage() {
     })
   }
 
+  // Only APPLIED rows carry a checkbox at all (see the per-row render below)
+  // — selecting/deselecting "all" only ever means all of those, matching
+  // what the bulk "Mark selected as Not allotted" action can actually act on.
+  const selectableIds = rows.filter((r) => r.status === 'APPLIED').map((r) => r.application_id)
+
+  function toggleSelectAll() {
+    setSelected((s) => (s.size === selectableIds.length ? new Set() : new Set(selectableIds)))
+  }
+
   function openSoldForm(row: AllotmentBoardRow) {
     // Default the split checkbox to "on" when the funder isn't the person
     // doing the accounting — admin can still flip it either way.
@@ -290,7 +299,19 @@ export function AllotmentBoardPage() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-4 py-2.5"></th>
+                <th className="px-4 py-2.5">
+                  {selectableIds.length > 0 && (
+                    <input
+                      type="checkbox"
+                      checked={selected.size === selectableIds.length}
+                      ref={(el) => {
+                        if (el) el.indeterminate = selected.size > 0 && selected.size < selectableIds.length
+                      }}
+                      onChange={toggleSelectAll}
+                      title="Select all"
+                    />
+                  )}
+                </th>
                 <th className="px-4 py-2.5 font-medium">Holder</th>
                 <th className="px-4 py-2.5 font-medium">Bank</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
