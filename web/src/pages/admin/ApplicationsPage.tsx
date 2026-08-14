@@ -7,7 +7,6 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
-import { dispatchAdminWhatsapp, openWhatsAppForNotification } from '../../lib/dispatchWhatsapp'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
@@ -21,7 +20,6 @@ import type {
   BankAccount,
   DematAccount,
   Ipo,
-  Notification,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -43,13 +41,6 @@ function funderNameFor(a: ApplicationRow, resolvedBankNames: Map<string, string>
 // several UPI/bank accounts, so this is the finer-grained "which specific
 // account paid" view. Bank accounts without a UPI ID (bank-only entries)
 // group under a shared placeholder rather than splintering by holder name.
-// SIMULATED notifications (WhatsApp sending not configured yet) are internal
-// setup state, not per-application info worth showing — filtered out here so
-// a row with only simulated sends falls through to the empty "—" state.
-function visibleNotifs(a: ApplicationRow) {
-  return (a.notifications ?? []).filter((n) => n.status !== 'SIMULATED')
-}
-
 // Unlike funderNameFor, this has no resolved-fallback — a demat owner who
 // isn't the funder legitimately shouldn't see the raw UPI ID anymore
 // (migration 0057), only who funded them. Falls to 'No UPI ID' the same as
@@ -104,7 +95,6 @@ type ApplicationRow = Application & {
   // Application) — null on almost every row. Wherever "who funded this"
   // is shown or counted, this wins over bank_accounts when present.
   funder_override: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
-  notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
 }
 
 // The account that actually gets funding credit — the manual override when
@@ -131,7 +121,6 @@ export function ApplicationsPage() {
   const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
-  const [dispatching, setDispatching] = useState<string | null>(null)
   const [backdatedMode, setBackdatedMode] = useState(false)
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
@@ -211,8 +200,7 @@ export function ApplicationsPage() {
         // `bank_accounts(...)` means anymore.
         '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), ' +
           'bank_accounts!bank_account_id(account_holder_name, upi_id, linked_user_id), ' +
-          'funder_override:bank_accounts!funder_override_id(account_holder_name, upi_id, linked_user_id), ' +
-          'notifications(id, type, status, to_phone, template_name, variables)',
+          'funder_override:bank_accounts!funder_override_id(account_holder_name, upi_id, linked_user_id)',
       )
       .order('applied_at', { ascending: false })
     if (error) {
@@ -397,17 +385,6 @@ export function ApplicationsPage() {
       alert(error.message)
       return
     }
-    loadApplications()
-  }
-
-  async function dispatchNotification(n: ApplicationRow['notifications'][number]) {
-    setDispatching(n.id)
-    if (isAdmin) {
-      await dispatchAdminWhatsapp(n.id)
-    } else {
-      await openWhatsAppForNotification(n)
-    }
-    setDispatching(null)
     loadApplications()
   }
 
@@ -904,44 +881,6 @@ export function ApplicationsPage() {
                         )}
                       </div>
 
-                      <div className="min-w-[8rem] flex-1">
-                        {/* SIMULATED just means WhatsApp sending isn't configured yet
-                            (no WA_ACCESS_TOKEN/WA_PHONE_NUMBER_ID) — that's an internal
-                            setup fact, not something useful to see repeated on every row,
-                            so those notifications are hidden here entirely rather than
-                            shown as a badge with nothing actionable attached. */}
-                        {visibleNotifs(a).length > 0 ? (
-                          <div className="flex flex-col gap-1">
-                            {visibleNotifs(a).map((notif) => (
-                              <div key={notif.id} className="flex items-center gap-1.5">
-                                <NotifBadge status={notif.status} />
-                                {(notif.status === 'QUEUED' || notif.status === 'FAILED') && (
-                                  <button
-                                    onClick={() => dispatchNotification(notif)}
-                                    disabled={dispatching === notif.id}
-                                    className="link-accent text-xs font-medium disabled:opacity-50"
-                                  >
-                                    {dispatching === notif.id
-                                      ? isAdmin
-                                        ? 'Sending…'
-                                        : 'Opening…'
-                                      : isAdmin
-                                        ? notif.status === 'FAILED'
-                                          ? 'Retry'
-                                          : 'Send'
-                                        : 'Open WhatsApp'}
-                                  </button>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                            —
-                          </span>
-                        )}
-                      </div>
-
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
                         {isOwner && a.status === 'APPLIED' && (
                           <>
@@ -1042,18 +981,6 @@ function StatusBadge({ status }: { status: Application['status'] }) {
     SOLD: 'badge-violet',
   }
   return <span className={`badge ${classes[status]}`}>{status.replace('_', ' ')}</span>
-}
-
-function NotifBadge({ status }: { status: Notification['status'] }) {
-  const classes: Record<Notification['status'], string> = {
-    QUEUED: 'badge-neutral',
-    SENT: 'badge-info',
-    DELIVERED: 'badge-good',
-    READ: 'badge-violet',
-    FAILED: 'badge-critical',
-    SIMULATED: 'badge-warning',
-  }
-  return <span className={`badge ${classes[status]}`}>{status}</span>
 }
 
 function NewApplicationForm({
