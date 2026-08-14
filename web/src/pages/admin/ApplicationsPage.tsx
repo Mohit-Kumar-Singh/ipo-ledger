@@ -34,8 +34,9 @@ const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDE
 // (see resolvedBankInfo above) — narrower than the embed (name only), but
 // enough to keep this label working.
 function funderNameFor(a: ApplicationRow, resolvedBankNames: Map<string, string>): string {
-  const resolvedName = a.bank_account_id ? resolvedBankNames.get(a.bank_account_id) : undefined
-  return a.bank_accounts?.account_holder_name ?? resolvedName ?? a.demat_accounts?.holder_name ?? 'Unknown'
+  const effectiveId = a.funder_override_id ?? a.bank_account_id
+  const resolvedName = effectiveId ? resolvedBankNames.get(effectiveId) : undefined
+  return effectiveFunderAccount(a)?.account_holder_name ?? resolvedName ?? a.demat_accounts?.holder_name ?? 'Unknown'
 }
 
 // The UPI ID itself, distinct from funderNameFor — one funder name can span
@@ -55,7 +56,7 @@ function visibleNotifs(a: ApplicationRow) {
 // a genuinely bank-only entry; the two cases read the same on purpose,
 // since distinguishing "withheld" from "absent" here isn't worth exposing.
 function upiIdFor(a: ApplicationRow): string {
-  return a.bank_accounts?.upi_id ?? 'No UPI ID'
+  return effectiveFunderAccount(a)?.upi_id ?? 'No UPI ID'
 }
 
 // Clusters cancelled-mandate applications together within each IPO instead
@@ -99,7 +100,22 @@ type ApplicationRow = Application & {
   // loadApplications), so demat_accounts is non-null for everything shown.
   demat_accounts: Pick<DematAccount, 'holder_name' | 'linked_user_id'> | null
   bank_accounts: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
+  // The manually-set funder credit override (see funder_override_id on
+  // Application) — null on almost every row. Wherever "who funded this"
+  // is shown or counted, this wins over bank_accounts when present.
+  funder_override: Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null
   notifications: Pick<Notification, 'id' | 'type' | 'status' | 'to_phone' | 'template_name' | 'variables'>[]
+}
+
+// The account that actually gets funding credit — the manual override when
+// set, otherwise whichever UPI/bank account literally paid ipoji. Every
+// funder-facing read (name, UPI, sort grouping) goes through this instead
+// of reading `bank_accounts` directly, so setting an override changes
+// credit everywhere at once instead of needing each call site updated.
+function effectiveFunderAccount(
+  a: ApplicationRow,
+): Pick<BankAccount, 'account_holder_name' | 'upi_id' | 'linked_user_id'> | null {
+  return a.funder_override ?? a.bank_accounts
 }
 
 export function ApplicationsPage() {
@@ -188,7 +204,15 @@ export function ApplicationsPage() {
     const { data, error } = await supabase
       .from('applications')
       .select(
-        '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), bank_accounts(account_holder_name, upi_id, linked_user_id), notifications(id, type, status, to_phone, template_name, variables)',
+        // bank_accounts is now embedded twice (bank_account_id — the literal
+        // paying UPI — and funder_override_id, an independent manual credit
+        // override, migration 0063) — PostgREST needs the FK named
+        // explicitly on both or it can't tell which relationship a bare
+        // `bank_accounts(...)` means anymore.
+        '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), ' +
+          'bank_accounts!bank_account_id(account_holder_name, upi_id, linked_user_id), ' +
+          'funder_override:bank_accounts!funder_override_id(account_holder_name, upi_id, linked_user_id), ' +
+          'notifications(id, type, status, to_phone, template_name, variables)',
       )
       .order('applied_at', { ascending: false })
     if (error) {
@@ -197,7 +221,13 @@ export function ApplicationsPage() {
       return
     }
     setLoadError(null)
-    const rows = (data ?? []) as ApplicationRow[]
+    // supabase-js's compile-time select-string parser can't resolve the
+    // `!fk_column` disambiguation + alias syntax above (needed now that
+    // applications has two FKs into bank_accounts) into a real row type —
+    // it falls back to an error placeholder type, hence the extra
+    // `unknown` hop TS itself suggests. Runtime behavior is unaffected;
+    // this is purely a limitation of that string-literal type inference.
+    const rows = (data ?? []) as unknown as ApplicationRow[]
 
     // Previously these funder-only rows (their linked bank/UPI paid for
     // someone else's demat) were dropped here entirely — a funder could
@@ -220,11 +250,13 @@ export function ApplicationsPage() {
     }
 
     const unresolvedBankIds = Array.from(
-      new Set(
-        rows
-          .filter((r) => r.bank_accounts == null && r.bank_account_id != null)
-          .map((r) => r.bank_account_id as string),
-      ),
+      new Set([
+        ...rows.filter((r) => r.bank_accounts == null && r.bank_account_id != null).map((r) => r.bank_account_id as string),
+        // Same RLS gap can withhold the override's own bank_accounts embed
+        // just as easily as the literal-payer one — resolve both through
+        // the same narrow RPC/map rather than adding a second one.
+        ...rows.filter((r) => r.funder_override == null && r.funder_override_id != null).map((r) => r.funder_override_id as string),
+      ]),
     )
     if (unresolvedBankIds.length > 0) {
       const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: unresolvedBankIds })
@@ -754,6 +786,14 @@ export function ApplicationsPage() {
                               <SyncIcon size={13} fill="var(--accent)" aria-label="Synced from ipoji" />
                             </span>
                           )}
+                          {a.funder_override_id && (
+                            <span
+                              className="shrink-0"
+                              title={`Funder manually set to ${funderName} — overrides the account actually used to pay, for pie chart/profit credit.`}
+                            >
+                              {'\u{1F3F7}\u{FE0F}'}
+                            </span>
+                          )}
                         </div>
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -1075,6 +1115,12 @@ function NewApplicationForm({
     }
   }, [ipoId, existing])
   const [bankAccountId, setBankAccountId] = useState(existing?.bank_account_id ?? '')
+  // Independent of bankAccountId (which is "whichever UPI literally paid
+  // ipoji," used for mandate tracking) — this is a manual override for
+  // "who actually gets funding credit," for the case where the real funder
+  // handed money over off-app and someone else's own UPI placed the bid.
+  // Never touched by the ipoji sync; only ever set here, by hand.
+  const [funderOverrideId, setFunderOverrideId] = useState(existing?.funder_override_id ?? '')
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
   const [saleMode, setSaleMode] = useState<SaleEntryMode>('total')
@@ -1115,6 +1161,7 @@ function NewApplicationForm({
         .from('applications')
         .update({
           bank_account_id: bankAccountId || null,
+          funder_override_id: funderOverrideId || null,
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
@@ -1141,6 +1188,7 @@ function NewApplicationForm({
           ipo_id: ipoId,
           demat_id: id,
           bank_account_id: bankAccountId || null,
+          funder_override_id: funderOverrideId || null,
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
@@ -1234,6 +1282,30 @@ function NewApplicationForm({
               })),
           ]}
         />
+      </Field>
+      <Field label="Funder (if different from the account used)">
+        <Combobox
+          aria-label="Funder override"
+          placeholder="Same as bank account used"
+          searchPlaceholder="Search bank/UPI accounts…"
+          value={funderOverrideId}
+          onChange={setFunderOverrideId}
+          options={[
+            { value: '', label: 'Same as bank account used' },
+            ...[...banks]
+              .sort((a, b) => (a.account_holder_name ?? '').localeCompare(b.account_holder_name ?? ''))
+              .map((b) => ({
+                value: b.id,
+                label: [b.account_holder_name, b.bank_name, b.upi_id].filter(Boolean).join(' · ') || 'Bank account',
+              })),
+          ]}
+        />
+        <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          Only needed when the real funder handed money over some other way and someone else's UPI actually paid —
+          e.g. they gave you cash/a transfer and you applied using your own account. This overrides who gets
+          funding credit (pie chart, profit-split messages) everywhere; it never affects mandate tracking, and the
+          ipoji sync never sets or changes it.
+        </p>
       </Field>
       <Field label="Category">
         <select value={category} onChange={(e) => setCategory(e.target.value as ApplicationCategory)} className="input">

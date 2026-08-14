@@ -81,6 +81,13 @@ export interface Application {
   ipo_id: string
   demat_id: string
   bank_account_id: string | null
+  // Independent of bank_account_id — that's "which UPI literally paid
+  // ipoji" (stays tied to mandate approval, never touched by this field).
+  // This is "who gets funding credit," settable only by hand, for the case
+  // where the real funder handed money over off-app and someone else's own
+  // UPI placed the actual bid. Every funder-credit consumer prefers this
+  // over bank_account_id when set; the ipoji sync never writes to it.
+  funder_override_id: string | null
   category: ApplicationCategory
   lots: number
   bid_amount: number | null

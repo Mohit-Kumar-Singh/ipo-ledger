@@ -686,6 +686,13 @@ export function IpojiSyncPanel({
               ipo_id: r.matchedIpo!.id,
               demat_id: r.matchedDemat!.id,
               bank_account_id: r.matchedBank?.id ?? null,
+              // Deliberately never set here, on create OR on any of the
+              // update paths below (mandate/app-number backfill) — the
+              // funder_override_id manual credit override (migration 0063)
+              // is admin-set-only, always, regardless of whether the
+              // scraped UPI happens to match some other funder's own
+              // account on file. A re-sync must never silently clear or
+              // change an override someone set by hand.
               category: 'RETAIL',
               lots: r.lots!,
               bid_amount: r.amountNum,

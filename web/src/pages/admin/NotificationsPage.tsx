@@ -57,6 +57,13 @@ type ApplicationForFunderRow = {
   } | null
   demat_accounts: { holder_name: string; profit_share_percent: number } | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
+  // Manual funder-credit override (migration 0063) — wins over bank_accounts
+  // wherever "who funded this" is computed, via effectiveFunder() below.
+  funder_override: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
+}
+
+function effectiveFunder(r: ApplicationForFunderRow) {
+  return r.funder_override ?? r.bank_accounts
 }
 
 // One card per (funder, IPO) covering only their ALLOTTED (or already SOLD —
@@ -90,7 +97,8 @@ interface FunderAllottedCard {
 function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllottedCard[] {
   const cardsByIpo = new Map<string, FunderAllottedCard[]>()
   for (const r of rows) {
-    const name = r.bank_accounts?.account_holder_name
+    const funder = effectiveFunder(r)
+    const name = funder?.account_holder_name
     if (!name || !r.ipos) continue
     if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
     if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
@@ -100,7 +108,7 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
       card = {
         key: `allotted::${r.ipo_id}::${cardsForIpo.length}`,
         funderName: name,
-        phone: r.bank_accounts?.phone_e164 ?? null,
+        phone: funder?.phone_e164 ?? null,
         ipoId: r.ipo_id,
         ipoName: r.ipos.company_name,
         listingDate: r.ipos.listing_date,
@@ -116,7 +124,7 @@ function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllott
     } else if (name.length > card.funderName.length) {
       card.funderName = name
     }
-    if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
+    if (!card.phone && funder?.phone_e164) card.phone = funder.phone_e164
     const holder = r.demat_accounts?.holder_name ?? 'Unknown'
     if (!card.holderNames.includes(holder)) card.holderNames.push(holder)
     card.totalLots += r.lots
@@ -221,7 +229,8 @@ function isToday(isoTimestamp: string): boolean {
 function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
   const cardsByIpo = new Map<string, FunderIpoCard[]>()
   for (const r of rows) {
-    const name = r.bank_accounts?.account_holder_name
+    const funder = effectiveFunder(r)
+    const name = funder?.account_holder_name
     if (!name || !r.ipos || !isLiveIpo(r.ipos)) continue
     if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
     const cardsForIpo = cardsByIpo.get(r.ipo_id)!
@@ -230,7 +239,7 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       card = {
         key: `${r.ipo_id}::${cardsForIpo.length}`,
         funderName: name,
-        phone: r.bank_accounts?.phone_e164 ?? null,
+        phone: funder?.phone_e164 ?? null,
         ipoId: r.ipo_id,
         ipoName: r.ipos.company_name,
         applications: [],
@@ -241,9 +250,12 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
       // "longer wins" rule the attribution credit-merge already uses.
       card.funderName = name
     }
-    if (!card.phone && r.bank_accounts?.phone_e164) card.phone = r.bank_accounts.phone_e164
+    if (!card.phone && funder?.phone_e164) card.phone = funder.phone_e164
     card.applications.push({
       holderName: r.demat_accounts?.holder_name ?? 'Unknown',
+      // Still the LITERAL UPI that paid, even under a funder override — the
+      // override changes who gets credited/messaged, not what actually
+      // happened technically on ipoji.
       upiId: r.bank_accounts?.upi_id ?? null,
       lots: r.lots,
       createdAt: r.applied_at,
@@ -351,11 +363,21 @@ export function NotificationsPage() {
         ? supabase
             .from('applications')
             .select(
+              // Explicit FK on both bank_accounts embeds — applications now
+              // has two relationships into that table (bank_account_id, the
+              // literal paying UPI, and funder_override_id, migration 0063)
+              // — and funder cards/messages prefer the override when set
+              // (see effectiveFunder()).
               'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
                 'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
-                'demat_accounts(holder_name, profit_share_percent), bank_accounts(account_holder_name, phone_e164, upi_id)',
+                'demat_accounts(holder_name, profit_share_percent), ' +
+                'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+                'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
             )
-            .not('bank_account_id', 'is', null)
+            // A row now counts if EITHER points somewhere — an override can
+            // legitimately be the only funder link on a row that otherwise
+            // has no bank_account_id at all.
+            .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
         : Promise.resolve({ data: [], error: null }),
       supabase.from('demat_accounts').select('phone_e164, holder_name'),
       supabase.from('bank_accounts').select('phone_e164, account_holder_name'),

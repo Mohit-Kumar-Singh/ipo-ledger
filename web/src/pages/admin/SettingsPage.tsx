@@ -177,7 +177,11 @@ function CancelledMandatesSection() {
   useEffect(() => {
     supabase
       .from('applications')
-      .select('id, ipos(company_name), demat_accounts(holder_name), bank_accounts(account_holder_name)')
+      // Explicit FK now that applications has two relationships into
+      // bank_accounts (migration 0063) — this section is about the actual
+      // cancelled UPI mandate, so it stays on bank_account_id specifically,
+      // not the funder-credit override.
+      .select('id, ipos(company_name), demat_accounts(holder_name), bank_accounts!bank_account_id(account_holder_name)')
       .eq('mandate_status', 'CANCELLED')
       .eq('status', 'APPLIED')
       .then(({ data }) => {
