@@ -18,22 +18,32 @@ export interface IpoAttribution {
 // matching exactly — there's no link between an unlinked bank/UPI account
 // and a profile beyond the name someone typed in.
 //
-// Match rule: same first token, AND the shorter name's tokens are a strict
-// prefix of the longer one's ("Avinash" vs "Avinash Sir", "Mohit" vs "Mohit
-// Kumar Singh"). First-token-ALONE was tried first and is a real, confirmed
-// bug: this app's own real data has two different people who share a first
-// name ("Harsh Gandhi" and "Harsh Verma", both real funders on record) —
-// matching on first token only would have silently merged those two
-// distinct people into one slice. Requiring the rest of the shorter name to
-// prefix-match the longer one keeps the legitimate "nickname vs full name"
-// merge (one name has no second token to conflict with) while refusing to
-// merge two full names that happen to start the same way.
+// Match rule: same first token, AND the shorter name's remaining tokens
+// form a SUBSEQUENCE of the longer one's remaining tokens (same order,
+// gaps allowed) — not a strict prefix. Real, confirmed bug with the
+// prefix-only version: "Mohit Singh" (an account holder_name) vs "Mohit
+// Kumar Singh" (the resolved profile full_name) failed to match and split
+// into two separate pie-chart slices for the same real person, because
+// "Singh" (shorter's 2nd token) isn't at position 1 in the longer name —
+// "Kumar" is; a strict prefix check has no way to skip over an omitted
+// middle name. Subsequence matching does: after the shared first token,
+// "Singh" still has to show up later in the same order, just not
+// necessarily immediately next. First-token-ALONE was tried first and is
+// also a real, confirmed bug: this app's own real data has two different
+// people who share a first name ("Harsh Gandhi" and "Harsh Verma", both
+// real funders on record) — matching on first token only would have
+// silently merged those two distinct people into one slice. Subsequence
+// matching still refuses that: "Gandhi" is not a subsequence of ["Verma"].
 export function sameIdentity(a: string, b: string): boolean {
   const ta = a.trim().toLowerCase().split(/\s+/)
   const tb = b.trim().toLowerCase().split(/\s+/)
   if (ta[0] !== tb[0]) return false
   const [shorter, longer] = ta.length <= tb.length ? [ta, tb] : [tb, ta]
-  return shorter.every((tok, i) => tok === longer[i])
+  let i = 0
+  for (const tok of longer) {
+    if (i < shorter.length && tok === shorter[i]) i++
+  }
+  return i === shorter.length
 }
 
 // Per application: credit splits 0.5 to whoever funded it (the bank/UPI
