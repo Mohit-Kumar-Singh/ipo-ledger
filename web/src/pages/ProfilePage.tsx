@@ -14,14 +14,10 @@ import {
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
-import { AttributionChart } from '../components/AttributionChart'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { useTheme } from '../contexts/ThemeContext'
-import { computeIpoAttribution, type IpoAttribution } from '../lib/applicationAttribution'
-import { resolveAttributionNames, topRecentIpoAttributionRows } from '../lib/dashboardAttribution'
 import { AccountsPage } from './admin/AccountsPage'
 import type {
-  ApplicationAttributionRow,
   BankAccount,
   BankLinkRequest,
   DematAccount,
@@ -93,8 +89,6 @@ export function ProfilePage() {
   const [myRequests, setMyRequests] = useState<MyRequestRow[]>([])
   const [loadingRequests, setLoadingRequests] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
-  const [attribution, setAttribution] = useState<IpoAttribution[] | null>(null)
-  const [attributionError, setAttributionError] = useState<string | null>(null)
 
   const [linkedDemat, setLinkedDemat] = useState<Pick<DematAccount, 'id' | 'holder_name'>[]>([])
   const [linkedBank, setLinkedBank] = useState<Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[]>([])
@@ -229,30 +223,6 @@ export function ProfilePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin])
-
-  useEffect(() => {
-    let cancelled = false
-    async function loadAttribution() {
-      const { data, error } = await supabase.from('v_application_attribution').select('*')
-      if (cancelled) return
-      if (error) {
-        // Was silently falling through to an empty `data ?? []`, which
-        // rendered identically to "no applications yet" — a real query
-        // failure and a genuinely empty account looked the same, exactly
-        // the swallowed-error pattern this app got burned by before.
-        setAttributionError(error.message)
-        return
-      }
-      const scopedRows = topRecentIpoAttributionRows((data ?? []) as ApplicationAttributionRow[], 4)
-      const nameById = await resolveAttributionNames(scopedRows)
-      if (cancelled) return
-      setAttribution(computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)))
-    }
-    loadAttribution()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const phoneValid = phoneDigits.length === 0 || PHONE_RE.test(phoneDigits)
 
@@ -514,13 +484,12 @@ export function ProfilePage() {
         </div>
       )}
 
-      {/* Identity/PAN card is a plain max-width column now — Recent IPOs
-          used to sit beside it (wanting the extra width for its donut+legend
-          rows), but moved further down the page (below the link-request
-          workflows) for a cleaner top-of-page focused on "your details"
-          alone, so this no longer needs the 3-column grid that gave it
-          somewhere to sit. */}
-      <div className="max-w-lg">
+      {/* Identity/PAN card beside the link-request workflows — the pie
+          chart that used to fill this blank space (Recent IPOs) is gone
+          entirely now, and the request sections moved up from further down
+          the page to actually use the room instead of leaving it empty. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <div className="xl:col-span-1">
       <div className="card animate-page-in space-y-4 p-5">
         <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
           <div
@@ -606,24 +575,19 @@ export function ProfilePage() {
           {error && <p className="badge badge-critical w-fit">{error}</p>}
         </form>
 
-        <form onSubmit={handleSavePan} className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
-          <div className="flex items-center gap-1.5">
-            <ShieldCheckIcon size={16} fill="var(--accent)" />
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              Your PAN
-            </h2>
-            <span
-              title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
-              style={{ cursor: 'help', display: 'inline-flex' }}
-            >
-              <InfoIcon size={12} fill="var(--ink-muted)" />
-            </span>
-          </div>
-
+        <form onSubmit={handleSavePan} className="space-y-4 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
           {editingPan || !profile?.self_pan_masked ? (
             <>
               <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-                PAN
+                <span className="flex items-center gap-1.5">
+                  Your PAN
+                  <span
+                    title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
+                    style={{ cursor: 'help', display: 'inline-flex' }}
+                  >
+                    <InfoIcon size={12} fill="var(--ink-muted)" />
+                  </span>
+                </span>
                 <div className="mt-1 flex items-center gap-2">
                   <CreditCardIcon size={15} fill="var(--ink-muted)" />
                   <input
@@ -666,21 +630,32 @@ export function ProfilePage() {
             </>
           ) : (
             <>
-              <div
-                className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-                style={{ borderColor: 'var(--border-strong)' }}
-              >
-                <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
-                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                  {profile.self_pan_masked}
+              <div className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                <span className="flex items-center gap-1.5">
+                  Your PAN
+                  <span
+                    title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
+                    style={{ cursor: 'help', display: 'inline-flex' }}
+                  >
+                    <InfoIcon size={12} fill="var(--ink-muted)" />
+                  </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setEditingPan(true)}
-                  className="link-accent shrink-0 text-xs font-medium"
+                <div
+                  className="mt-1 flex items-center justify-between gap-2 rounded-md border px-3 py-2"
+                  style={{ borderColor: 'var(--border-strong)' }}
                 >
-                  Change
-                </button>
+                  <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
+                    <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                    {profile.self_pan_masked}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingPan(true)}
+                    className="link-accent shrink-0 text-xs font-medium"
+                  >
+                    Change
+                  </button>
+                </div>
               </div>
               {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
             </>
@@ -700,59 +675,9 @@ export function ProfilePage() {
           {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
         </button>
       </div>
-      </div>
-
-      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
-        <div className="card animate-page-in space-y-3 p-5">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Your linked accounts
-          </h2>
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Unlinking is immediate and keeps all history — you can request to re-link later.
-          </p>
-          <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-            {linkedDemat.map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center gap-2">
-                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {d.holder_name}
-                  </span>
-                  <span className="badge badge-info">demat</span>
-                </div>
-                <button
-                  onClick={() => unlinkDemat(d.id)}
-                  disabled={unlinkingDematId === d.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-            {linkedBank.map((b) => (
-              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center gap-2">
-                  <LawIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
-                  </span>
-                  <span className="badge badge-good">bank/UPI</span>
-                </div>
-                <button
-                  onClick={() => unlinkBank(b.id)}
-                  disabled={unlinkingBankId === b.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
-      )}
 
+        <div className="xl:col-span-2 space-y-6">
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-6">
       <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">
@@ -975,29 +900,57 @@ export function ProfilePage() {
         </div>
       </div>
 
-      <div className="card animate-page-in space-y-4 p-5">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Recent IPOs
-        </h2>
-        {attributionError ? (
-          <p className="text-sm" style={{ color: 'var(--critical-text)' }}>
-            Couldn't load: {attributionError}
-          </p>
-        ) : attribution == null ? (
+      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
+        <div className="card animate-page-in space-y-3 p-5">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Your linked accounts
+          </h2>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Loading…
+            Unlinking is immediate and keeps all history — you can request to re-link later.
           </p>
-        ) : attribution.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No applications yet.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-2">
-            {attribution.map((a) => (
-              <AttributionChart key={a.ipoId} attribution={a} compact />
+          <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+            {linkedDemat.map((d) => (
+              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2">
+                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {d.holder_name}
+                  </span>
+                  <span className="badge badge-info">demat</span>
+                </div>
+                <button
+                  onClick={() => unlinkDemat(d.id)}
+                  disabled={unlinkingDematId === d.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
+            ))}
+            {linkedBank.map((b) => (
+              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center gap-2">
+                  <LawIcon size={15} fill="var(--ink-muted)" />
+                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
+                  </span>
+                  <span className="badge badge-good">bank/UPI</span>
+                </div>
+                <button
+                  onClick={() => unlinkBank(b.id)}
+                  disabled={unlinkingBankId === b.id}
+                  className="text-xs font-medium hover:underline disabled:opacity-50"
+                  style={{ color: 'var(--critical)' }}
+                >
+                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
+                </button>
+              </div>
             ))}
           </div>
-        )}
+        </div>
+      )}
+        </div>
       </div>
 
       <AppearanceSection />
