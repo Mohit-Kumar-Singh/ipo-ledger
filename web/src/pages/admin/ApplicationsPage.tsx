@@ -66,7 +66,7 @@ function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: M
   return funderNameFor(a, resolvedBankNames)
 }
 
-type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled'
+type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled' | 'not_on_ipoji'
 
 // Same eligibility rule the existing single-row "Not allotted" button
 // already used (owner + still APPLIED + allotment_date actually passed) —
@@ -410,16 +410,30 @@ export function ApplicationsPage() {
   // groups nobody needs to look at anymore; they're still fully visible on
   // the Archives page.
   const visibleApplications = useMemo(() => applications.filter((a) => !a.ipos?.is_archived), [applications])
+  const notOnIpojiCount = useMemo(
+    () => visibleApplications.filter((a) => !a.imported_from_ipoji).length,
+    [visibleApplications],
+  )
 
   const groupedApplications = useMemo(() => {
+    // "Not on ipoji" is a FILTER, not just a sort — only rows never
+    // confirmed against ipoji at all (imported_from_ipoji false) show up,
+    // since those are exactly the ones worth a second look: either a
+    // legitimate manual/backdated entry, or a mistaken duplicate/typo that
+    // never actually existed and should just be deleted. Anything a sync
+    // has ever matched (even once) drops out of this view — see
+    // toSyncExisting in IpojiSyncPanel, which flips imported_from_ipoji to
+    // true the moment a match is found, even for an existing manually-made row.
+    const source =
+      sortMode === 'not_on_ipoji' ? visibleApplications.filter((a) => !a.imported_from_ipoji) : visibleApplications
     const groups = new Map<string, { ipoName: string; items: ApplicationRow[] }>()
-    for (const a of visibleApplications) {
+    for (const a of source) {
       const key = a.ipo_id
       if (!groups.has(key)) groups.set(key, { ipoName: a.ipos?.company_name ?? 'Unknown IPO', items: [] })
       groups.get(key)!.items.push(a)
     }
     const result = Array.from(groups.values())
-    if (sortMode !== 'recent') {
+    if (sortMode === 'funder' || sortMode === 'upi' || sortMode === 'cancelled') {
       const groupKeyFor = (a: ApplicationRow) => sortGroupKeyFor(sortMode, a, resolvedBankInfo)
       for (const g of result) {
         g.items.sort((a, b) => {
@@ -441,7 +455,12 @@ export function ApplicationsPage() {
       new Map(
         applications.map((a) => [
           `${a.ipo_id}_${a.demat_id}`,
-          { id: a.id, mandate_status: a.mandate_status, ipoji_app_number: a.ipoji_app_number },
+          {
+            id: a.id,
+            mandate_status: a.mandate_status,
+            ipoji_app_number: a.ipoji_app_number,
+            imported_from_ipoji: a.imported_from_ipoji,
+          },
         ]),
       ),
     [applications],
@@ -501,7 +520,7 @@ export function ApplicationsPage() {
       )}
 
       {!showForm && visibleApplications.length > 0 && (
-        <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
+        <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
           <span>Sort within each IPO by</span>
           <div className="segmented">
             {(
@@ -510,6 +529,10 @@ export function ApplicationsPage() {
                 ['funder', 'Who funded it'],
                 ['upi', 'UPI ID'],
                 ['cancelled', 'Cancelled mandate'],
+                // A FILTER, not a sort — see groupedApplications — restricted
+                // to rows never confirmed against ipoji at all, for spotting
+                // ones created by mistake and cleaning them up.
+                ['not_on_ipoji', `Not on ipoji (${notOnIpojiCount})`],
               ] as [SortMode, string][]
             ).map(([mode, label]) => (
               <button
@@ -644,7 +667,9 @@ export function ApplicationsPage() {
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a, i) => {
                   const groupKeyFor = (x: ApplicationRow) => sortGroupKeyFor(sortMode, x, resolvedBankInfo)
-                  const showFunderHeader = sortMode !== 'recent' && (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
+                  const showFunderHeader =
+                    (sortMode === 'funder' || sortMode === 'upi' || sortMode === 'cancelled') &&
+                    (i === 0 || groupKeyFor(items[i - 1]) !== groupKeyFor(a))
                   // Items are already sorted by group key within this IPO's
                   // list, so the run sharing `a`'s key is contiguous — count
                   // it directly instead of a second full-list filter.
