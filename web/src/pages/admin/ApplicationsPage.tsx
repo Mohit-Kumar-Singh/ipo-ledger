@@ -5,7 +5,7 @@ import { Command } from 'cmdk'
 import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, PersonIcon, SearchIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { isOpenForBidding } from '../../lib/ipoStatus'
+import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
@@ -118,7 +118,7 @@ export function ApplicationsPage() {
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const [searchQuery, setSearchQuery] = useState('')
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = nowIst().dateStr
   // Funder-only rows (RLS grants SELECT on the application itself, but not
   // the full demat_accounts row) come back with demat_accounts = null — this
   // resolves just holder_name + pan_masked for those via a narrow RPC

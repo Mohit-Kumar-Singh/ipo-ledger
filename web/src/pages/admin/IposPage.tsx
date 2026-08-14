@@ -5,7 +5,7 @@ import { Archive, Pencil, Trash2 } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
-import { hasBiddingClosed, isOpenForBidding } from '../../lib/ipoStatus'
+import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { showToast } from '../../lib/toast'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
@@ -60,7 +60,7 @@ function isEligible(c: ImportCandidate): boolean {
 }
 
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = nowIst().dateStr
   if (ipo.listing_date && today >= ipo.listing_date) return { label: 'Listed', badge: 'badge-violet' }
   // ipoji's own "Allotment Out"/"Allotment Awaited" read, when we have it
   // (allotment_out non-null — either scraped or set by an admin edit), wins

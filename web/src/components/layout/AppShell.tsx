@@ -4,6 +4,7 @@ import {
   ArchiveIcon,
   BellIcon,
   ChecklistIcon,
+  CreditCardIcon,
   FileIcon,
   HomeIcon,
   LawIcon,
@@ -36,6 +37,10 @@ const links = [
   { to: '/ipos', label: 'IPOs', icon: GraphIcon },
   { to: '/applications', label: 'Applications', icon: FileIcon },
   { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon },
+  // Admin-only, filtered out below — Payouts covers funding-credit/payout
+  // obligations across every account, the same admin-only scope Dashboard's
+  // "Payouts pending" tile already has.
+  { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, adminOnly: true },
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
 ]
@@ -307,7 +312,7 @@ export function AppShell() {
             NavLink doesn't have that problem to begin with, so that
             workaround is gone too, not just relocated. */}
         <nav className="sidebar-scroll flex-1 overflow-y-auto px-2 pt-1">
-          {links.map((l) => {
+          {links.filter((l) => !l.adminOnly || profile?.role === 'admin').map((l) => {
             const Icon = l.icon
             const isActive = l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)
             // Only the Dashboard link has a natural home for this count

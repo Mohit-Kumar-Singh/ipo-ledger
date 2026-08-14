@@ -74,6 +74,10 @@ interface ExpectedProfitFunderLine {
   funderName: string
   holderNames: string
   profit: number
+  // Invested + profit — the total figure to actually hand back to this
+  // funder once it's sold, not just the profit slice. Shown as a smaller
+  // secondary line under the profit amount.
+  amountToReturn: number
 }
 interface ExpectedProfitIpoBlock {
   ipoName: string
@@ -153,10 +157,12 @@ function buildExpectedProfitByIpo(cards: FunderAllottedCard[]): ExpectedProfitIp
   const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
     if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, { ipoName: c.ipoName, funders: [] })
+    const b = expectedProfitBreakdown(c)
     byIpo.get(c.ipoName)!.funders.push({
       funderName: c.funderName,
       holderNames: c.holderNames.map((h) => h.name).join(', '),
-      profit: expectedProfitBreakdown(c).netYourProfit,
+      profit: b.netYourProfit,
+      amountToReturn: b.amountToReturn,
     })
   }
   return Array.from(byIpo.values())
@@ -188,6 +194,11 @@ export function DashboardPage() {
   // toast on every single visit. localStorage persists across all of that;
   // the guard is "have we already shown it today," not "this mount."
   const hasShownGmpToast = useRef(localStorage.getItem('gmpToastShownDate') === nowIst().dateStr)
+  // Same once-per-day-via-localStorage guard as the GMP toast above, for the
+  // listing-day reminder ("go mark these sold") and the mandate-cutoff
+  // warning ("approve these before 4:50pm").
+  const hasShownListingToast = useRef(localStorage.getItem('listingToastShownDate') === nowIst().dateStr)
+  const hasShownMandateCutoffToast = useRef(localStorage.getItem('mandateCutoffToastShownDate') === nowIst().dateStr)
 
   async function markPayoutPaid(line: PendingPayoutLine) {
     setMarkingPaid(line.applicationId + line.field)
@@ -323,9 +334,14 @@ export function DashboardPage() {
       // heads-up (2 days / 1 day before open) — shown here so it's visible
       // in the UI too, not just via WhatsApp.
       const todayForGmp = todayStr
-      const in2DaysForGmp = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10)
+      // +2 days off the already-IST-correct todayStr, not off a fresh
+      // UTC-based Date.now() — same rollover bug as the closingToday fix
+      // above would otherwise sneak back in here.
+      const in2DaysForGmp = new Date(`${todayStr}T00:00:00Z`)
+      in2DaysForGmp.setUTCDate(in2DaysForGmp.getUTCDate() + 2)
+      const in2DaysForGmpStr = in2DaysForGmp.toISOString().slice(0, 10)
       const highGmpAlerts: HighGmpAlert[] = ((allIpos.data ?? []) as Ipo[])
-        .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmp)
+        .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmpStr)
         .map((ipo) => ({ ipo, gmpPercent: parseGmpPercent(ipo.gmp_notes) }))
         .filter((x): x is { ipo: Ipo; gmpPercent: number } => x.gmpPercent !== null && x.gmpPercent > HIGH_GMP_THRESHOLD)
         .map(({ ipo, gmpPercent }) => ({
@@ -348,6 +364,46 @@ export function DashboardPage() {
             `${a.companyName} opens ${daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`} (${a.openDate}) with GMP running high at ${a.gmpPercent}% (${a.gmpNotes}).`,
             'warning',
           )
+        }
+      }
+
+      // Listing-day reminder — an allotted-not-sold application whose IPO
+      // lists TODAY is exactly the moment someone needs to go check the
+      // opening price and decide whether to sell, not a day later once
+      // it's already been forgotten. isAdmin-gated the same as the other
+      // funder/payout-facing toasts below — a member's own listing-day
+      // holdings still show on the Dashboard tile itself either way.
+      if (isAdmin && !hasShownListingToast.current) {
+        const listingTodayRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === todayStr)
+        if (listingTodayRows.length > 0) {
+          hasShownListingToast.current = true
+          localStorage.setItem('listingToastShownDate', todayStr)
+          const names = Array.from(new Set(listingTodayRows.map((r) => r.holder_name))).join(', ')
+          const ipoNames = Array.from(new Set(listingTodayRows.map((r) => r.company_name))).join(', ')
+          showToast(`${ipoNames} lists today — ${names} still need to be marked sold once you have a price.`, 'info')
+        }
+      }
+
+      // Mandate-cutoff warning — a mandate still PENDING as the 4:50pm IST
+      // cutoff approaches (within the last hour of the window) needs a
+      // human to go approve it NOW, not just quietly drop out of the
+      // "Awaiting mandate approval" count once the window closes. Fires
+      // once the same-day window is actually close (not the whole day),
+      // so it means something when it shows up.
+      if (isAdmin && !hasShownMandateCutoffToast.current) {
+        const { dateStr, hour, minute } = nowIst()
+        const minutesToCutoff = 16 * 60 + 50 - (hour * 60 + minute)
+        if (minutesToCutoff > 0 && minutesToCutoff <= 60) {
+          const stillPending = boardRows.filter((r) => r.mandate_status === 'PENDING' && r.close_date === dateStr)
+          if (stillPending.length > 0) {
+            hasShownMandateCutoffToast.current = true
+            localStorage.setItem('mandateCutoffToastShownDate', dateStr)
+            const names = Array.from(new Set(stillPending.map((r) => r.holder_name))).join(', ')
+            showToast(
+              `Bidding closes at 4:50 PM — ${names} still ${stillPending.length === 1 ? 'has' : 'have'} a mandate awaiting approval.`,
+              'warning',
+            )
+          }
         }
       }
 
@@ -874,8 +930,15 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
                 <span className="min-w-0 truncate" style={{ color: 'var(--ink-secondary)' }}>
                   <span style={{ color: 'var(--ink-muted)' }}>{f.funderName}:</span> {f.holderNames}
                 </span>
-                <span className="shrink-0 font-medium" style={{ color: 'var(--good)' }}>
-                  {rupees(f.profit)}
+                <span className="shrink-0 text-right">
+                  <span className="block font-medium" style={{ color: 'var(--good)' }}>
+                    {rupees(f.profit)}
+                  </span>
+                  {/* Invested + profit — the actual figure to hand back,
+                      not just the profit slice above it. */}
+                  <span className="block text-[10px]" style={{ color: 'var(--ink-muted)' }}>
+                    return {rupees(f.amountToReturn)}
+                  </span>
                 </span>
               </div>
             ))}

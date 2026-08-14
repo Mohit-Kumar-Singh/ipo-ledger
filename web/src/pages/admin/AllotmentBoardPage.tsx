@@ -5,7 +5,9 @@ import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
+import { nowIst } from '../../lib/ipoStatus'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
+import { SearchIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -70,7 +72,7 @@ export function AllotmentBoardPage() {
   // maybeAutoArchiveIpo below), so it drops out of the list right away
   // instead of sitting there stale until a manual page reload.
   function loadIpos(onLoaded?: (loaded: Ipo[]) => void) {
-    const todayStr = new Date().toISOString().slice(0, 10)
+    const todayStr = nowIst().dateStr
     supabase
       .from('ipos')
       .select('*')
@@ -166,6 +168,13 @@ export function AllotmentBoardPage() {
     NOT_ALLOTTED: 3,
   }
   const sortedRows = [...rows].sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
+  // Client-side only, same reasoning as Accounts/Applications' own search —
+  // one IPO's board is a household's worth of rows, not worth a server round
+  // trip per keystroke.
+  const [search, setSearch] = useState('')
+  const searchedRows = search.trim()
+    ? sortedRows.filter((r) => r.holder_name.toLowerCase().includes(search.trim().toLowerCase()))
+    : sortedRows
 
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
   const registrarUrl = selectedIpo?.registrar_url || registrarLinks[selectedIpo?.registrar ?? '']
@@ -309,6 +318,17 @@ export function AllotmentBoardPage() {
 
       {!loading && selectedIpoId && (
         <AccountListSection count={sortedRows.length}>
+        {rows.length > 0 && (
+          <div className="relative mb-3">
+            <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by holder name…"
+              className="input pl-9"
+            />
+          </div>
+        )}
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
@@ -334,7 +354,7 @@ export function AllotmentBoardPage() {
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {sortedRows.map((row) => {
+              {searchedRows.map((row) => {
                 const notif = allottedNotifs[row.application_id]
                 return (
                 <tr key={row.application_id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
@@ -396,7 +416,7 @@ export function AllotmentBoardPage() {
                       // allotment_date has already passed, but re-check here too in case
                       // the IPO's date got edited to a future date after this board was
                       // loaded (stale selectedIpo in an already-open tab).
-                      (selectedIpo?.allotment_date && selectedIpo.allotment_date <= new Date().toISOString().slice(0, 10) ? (
+                      (selectedIpo?.allotment_date && selectedIpo.allotment_date <= nowIst().dateStr ? (
                         <div className="flex gap-3">
                           <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                             Allotted
@@ -432,6 +452,13 @@ export function AllotmentBoardPage() {
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
                     No applications for this IPO.
+                  </td>
+                </tr>
+              )}
+              {rows.length > 0 && searchedRows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
+                    No holder matches "{search}".
                   </td>
                 </tr>
               )}
@@ -685,7 +712,10 @@ function SoldForm({
   )
 }
 
-function payoutMessage(
+// Exported — the new /payouts page reuses this verbatim so an outstanding
+// payout's WhatsApp message reads identically whether it's sent from here
+// or from there, instead of a second, silently-drifting copy.
+export function payoutMessage(
   row: AllotmentBoardRow,
   result: ReturnType<typeof computeProfitSplit>,
   kind: 'cut' | 'share',

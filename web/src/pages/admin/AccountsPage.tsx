@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, ChevronDownIcon, CreditCardIcon, LinkIcon, PencilIcon, SearchIcon, TrashIcon } from '@primer/octicons-react'
+import {
+  AlertIcon,
+  CheckIcon,
+  ChevronDownIcon,
+  CopyIcon,
+  CreditCardIcon,
+  LinkIcon,
+  PencilIcon,
+  SearchIcon,
+  TrashIcon,
+} from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -483,10 +493,19 @@ function AccountSection({
                     a.app_password ||
                     a.t_pin ||
                     a.logged_in_notes) && (
-                    <div
-                      className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm"
-                      style={{ borderColor: 'var(--border)' }}
-                    >
+                    <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                      {/* One button that copies every credential field at
+                          once, formatted as plain text ready to paste into
+                          WhatsApp — for the actual real-world use case of
+                          handing this account's login over to its holder,
+                          instead of them (or the admin) copying each field
+                          one at a time via the per-field CopyButtons below. */}
+                      {(a.login_email || a.login_password || a.app_password || a.t_pin) && (
+                        <div className="mb-2 flex justify-end">
+                          <ShareDetailsButton account={a} />
+                        </div>
+                      )}
+                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
                       {a.application_name && (
                         <span style={{ color: 'var(--ink-secondary)' }}>
                           App: <span style={{ color: 'var(--ink-primary)' }}>{a.application_name}</span>
@@ -531,6 +550,7 @@ function AccountSection({
                         </span>
                       )}
                     </div>
+                    </div>
                   )}
                 </div>
               )
@@ -538,6 +558,42 @@ function AccountSection({
           </div>
         ))}
     </section>
+  )
+}
+
+// Copies every broker-app credential field for one account as a single
+// plain-text block, ready to paste straight into WhatsApp/SMS to hand the
+// login over to the account holder — the per-field CopyButtons above cover
+// "I need just this one field," this covers "share the whole login."
+function ShareDetailsButton({ account }: { account: DematAccount }) {
+  const [copied, setCopied] = useState(false)
+
+  function buildText(): string {
+    const lines = [`Account: ${account.holder_name}`]
+    if (account.application_name) lines.push(`App: ${account.application_name}`)
+    if (account.login_email) lines.push(`Login ID: ${account.login_email}`)
+    if (account.login_password) lines.push(`Password: ${account.login_password}`)
+    if (account.app_password) lines.push(`App password: ${account.app_password}`)
+    if (account.t_pin) lines.push(`T-PIN: ${account.t_pin}`)
+    return lines.join('\n')
+  }
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(buildText())
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1200)
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)]"
+      style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
+    >
+      {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
+      {copied ? 'Copied' : 'Copy login details'}
+    </button>
   )
 }
 

@@ -8,7 +8,10 @@ import type { Ipo } from '../types/database'
 // the close-date notification rollup) — NOT the same as "can I still apply
 // to this," see isOpenForBidding below for that.
 export function isLiveIpo(ipo: Pick<Ipo, 'open_date' | 'close_date' | 'listing_date'>): boolean {
-  const today = new Date().toISOString().slice(0, 10)
+  // IST, not UTC — see nowIst()'s own comment; a plain UTC date here made an
+  // IPO whose window just ended the day before still read as "live" for the
+  // first 5.5 hours of the new IST day.
+  const today = nowIst().dateStr
   const end = ipo.listing_date ?? ipo.close_date
   return today >= ipo.open_date && today <= end
 }
