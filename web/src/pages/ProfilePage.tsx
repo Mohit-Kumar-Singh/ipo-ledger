@@ -113,16 +113,27 @@ export function ProfilePage() {
 
   async function loadMyRequests() {
     setLoadingRequests(true)
+    // No more demat_accounts(holder_name) embed — RLS no longer grants a
+    // requesting member row access to an account before it's approved
+    // (migration 0066, closing the same "whole row for a name" gap 0034
+    // already fixed on the funder path). Resolve just the name instead.
     const { data, error } = await supabase
       .from('demat_link_requests')
-      .select('*, demat_accounts(holder_name)')
+      .select('*')
       .order('requested_at', { ascending: false })
     if (error) {
       alert(`Couldn't load your link requests: ${error.message}`)
       setLoadingRequests(false)
       return
     }
-    setMyRequests((data ?? []) as MyRequestRow[])
+    const rows = (data ?? []) as DematLinkRequest[]
+    const ids = Array.from(new Set(rows.map((r) => r.demat_id)))
+    const nameById = new Map<string, string>()
+    if (ids.length > 0) {
+      const { data: resolved } = await supabase.rpc('resolve_demat_holder_names', { p_ids: ids })
+      for (const r of (resolved ?? []) as { id: string; holder_name: string }[]) nameById.set(r.id, r.holder_name)
+    }
+    setMyRequests(rows.map((r) => ({ ...r, demat_accounts: nameById.has(r.demat_id) ? { holder_name: nameById.get(r.demat_id)! } : null })))
     setLoadingRequests(false)
   }
 
@@ -130,14 +141,28 @@ export function ProfilePage() {
     setLoadingBankRequests(true)
     const { data, error } = await supabase
       .from('bank_link_requests')
-      .select('*, bank_accounts(account_holder_name)')
+      .select('*')
       .order('requested_at', { ascending: false })
     if (error) {
       alert(`Couldn't load your bank link requests: ${error.message}`)
       setLoadingBankRequests(false)
       return
     }
-    setMyBankRequests((data ?? []) as MyBankRequestRow[])
+    const bankRows = (data ?? []) as BankLinkRequest[]
+    const bankIds = Array.from(new Set(bankRows.map((r) => r.bank_account_id)))
+    const bankNameById = new Map<string, string>()
+    if (bankIds.length > 0) {
+      const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: bankIds })
+      for (const r of (resolvedBanks ?? []) as { id: string; account_holder_name: string | null }[]) {
+        if (r.account_holder_name) bankNameById.set(r.id, r.account_holder_name)
+      }
+    }
+    setMyBankRequests(
+      bankRows.map((r) => ({
+        ...r,
+        bank_accounts: bankNameById.has(r.bank_account_id) ? { account_holder_name: bankNameById.get(r.bank_account_id)! } : null,
+      })),
+    )
     setLoadingBankRequests(false)
   }
 

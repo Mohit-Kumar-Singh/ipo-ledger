@@ -36,6 +36,14 @@ export interface DematAccount {
   profit_share_percent: number
   is_active: boolean
   created_at: string
+  // Broker-app login details — plaintext by design (no reveal step, unlike
+  // PAN), all optional. Visible only to the account's own linked owner and
+  // admin (same RLS grant as the rest of the row).
+  application_name: string | null
+  login_email: string | null
+  login_password: string | null
+  app_password: string | null
+  t_pin: string | null
 }
 
 export interface BankAccount {

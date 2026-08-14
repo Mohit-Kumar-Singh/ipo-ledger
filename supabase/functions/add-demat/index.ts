@@ -41,8 +41,21 @@ Deno.serve(async (req) => {
     const isAdmin = profile?.role === 'admin'
 
     const body = await req.json().catch(() => ({}))
-    const { demat_id, holder_name, phone_e164, phone_digits, pan, dp_client_id, profit_share_percent, is_active } =
-      body
+    const {
+      demat_id,
+      holder_name,
+      phone_e164,
+      phone_digits,
+      pan,
+      dp_client_id,
+      profit_share_percent,
+      is_active,
+      application_name,
+      login_email,
+      login_password,
+      app_password,
+      t_pin,
+    } = body
 
     if (!isAdmin && demat_id) {
       const { data: existing } = await admin
@@ -107,12 +120,21 @@ Deno.serve(async (req) => {
 
     const newId = demat_id ?? data
 
-    // Neither RPC touches linked_user_id/profit_share_percent/is_active — all
-    // are set (or re-set) here as a plain follow-up update under the service role.
+    // Neither RPC touches linked_user_id/profit_share_percent/is_active/the
+    // broker-app credential fields — all are set (or re-set) here as a plain
+    // follow-up update under the service role. The credential fields are
+    // deliberately plaintext (no encryption RPC, unlike PAN) — undefined
+    // means "field wasn't in the request" (leave alone on an update), an
+    // explicit empty string/null clears it.
     const followUp: Record<string, unknown> = {
       profit_share_percent: profitShare,
       is_active: typeof is_active === 'boolean' ? is_active : true,
     }
+    if (application_name !== undefined) followUp.application_name = application_name || null
+    if (login_email !== undefined) followUp.login_email = login_email || null
+    if (login_password !== undefined) followUp.login_password = login_password || null
+    if (app_password !== undefined) followUp.app_password = app_password || null
+    if (t_pin !== undefined) followUp.t_pin = t_pin || null
     if (!isAdmin && !demat_id) followUp.linked_user_id = userData.user.id
     await admin.from('demat_accounts').update(followUp).eq('id', newId)
 

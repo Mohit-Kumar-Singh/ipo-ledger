@@ -17,6 +17,13 @@ type EditingAccount = {
   profitSharePercent: string
   isActive: boolean
   linkedUserId: string | null
+  // Broker-app login details — plaintext, optional, shown directly (no
+  // reveal step, unlike PAN).
+  applicationName: string
+  loginEmail: string
+  loginPassword: string
+  appPassword: string
+  tPin: string
 }
 
 // Alphabetical, case-insensitive, regardless of when an account was added —
@@ -141,6 +148,11 @@ export function AccountsPage() {
       profitSharePercent: String(a.profit_share_percent),
       isActive: a.is_active,
       linkedUserId: a.linked_user_id,
+      applicationName: a.application_name ?? '',
+      loginEmail: a.login_email ?? '',
+      loginPassword: a.login_password ?? '',
+      appPassword: a.app_password ?? '',
+      tPin: a.t_pin ?? '',
     })
   }
 
@@ -471,6 +483,39 @@ function AccountSection({
                       <CopyButton value={a.phone_e164} label="phone number" />
                     </span>
                   </div>
+
+                  {(a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin) && (
+                    <div
+                      className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
+                      {a.application_name && (
+                        <span style={{ color: 'var(--ink-secondary)' }}>
+                          App: <span style={{ color: 'var(--ink-primary)' }}>{a.application_name}</span>
+                        </span>
+                      )}
+                      {a.login_email && (
+                        <span style={{ color: 'var(--ink-secondary)' }}>
+                          Login ID: <span style={{ color: 'var(--ink-primary)' }}>{a.login_email}</span>
+                        </span>
+                      )}
+                      {a.login_password && (
+                        <span style={{ color: 'var(--ink-secondary)' }}>
+                          Password: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.login_password}</span>
+                        </span>
+                      )}
+                      {a.app_password && (
+                        <span style={{ color: 'var(--ink-secondary)' }}>
+                          App password: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.app_password}</span>
+                        </span>
+                      )}
+                      {a.t_pin && (
+                        <span style={{ color: 'var(--ink-secondary)' }}>
+                          T-PIN: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.t_pin}</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -551,6 +596,11 @@ function AccountForm({
     draft?.profitSharePercent ?? existing?.profitSharePercent ?? '25',
   )
   const [isActive, setIsActive] = useState(draft?.isActive ?? existing?.isActive ?? true)
+  const [applicationName, setApplicationName] = useState(draft?.applicationName ?? existing?.applicationName ?? '')
+  const [loginEmail, setLoginEmail] = useState(draft?.loginEmail ?? existing?.loginEmail ?? '')
+  const [loginPassword, setLoginPassword] = useState(draft?.loginPassword ?? existing?.loginPassword ?? '')
+  const [appPassword, setAppPassword] = useState(draft?.appPassword ?? existing?.appPassword ?? '')
+  const [tPin, setTPin] = useState(draft?.tPin ?? existing?.tPin ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -558,8 +608,33 @@ function AccountForm({
   // discarding/reloading a backgrounded tab — restored above on mount,
   // cleared on cancel or successful save.
   useEffect(() => {
-    saveDraft(draftKey, { holderName, phoneDigits, pan, dematAccountNo, profitSharePercent, isActive })
-  }, [draftKey, holderName, phoneDigits, pan, dematAccountNo, profitSharePercent, isActive])
+    saveDraft(draftKey, {
+      holderName,
+      phoneDigits,
+      pan,
+      dematAccountNo,
+      profitSharePercent,
+      isActive,
+      applicationName,
+      loginEmail,
+      loginPassword,
+      appPassword,
+      tPin,
+    })
+  }, [
+    draftKey,
+    holderName,
+    phoneDigits,
+    pan,
+    dematAccountNo,
+    profitSharePercent,
+    isActive,
+    applicationName,
+    loginEmail,
+    loginPassword,
+    appPassword,
+    tPin,
+  ])
 
   function handleCancel() {
     clearDraft(draftKey)
@@ -600,6 +675,11 @@ function AccountForm({
           dp_client_id: dematAccountNo || null,
           profit_share_percent: profitShareNum,
           is_active: isActive,
+          application_name: applicationName || null,
+          login_email: loginEmail || null,
+          login_password: loginPassword || null,
+          app_password: appPassword || null,
+          t_pin: tPin || null,
         },
       },
     )
@@ -690,6 +770,22 @@ function AccountForm({
           <Switch checked={isActive} onChange={() => setIsActive((v) => !v)} label="Active account" />
           {isActive ? 'Active — used regularly' : 'Inactive — not used regularly'}
         </div>
+      </Field>
+
+      <Field label="Application name" hint="optional — which broker app this is for">
+        <input value={applicationName} onChange={(e) => setApplicationName(e.target.value)} className="input" />
+      </Field>
+      <Field label="Email ID / User ID" hint="optional — login identifier">
+        <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" />
+      </Field>
+      <Field label="Login password" hint="optional">
+        <input value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="input" />
+      </Field>
+      <Field label="App password" hint="optional">
+        <input value={appPassword} onChange={(e) => setAppPassword(e.target.value)} className="input" />
+      </Field>
+      <Field label="T-PIN" hint="optional">
+        <input value={tPin} onChange={(e) => setTPin(e.target.value)} className="input" />
       </Field>
       {existing && existing.linkedUserId && isAdmin && (
         <Field label="Linked member">
