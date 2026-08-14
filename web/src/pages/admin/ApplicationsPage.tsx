@@ -1036,11 +1036,19 @@ function NewApplicationForm({
     let cancelled = false
     supabase
       .from('applications')
-      .select('demat_id')
+      .select('demat_id, mandate_status')
       .eq('ipo_id', ipoId)
       .then(({ data }) => {
         if (cancelled) return
-        setAlreadyAppliedDematIds(new Set((data ?? []).map((r) => r.demat_id)))
+        // A CANCELLED mandate means the funder never actually approved the
+        // UPI block — no money moved, so that account hasn't really applied
+        // and should be free to pick again, same reasoning as the "accounts
+        // left"/"cancelled mandates" fixes on Dashboard and Settings. Not
+        // excluding it here left it wrongly flagged "already applied" (and
+        // silently unselectable) in this exact dropdown.
+        setAlreadyAppliedDematIds(
+          new Set((data ?? []).filter((r) => r.mandate_status !== 'CANCELLED').map((r) => r.demat_id)),
+        )
       })
     return () => {
       cancelled = true
