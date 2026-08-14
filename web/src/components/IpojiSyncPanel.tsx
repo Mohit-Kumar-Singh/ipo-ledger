@@ -542,7 +542,17 @@ export function IpojiSyncPanel({
             <textarea
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder="Paste what the script showed you here…"
+              onKeyDown={(e) => {
+                // Plain Enter (no Shift) previews immediately instead of
+                // requiring a separate click on "Preview" right after a
+                // paste — Shift+Enter still inserts a literal newline, in
+                // case someone's hand-editing the pasted JSON.
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  if (pasteText.trim() && !lookupsLoading) handleParse()
+                }
+              }}
+              placeholder="Paste what the script showed you here, then press Enter…"
               className="input mt-2 h-24 w-full font-mono text-xs"
             />
             {parseError && (
