@@ -5,7 +5,6 @@ import {
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
-  CreditCardIcon,
   LinkIcon,
   PencilIcon,
   SearchIcon,
@@ -415,54 +414,55 @@ function AccountSection({
                 )
               }
 
+              const hasCredentials =
+                a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin || a.logged_in_notes
+              const hasShareableCredentials = a.login_email || a.login_password || a.app_password || a.t_pin
+
               return (
-                <div key={a.id} className="card stagger-item p-4 sm:p-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-3">
+                <div key={a.id} className="card stagger-item p-3 sm:p-3.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2.5">
                       <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
                         style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
                       >
                         {a.holder_name[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                          <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                          <p className="min-w-0 truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                             {a.holder_name}
                           </p>
                           {a.linked_user_id && (
-                            <LinkIcon size={13} className="shrink-0" fill="var(--good)" aria-label="Linked to a member" />
+                            <LinkIcon size={12} className="shrink-0" fill="var(--good)" aria-label="Linked to a member" />
                           )}
                           {duplicatePanIds.has(a.id) && (
                             <span className="badge badge-critical shrink-0">duplicate PAN</span>
                           )}
-                          {/* PAN moved up next to the name, with a bit of
-                              breathing room (ml-1) so it doesn't crowd
-                              straight into the name/badges — it's the one
-                              detail worth seeing at a glance without opening
-                              edit mode. */}
-                          <span className="ml-1 flex items-center gap-1 text-xs" style={{ color: 'var(--ink-secondary)' }}>
-                            <CreditCardIcon size={13} className="shrink-0" fill="var(--ink-muted)" />
-                            <span className="font-mono">{pan}</span>
-                            {revealed[a.id] ? (
-                              <CopyButton value={pan} label="PAN" />
-                            ) : (
-                              <button
-                                onClick={() => onRevealPan(a.id)}
-                                disabled={revealing === a.id}
-                                className="link-accent font-medium disabled:opacity-50"
-                              >
-                                {revealing === a.id ? 'Revealing…' : 'Reveal'}
-                              </button>
-                            )}
-                          </span>
                         </div>
-                        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                          Profit cut {a.profit_share_percent}%
-                        </p>
+                        {/* PAN + profit cut on one compact line instead of
+                            two — this card was creeping taller every time a
+                            new field got added; folding these two together
+                            (they're both short) claws back a full row. */}
+                        <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--ink-secondary)' }}>
+                          <span className="font-mono">{pan}</span>
+                          {revealed[a.id] ? (
+                            <CopyButton value={pan} label="PAN" />
+                          ) : (
+                            <button
+                              onClick={() => onRevealPan(a.id)}
+                              disabled={revealing === a.id}
+                              className="link-accent font-medium disabled:opacity-50"
+                            >
+                              {revealing === a.id ? 'Revealing…' : 'Reveal'}
+                            </button>
+                          )}
+                          <span style={{ color: 'var(--ink-muted)' }}>· {a.profit_share_percent}% cut</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="flex shrink-0 items-center gap-0.5">
+                      {hasShareableCredentials && <ShareDetailsButton account={a} />}
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
@@ -470,7 +470,7 @@ function AccountSection({
                         className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--ink-muted)' }}
                       >
-                        <PencilIcon size={15} />
+                        <PencilIcon size={14} />
                       </button>
                       <button
                         onClick={() => onDelete(a.id, a.holder_name)}
@@ -478,7 +478,7 @@ function AccountSection({
                         className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
                         style={{ color: 'var(--critical)' }}
                       >
-                        <TrashIcon size={15} />
+                        <TrashIcon size={14} />
                       </button>
                     </div>
                   </div>
@@ -486,70 +486,29 @@ function AccountSection({
                   {/* Demat account no. and phone number no longer show on the
                       card itself — both are still fully editable in edit
                       mode (nothing is lost), they were just taking up card
-                      space that isn't needed for a quick glance. */}
-                  {(a.application_name ||
-                    a.login_email ||
-                    a.login_password ||
-                    a.app_password ||
-                    a.t_pin ||
-                    a.logged_in_notes) && (
-                    <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-                      {/* One button that copies every credential field at
-                          once, formatted as plain text ready to paste into
-                          WhatsApp — for the actual real-world use case of
-                          handing this account's login over to its holder,
-                          instead of them (or the admin) copying each field
-                          one at a time via the per-field CopyButtons below. */}
-                      {(a.login_email || a.login_password || a.app_password || a.t_pin) && (
-                        <div className="mb-2 flex justify-end">
-                          <ShareDetailsButton account={a} />
-                        </div>
-                      )}
-                    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                      space that isn't needed for a quick glance. A compact
+                      label:value grid instead of flex-wrap — flex-wrap's
+                      gap-x-6 reserved a fixed gutter after every item
+                      regardless of how short it was, so 3-4 fields routinely
+                      wrapped to 2-3 rows; the grid packs 2-3 per row based on
+                      actual available width. */}
+                  {hasCredentials && (
+                    <div
+                      className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-2 text-xs sm:grid-cols-3"
+                      style={{ borderColor: 'var(--border)' }}
+                    >
                       {a.application_name && (
-                        <span style={{ color: 'var(--ink-secondary)' }}>
-                          App: <span style={{ color: 'var(--ink-primary)' }}>{a.application_name}</span>
-                        </span>
+                        <CredentialField label="App" value={a.application_name} />
                       )}
-                      {a.login_email && (
-                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
-                          Login ID: <span style={{ color: 'var(--ink-primary)' }}>{a.login_email}</span>
-                          <CopyButton value={a.login_email} label="login ID" />
-                        </span>
-                      )}
+                      {a.login_email && <CredentialField label="Login ID" value={a.login_email} copyLabel="login ID" />}
                       {a.login_password && (
-                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
-                          Password:{' '}
-                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
-                            {a.login_password}
-                          </span>
-                          <CopyButton value={a.login_password} label="login password" />
-                        </span>
+                        <CredentialField label="Password" value={a.login_password} mono copyLabel="login password" />
                       )}
                       {a.app_password && (
-                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
-                          App password:{' '}
-                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
-                            {a.app_password}
-                          </span>
-                          <CopyButton value={a.app_password} label="app password" />
-                        </span>
+                        <CredentialField label="App password" value={a.app_password} mono copyLabel="app password" />
                       )}
-                      {a.t_pin && (
-                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
-                          T-PIN:{' '}
-                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
-                            {a.t_pin}
-                          </span>
-                          <CopyButton value={a.t_pin} label="T-PIN" />
-                        </span>
-                      )}
-                      {a.logged_in_notes && (
-                        <span style={{ color: 'var(--ink-secondary)' }}>
-                          Logged in: <span style={{ color: 'var(--ink-primary)' }}>{a.logged_in_notes}</span>
-                        </span>
-                      )}
-                    </div>
+                      {a.t_pin && <CredentialField label="T-PIN" value={a.t_pin} mono copyLabel="T-PIN" />}
+                      {a.logged_in_notes && <CredentialField label="Logged in" value={a.logged_in_notes} />}
                     </div>
                   )}
                 </div>
@@ -584,16 +543,49 @@ function ShareDetailsButton({ account }: { account: DematAccount }) {
     setTimeout(() => setCopied(false), 1200)
   }
 
+  // Icon-only, matching the Edit/Delete buttons it sits next to — a
+  // full-text "Copy login details" button was one of the things making
+  // every card taller than it needed to be.
   return (
     <button
       type="button"
       onClick={handleCopy}
-      className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)]"
+      aria-label={`Copy ${account.holder_name}'s login details`}
+      title={copied ? 'Copied!' : 'Copy login details'}
+      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
       style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
     >
-      {copied ? <CheckIcon size={13} /> : <CopyIcon size={13} />}
-      {copied ? 'Copied' : 'Copy login details'}
+      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
     </button>
+  )
+}
+
+// Compact label:value cell for the credentials grid — a shared shape so
+// each of the six possible fields renders identically instead of six
+// slightly-different inline blocks.
+function CredentialField({
+  label,
+  value,
+  mono,
+  copyLabel,
+}: {
+  label: string
+  value: string
+  mono?: boolean
+  copyLabel?: string
+}) {
+  return (
+    <div className="min-w-0">
+      <p className="truncate" style={{ color: 'var(--ink-muted)' }}>
+        {label}
+      </p>
+      <div className="flex items-center gap-1">
+        <p className={`min-w-0 truncate ${mono ? 'font-mono' : ''}`} style={{ color: 'var(--ink-primary)' }}>
+          {value}
+        </p>
+        {copyLabel && <CopyButton value={value} label={copyLabel} />}
+      </div>
+    </div>
   )
 }
 

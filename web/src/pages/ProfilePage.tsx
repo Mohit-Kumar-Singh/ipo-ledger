@@ -441,7 +441,7 @@ export function ProfilePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Profile
@@ -452,7 +452,7 @@ export function ProfilePage() {
       </div>
 
       {isAdmin && (
-        <div className="card animate-page-in space-y-3 p-5">
+        <div className="card animate-page-in space-y-3 p-4">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Pending link requests
           </h2>
@@ -470,11 +470,11 @@ export function ProfilePage() {
             // this from turning into one long single-column scroll the way
             // the whole page used to (see below), same reasoning as the
             // rest of this redesign.
-            <div className="grid grid-cols-1 gap-x-6 divide-y sm:grid-cols-2 sm:gap-y-0 sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
+            <div className="grid grid-cols-1 gap-x-4 divide-y sm:grid-cols-2 sm:gap-y-0 sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
               {pendingReview.map((r) => (
                 <div
                   key={`${r.kind}-${r.id}`}
-                  className="flex items-center justify-between gap-3 border-b py-2.5 text-sm last:border-b-0 sm:border-b"
+                  className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0 sm:border-b"
                   style={{ borderColor: 'var(--border)' }}
                 >
                   <div className="min-w-0">
@@ -513,12 +513,12 @@ export function ProfilePage() {
           chart that used to fill this blank space (Recent IPOs) is gone
           entirely now, and the request sections moved up from further down
           the page to actually use the room instead of leaving it empty. */}
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="xl:col-span-1">
-      <div className="card animate-page-in space-y-4 p-5">
-        <div className="flex items-center gap-3 border-b pb-4" style={{ borderColor: 'var(--border)' }}>
+      <div className="card animate-page-in space-y-4 p-4">
+        <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
           <div
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold"
             style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
           >
             {(fullName || '?')
@@ -695,17 +695,17 @@ export function ProfilePage() {
           type="submit"
           form="profile-details-form"
           disabled={submitting}
-          className="btn-primary w-full py-2.5"
+          className="btn-primary w-full py-2"
         >
           {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
         </button>
       </div>
         </div>
 
-        <div className="xl:col-span-2 space-y-6">
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <div className="space-y-6">
-      <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-5">
+        <div className="xl:col-span-2 space-y-4">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
+      <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a demat account
           <span
@@ -739,7 +739,7 @@ export function ProfilePage() {
         {searchResults.length > 0 && (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {searchResults.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <div>
                   <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {r.holder_name}
@@ -761,7 +761,7 @@ export function ProfilePage() {
         )}
       </form>
 
-      <div className="card animate-page-in space-y-3 p-5">
+      <div className="card animate-page-in space-y-3 p-4">
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Your requests
         </h2>
@@ -776,7 +776,7 @@ export function ProfilePage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {myRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <div>
                   <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {r.demat_accounts?.holder_name ?? '—'}
@@ -806,9 +806,9 @@ export function ProfilePage() {
       </div>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
 
-      <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-5">
+      <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a bank/UPI account
           <span
@@ -856,7 +856,7 @@ export function ProfilePage() {
             </label>
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
               {bankSearchResults.map((r) => (
-                <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                   <div>
                     <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {r.account_holder_name ?? 'Bank/UPI account'}
@@ -879,7 +879,7 @@ export function ProfilePage() {
         )}
       </form>
 
-      <div className="card animate-page-in space-y-3 p-5">
+      <div className="card animate-page-in space-y-3 p-4">
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Your bank/UPI link requests
         </h2>
@@ -894,7 +894,7 @@ export function ProfilePage() {
         ) : (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {myBankRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                 <div>
                   <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {r.bank_accounts?.account_holder_name ?? '—'}
@@ -926,16 +926,16 @@ export function ProfilePage() {
       </div>
 
       {(linkedDemat.length > 0 || linkedBank.length > 0) && (
-        <div className="card animate-page-in space-y-3 p-5">
+        <div className="card animate-page-in space-y-3 p-4">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Your linked accounts
           </h2>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             Unlinking is immediate and keeps all history — you can request to re-link later.
           </p>
-          <div className="grid grid-cols-1 gap-x-6 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
             {linkedDemat.map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center gap-2">
                   <CreditCardIcon size={15} fill="var(--ink-muted)" />
                   <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -954,7 +954,7 @@ export function ProfilePage() {
               </div>
             ))}
             {linkedBank.map((b) => (
-              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2.5 text-sm" style={{ borderColor: 'var(--border)' }}>
+              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
                 <div className="flex items-center gap-2">
                   <LawIcon size={15} fill="var(--ink-muted)" />
                   <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -997,7 +997,7 @@ function AccountsSection() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left transition-colors hover:bg-[var(--hover-surface)]"
+        className="flex w-full items-center justify-between gap-2 p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
       >
         <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           <PeopleIcon size={16} fill="var(--accent)" />
@@ -1011,7 +1011,7 @@ function AccountsSection() {
         </span>
       </button>
       {open && (
-        <div className="border-t p-5" style={{ borderColor: 'var(--border)' }}>
+        <div className="border-t p-4" style={{ borderColor: 'var(--border)' }}>
           <AccountsPage />
         </div>
       )}
@@ -1113,7 +1113,7 @@ function PanAccessLogSection() {
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 p-5 text-left transition-colors hover:bg-[var(--hover-surface)]"
+        className="flex w-full items-center justify-between gap-2 p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
       >
         <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           <ShieldCheckIcon size={16} fill="var(--violet)" />
@@ -1127,7 +1127,7 @@ function PanAccessLogSection() {
         </span>
       </button>
       {open && (
-        <div className="space-y-3 border-t p-5" style={{ borderColor: 'var(--border)' }}>
+        <div className="space-y-3 border-t p-4" style={{ borderColor: 'var(--border)' }}>
           <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
             Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose
             PAN, and when. Grouped by day, most recent first.
@@ -1175,13 +1175,13 @@ function PanAccessLogSection() {
                         <tbody className="divide-y border-t" style={{ borderColor: 'var(--border)' }}>
                           {dayRows.map((r) => (
                             <tr key={r.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-                              <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
+                              <td className="px-4 py-2" style={{ color: 'var(--ink-muted)' }}>
                                 {new Date(r.accessed_at).toLocaleTimeString()}
                               </td>
-                              <td className="px-4 py-2.5" style={{ color: 'var(--ink-primary)' }}>
+                              <td className="px-4 py-2" style={{ color: 'var(--ink-primary)' }}>
                                 {r.demat_accounts?.holder_name ?? '—'}
                               </td>
-                              <td className="px-4 py-2.5">
+                              <td className="px-4 py-2">
                                 {r.profiles?.full_name ?? '—'}
                                 {r.is_self_reveal && (
                                   <span className="ml-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>

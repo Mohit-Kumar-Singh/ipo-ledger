@@ -367,20 +367,34 @@ export function DashboardPage() {
         }
       }
 
-      // Listing-day reminder — an allotted-not-sold application whose IPO
-      // lists TODAY is exactly the moment someone needs to go check the
-      // opening price and decide whether to sell, not a day later once
-      // it's already been forgotten. isAdmin-gated the same as the other
+      // Listing-day reminder — fires both the day BEFORE (so there's still
+      // time to plan) and the day OF (the actual moment to go check the
+      // opening price and decide whether to sell) an allotted-not-sold
+      // application's IPO listing — not just the day-of, which only gave a
+      // few hours' notice. isAdmin-gated the same as the other
       // funder/payout-facing toasts below — a member's own listing-day
       // holdings still show on the Dashboard tile itself either way.
       if (isAdmin && !hasShownListingToast.current) {
+        const tomorrow = new Date(`${todayStr}T00:00:00Z`)
+        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+        const tomorrowStr = tomorrow.toISOString().slice(0, 10)
+
         const listingTodayRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === todayStr)
-        if (listingTodayRows.length > 0) {
+        const listingTomorrowRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === tomorrowStr)
+
+        if (listingTodayRows.length > 0 || listingTomorrowRows.length > 0) {
           hasShownListingToast.current = true
           localStorage.setItem('listingToastShownDate', todayStr)
-          const names = Array.from(new Set(listingTodayRows.map((r) => r.holder_name))).join(', ')
-          const ipoNames = Array.from(new Set(listingTodayRows.map((r) => r.company_name))).join(', ')
-          showToast(`${ipoNames} lists today — ${names} still need to be marked sold once you have a price.`, 'info')
+          if (listingTodayRows.length > 0) {
+            const names = Array.from(new Set(listingTodayRows.map((r) => r.holder_name))).join(', ')
+            const ipoNames = Array.from(new Set(listingTodayRows.map((r) => r.company_name))).join(', ')
+            showToast(`${ipoNames} lists today — ${names} still need to be marked sold once you have a price.`, 'info')
+          }
+          if (listingTomorrowRows.length > 0) {
+            const names = Array.from(new Set(listingTomorrowRows.map((r) => r.holder_name))).join(', ')
+            const ipoNames = Array.from(new Set(listingTomorrowRows.map((r) => r.company_name))).join(', ')
+            showToast(`${ipoNames} lists tomorrow — ${names} will need to be marked sold once it opens.`, 'info')
+          }
         }
       }
 
