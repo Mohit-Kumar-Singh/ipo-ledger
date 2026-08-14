@@ -258,13 +258,14 @@ export function AppShell() {
             card (now a plain Link, with no room for a third interactive
             element) and fullscreen had its own separate row underneath.
             Icon-only, no text labels — self-explanatory via title tooltips.
-            Row when expanded (plenty of width for 3 icons side by side);
-            stacked vertically when collapsed (the 64px rail can't fit 3
-            icons in a row without them overlapping or shrinking past a
-            comfortable tap target). */}
+            Row when expanded, spaced evenly across the panel's full width
+            (justify-between, not clustered to the left) so all three sit as
+            far apart as the rail allows; stacked vertically when collapsed
+            (the 64px rail can't fit 3 icons in a row without them
+            overlapping or shrinking past a comfortable tap target). */}
         <div
           className={`mb-1.5 flex items-center gap-1 rounded-md py-1.5 transition-[margin,padding] duration-300 ${
-            collapsed ? 'mx-1.5 flex-col justify-center px-1.5' : 'mx-3 justify-start px-2'
+            collapsed ? 'mx-1.5 flex-col justify-center px-1.5' : 'mx-3 justify-between px-2'
           }`}
         >
           {/* Desktop only — mobile uses the off-canvas drawer instead of a
@@ -378,26 +379,30 @@ export function AppShell() {
           })}
         </nav>
 
-        {/* Logout + version */}
+        {/* Logout + version, one row — version sits inline after Sign out
+            instead of its own row underneath, and is dropped entirely (not
+            just faded) when the rail is collapsed, since there's no room
+            for it next to an icon-only button there. */}
         <div className="px-2 pt-1 pb-3">
-          <button
-            type="button"
-            onClick={signOut}
-            title={collapsed ? 'Sign out' : undefined}
-            className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
-            style={{ color: 'var(--header-fg)' }}
-          >
-            <SignOutIcon size={16} fill="var(--header-fg-muted)" />
-            <span className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg)' }}>
-              Sign out
-            </span>
-          </button>
-          <p
-            className={`sidebar-fade px-3 pt-2 text-[11px] ${collapsed ? 'sidebar-fade-collapsed' : ''}`}
-            style={{ color: 'var(--header-fg-muted)' }}
-          >
-            v{__APP_VERSION__}
-          </p>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={signOut}
+              title={collapsed ? 'Sign out' : undefined}
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium transition-colors hover:bg-[var(--hover-surface)]"
+              style={{ color: 'var(--header-fg)' }}
+            >
+              <SignOutIcon size={16} fill="var(--header-fg-muted)" />
+              <span className={`sidebar-fade ${collapsed ? 'sidebar-fade-collapsed' : ''}`} style={{ color: 'var(--header-fg)' }}>
+                Sign out
+              </span>
+            </button>
+            {!collapsed && (
+              <span className="shrink-0 pr-2 text-[11px]" style={{ color: 'var(--header-fg-muted)' }}>
+                v{__APP_VERSION__}
+              </span>
+            )}
+          </div>
         </div>
       </aside>
 

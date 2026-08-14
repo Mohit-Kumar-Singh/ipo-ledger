@@ -451,64 +451,6 @@ export function ProfilePage() {
         </p>
       </div>
 
-      {isAdmin && (
-        <div className="card animate-page-in space-y-3 p-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Pending link requests
-          </h2>
-          {loadingReview ? (
-            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-              Loading…
-            </p>
-          ) : pendingReview.length === 0 ? (
-            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-              None pending.
-            </p>
-          ) : (
-            // Its own list of items can run long once several members have
-            // pending requests at once — a 2-up grid on wider screens keeps
-            // this from turning into one long single-column scroll the way
-            // the whole page used to (see below), same reasoning as the
-            // rest of this redesign.
-            <div className="grid grid-cols-1 gap-x-4 divide-y sm:grid-cols-2 sm:gap-y-0 sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
-              {pendingReview.map((r) => (
-                <div
-                  key={`${r.kind}-${r.id}`}
-                  className="flex items-center justify-between gap-3 border-b py-2 text-sm last:border-b-0 sm:border-b"
-                  style={{ borderColor: 'var(--border)' }}
-                >
-                  <div className="min-w-0">
-                    <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {r.requesterName}
-                    </p>
-                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      wants to link {r.targetName} <span className="badge badge-neutral ml-1">{r.kind}</span>
-                    </p>
-                  </div>
-                  <div className="flex shrink-0 gap-3">
-                    <button
-                      onClick={() => decideLinkRequest(r.kind, r.id, true)}
-                      disabled={decidingId === r.id}
-                      className="link-accent text-xs font-medium disabled:opacity-50"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => decideLinkRequest(r.kind, r.id, false)}
-                      disabled={decidingId === r.id}
-                      className="text-xs font-medium hover:underline disabled:opacity-50"
-                      style={{ color: 'var(--critical)' }}
-                    >
-                      Reject
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Identity/PAN card beside the link-request workflows — the pie
           chart that used to fill this blank space (Recent IPOs) is gone
           entirely now, and the request sections moved up from further down
@@ -804,6 +746,59 @@ export function ProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Same small-card shape as the other five now, not a wide full-page
+          banner — moved down here (below "Your requests") and stacked
+          single-column like every other card's list, instead of a
+          sm:grid-cols-2 sub-grid that only made sense at full width. */}
+      {isAdmin && (
+        <div className="card animate-page-in space-y-3 p-4">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Pending link requests
+          </h2>
+          {loadingReview ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              Loading…
+            </p>
+          ) : pendingReview.length === 0 ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              None pending.
+            </p>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {pendingReview.map((r) => (
+                <div key={`${r.kind}-${r.id}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {r.requesterName}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      wants to link {r.targetName} <span className="badge badge-neutral ml-1">{r.kind}</span>
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 gap-3">
+                    <button
+                      onClick={() => decideLinkRequest(r.kind, r.id, true)}
+                      disabled={decidingId === r.id}
+                      className="link-accent text-xs font-medium disabled:opacity-50"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => decideLinkRequest(r.kind, r.id, false)}
+                      disabled={decidingId === r.id}
+                      className="text-xs font-medium hover:underline disabled:opacity-50"
+                      style={{ color: 'var(--critical)' }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
         </div>
 
         <div className="space-y-4">
@@ -922,6 +917,12 @@ export function ProfilePage() {
           </div>
         )}
       </div>
+
+      {/* Sixth small card, matching the other five — appearance used to be
+          its own full-width section further down the page with a heading
+          floating above it; folded in here instead so all six sit in one
+          symmetric 2-column grid. */}
+      <AppearanceCard />
         </div>
       </div>
 
@@ -978,7 +979,6 @@ export function ProfilePage() {
         </div>
       </div>
 
-      <AppearanceSection />
       {isAdmin && <PanAccessLogSection />}
       <AccountsSection />
     </div>
@@ -1023,15 +1023,15 @@ function AccountsSection() {
 // this and the PAN access log below, both of which read more like personal
 // preferences/your-own-activity than admin-only "settings" (this one isn't
 // even admin-gated), so there was no real page left once both moved.
-function AppearanceSection() {
+function AppearanceCard() {
   const { theme } = useTheme()
   return (
-    <section>
-      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+    <div className="card animate-page-in space-y-3 p-4">
+      <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
         <PaintbrushIcon size={15} fill="var(--accent)" />
         Appearance
       </h2>
-      <div className="card flex items-center justify-between gap-3 p-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
             Theme
@@ -1042,7 +1042,7 @@ function AppearanceSection() {
         </div>
         <ThemeToggle />
       </div>
-    </section>
+    </div>
   )
 }
 
