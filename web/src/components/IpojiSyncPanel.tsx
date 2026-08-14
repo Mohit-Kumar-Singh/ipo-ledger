@@ -4,124 +4,196 @@ import { supabase } from '../lib/supabase'
 import { hasBiddingClosed } from '../lib/ipoStatus'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
-// Deliberately ONE PAGE scraped per run — an earlier version tried to
-// detect and click ipoji's "Next" control automatically; with no
-// visibility into ipoji's real pager markup, that guess ended up clicking
-// the wrong element (observed: it left the list showing no results at all
-// after advancing), and separately, ipoji's "Next" turned out to be a REAL
-// full-page navigation (not an SPA update), which destroys any in-memory
-// script state either way — confirmed live, "Preserve log" doesn't help.
-// What DOES survive that navigation (confirmed live, across real multi-page
-// runs) is localStorage — this script merges each page's scrape into a
-// localStorage-backed accumulator keyed by ipoji's own application number,
-// so running it again on page 2 adds only what's new. "Show all" then
-// displays everything accumulated so far, on whichever page you're on.
-//
-// Console script the user runs themselves, once per page, while logged into
-// ipoji in their own browser (Orders/Bids -> Current tab) — reads the page
-// they're already looking at, opens each card's detail sheet for its UPI ID
-// and PAN (the only place ipoji shows either), and shows the running total
-// in an on-page box with a "Show all"/"Copy all" — confirmed live that
-// ipoji blocks navigator.clipboard writes outright (the call just never
-// resolves), so Copy falls back to auto-selecting a textarea for a manual
-// Ctrl+C when that happens. No ipoji credential ever touches this app; this
-// only ever sees what the user explicitly pastes back in. Text-line
-// heuristic (not brittle CSS selectors) because ipoji's classes are opaque
-// Bootstrap utility names, not semantic — see IpojiSyncPanel below for why
-// a shape mismatch fails loudly instead of silently importing garbage.
+// Fully automatic across every page — confirmed live (5-page real run).
+// Earlier versions required the user to click ipoji's "Next" themselves and
+// re-paste per page, because ipoji's "Next" turned out to be a REAL
+// full-page navigation (not an SPA update): clicking it on the visible tab
+// destroys any in-memory script state, and DevTools "Preserve log" doesn't
+// help. The fix isn't avoiding that navigation — it's making it harmless:
+// this script loads ipoji's own current page inside a hidden same-origin
+// iframe, scrapes it, clicks that iframe's own "Next" link, waits for the
+// iframe (not the visible tab) to reload, and repeats. The outer script's
+// execution context never navigates, so it survives the whole run. Progress
+// merges into a localStorage accumulator (keyed by ipoji's own application
+// number) so a manual Stop mid-run still keeps everything scraped so far;
+// each run starts by clearing that accumulator first, since this script is
+// meant to complete a whole pass in one go, not merge across separate runs.
+// Confirmed live that ipoji blocks navigator.clipboard writes outright (the
+// call just never resolves), so Copy falls back to auto-selecting a
+// textarea for a manual Ctrl+C when that happens. No ipoji credential ever
+// touches this app; this only ever sees what the user explicitly pastes
+// back in. Text-line heuristic (not brittle CSS selectors) because ipoji's
+// classes are opaque Bootstrap utility names, not semantic — see
+// IpojiSyncPanel below for why a shape mismatch fails loudly instead of
+// silently importing garbage.
 const SYNC_SCRIPT = `(async () => {
   const KEY = 'ipojiAccumV1';
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
-  const cards = [...document.querySelectorAll('.order-card-v2')];
-  const rows = []; const errors = [];
-  for (let i = 0; i < cards.length; i++) {
-    const card = cards[i];
-    const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-    const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
-    // price/qty/amount labels are still used to LOCATE the status line —
-    // their values aren't kept. Price and lot size are already in the
-    // portal per-IPO; qty/amount default to the IPO's own minimum lot on
-    // the portal side, editable by hand for the rare multi-lot application.
-    const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-    if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
-    const row = {
-      ipo: lines[0], applicant: lines[1],
-      appNumber: lines[appIdx + 1] || '',
-      status: lines[amtIdx + 2] || '', upiId: '', panNumber: '',
-    };
-    try {
-      // Neither "first clickable child" (the refresh icon) nor the whole
-      // card (triggers some other handler on ipoji's side — observed
-      // throwing their own 'buildAccountForm is not defined' error, not
-      // ours, and never opening the detail sheet) is the right target.
-      // The chevron/arrow at the row's right edge is visually the LAST
-      // icon in the card, distinct from the refresh icon at the top —
-      // prefer that, walking up to its nearest clickable ancestor in case
-      // the icon itself isn't the click handler's target.
-      const icons = [...card.querySelectorAll('svg')];
-      const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
-      const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
-      target.click();
-      let sheet = null;
-      for (let t = 0; t < 15 && !sheet; t++) { await sleep(120); sheet = document.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
-      if (sheet) {
-        // A fixed sleep isn't enough — the fields animate in staggered
-        // (each with its own animation-delay), and reading mid-transition
-        // captured a BLEND of the previous card's still-fading-out text and
-        // this card's still-fading-in text (observed: two cards' fields
-        // concatenated into one garbled row). Poll until the body's text
-        // stops changing between reads, so only a fully-settled sheet gets
-        // read — 150ms/2-stable-reads is enough now that this only waits
-        // on text settling, not a fixed worst-case guess.
-        const body = sheet.querySelector('#orderDetailBody') || sheet;
-        let prevText = null, stableReads = 0, text = '';
-        for (let t = 0; t < 12 && stableReads < 2; t++) {
-          await sleep(150);
-          text = body.innerText || '';
-          stableReads = text === prevText ? stableReads + 1 : 0;
-          prevText = text;
-        }
-        const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
-        // Cross-check: the settled text must actually contain THIS card's
-        // application number — if it doesn't, we're still looking at a
-        // stale/wrong sheet (e.g. it never advanced past the previous
-        // card), so don't trust anything read from it.
-        if (row.appNumber && !dLines.some(l => l.includes(row.appNumber))) {
-          errors.push({ card: i, stage: 'stale-sheet-content', gotText: text.slice(0, 200) });
-        } else {
-          const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
-          if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
-          const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
-          if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
-        }
-        if (window.bootstrap?.Offcanvas) window.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
-        else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
-        await sleep(200);
-      } else {
-        errors.push({ card: i, stage: 'detail-sheet-not-found' });
-      }
-    } catch (e) {
-      errors.push({ card: i, stage: 'click', error: String(e) });
+
+  function findNextLink(doc) {
+    return doc.querySelector('a[aria-label="Next"]') ||
+      [...doc.querySelectorAll('a')].find(a => (a.textContent || '').trim().toLowerCase() === 'next') || null;
+  }
+  function isDisabled(el) {
+    if (!el) return true;
+    const li = el.closest('li');
+    if (li && li.classList.contains('disabled')) return true;
+    if (el.getAttribute('aria-disabled') === 'true') return true;
+    if (el.classList.contains('disabled')) return true;
+    return false;
+  }
+  function waitForIframeLoad(iframe, timeoutMs = 15000) {
+    return new Promise((resolve, reject) => {
+      let done = false;
+      const onLoad = () => { if (!done) { done = true; iframe.removeEventListener('load', onLoad); resolve(); } };
+      iframe.addEventListener('load', onLoad);
+      setTimeout(() => { if (!done) { done = true; iframe.removeEventListener('load', onLoad); reject(new Error('iframe load timeout')); } }, timeoutMs);
+    });
+  }
+  async function waitForCards(doc, timeoutMs = 4000) {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (doc.querySelectorAll('.order-card-v2').length > 0) return;
+      await sleep(150);
     }
-    rows.push(row);
   }
 
-  // Merge into whatever's already stored, deduped by ipoji's own app
-  // number — localStorage (unlike sessionStorage, confirmed live not to
-  // survive) persists across ipoji's real page reloads on Next.
-  let store;
-  try { store = JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { store = {}; }
-  let added = 0;
-  for (const r of rows) {
-    if (r.appNumber && !store[r.appNumber]) added++;
-    if (r.appNumber) store[r.appNumber] = r;
+  async function scrapeDoc(win, doc, shouldStop) {
+    const cards = [...doc.querySelectorAll('.order-card-v2')];
+    const rows = []; const errors = [];
+    for (let i = 0; i < cards.length; i++) {
+      if (shouldStop()) { errors.push({ card: i, stage: 'stopped-mid-page' }); break; }
+      const card = cards[i];
+      const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
+      const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
+      const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
+      if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
+      const row = { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '', status: lines[amtIdx + 2] || '', upiId: '', panNumber: '' };
+      if (!row.appNumber) { errors.push({ card: i, stage: 'no-app-number', applicant: row.applicant }); rows.push(row); continue; }
+      try {
+        const icons = [...card.querySelectorAll('svg')];
+        const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
+        const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
+        target.click();
+        let sheet = null;
+        for (let t = 0; t < 15 && !sheet; t++) { await sleep(120); sheet = doc.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+        if (sheet) {
+          const body = sheet.querySelector('#orderDetailBody') || sheet;
+          let prevText = null, stableReads = 0, text = '';
+          for (let t = 0; t < 12 && stableReads < 2; t++) {
+            await sleep(150);
+            text = body.innerText || '';
+            stableReads = text === prevText ? stableReads + 1 : 0;
+            prevText = text;
+          }
+          const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
+          if (!dLines.some(l => l.includes(row.appNumber))) {
+            errors.push({ card: i, stage: 'stale-sheet-content' });
+          } else {
+            const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
+            if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
+            const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
+            if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
+          }
+          if (win.bootstrap?.Offcanvas) win.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
+          else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
+          await sleep(200);
+        } else {
+          errors.push({ card: i, stage: 'detail-sheet-not-found' });
+        }
+      } catch (e) {
+        errors.push({ card: i, stage: 'click', error: String(e) });
+      }
+      rows.push(row);
+    }
+    return { rows, errors, cardCount: cards.length };
   }
-  localStorage.setItem(KEY, JSON.stringify(store));
+
+  let store = {};
+  localStorage.removeItem(KEY);
+
+  document.querySelectorAll('#__ipojiAutoBox,#__ipojiAutoIframe,#__ipojiAccumBox,#__ipojiAccumStyle').forEach(el => el.remove());
+
+  let stopRequested = false;
+  const statusBox = document.createElement('div');
+  statusBox.id = '__ipojiAutoBox';
+  statusBox.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999999;background:#1a1a2e;color:#fff;' +
+    'padding:12px 16px;border-radius:10px;font:13px sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:320px;display:flex;flex-direction:column;gap:8px;';
+  statusBox.innerHTML =
+    '<div id="__ipojiAutoMsg" style="white-space:pre-wrap;"></div>' +
+    '<button id="__ipojiAutoStop" style="align-self:flex-start;padding:5px 12px;border-radius:6px;border:1px solid #555;background:#2a2a3e;color:#fff;cursor:pointer;font-size:12px;">Stop and show data scraped so far</button>';
+  document.body.appendChild(statusBox);
+  const msgEl = statusBox.querySelector('#__ipojiAutoMsg');
+  const setStatus = (msg) => { msgEl.textContent = msg; console.log('[ipoji auto]', msg); };
+  statusBox.querySelector('#__ipojiAutoStop').onclick = () => {
+    stopRequested = true;
+    setStatus('Stopping after the current page finishes.');
+  };
+
+  const iframe = document.createElement('iframe');
+  iframe.id = '__ipojiAutoIframe';
+  iframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;right:0;';
+  document.body.appendChild(iframe);
+
+  let pageNum = 1;
+  const MAX_PAGES = 50;
+  let stoppedReason = '';
+  let totalErrors = 0;
+
+  try {
+    setStatus('Loading page 1 in a hidden iframe.');
+    const firstLoad = waitForIframeLoad(iframe);
+    iframe.src = location.href;
+    await firstLoad;
+
+    while (pageNum <= MAX_PAGES) {
+      if (stopRequested) { stoppedReason = 'Stopped manually before page ' + pageNum + '.'; break; }
+      let doc, win;
+      try {
+        doc = iframe.contentDocument;
+        win = iframe.contentWindow;
+        if (!doc) throw new Error('no contentDocument');
+      } catch (e) {
+        stoppedReason = 'Cannot read the iframe content (' + String(e) + ').';
+        break;
+      }
+      await waitForCards(doc);
+      setStatus('Scraping page ' + pageNum + '.');
+      const { rows, errors, cardCount } = await scrapeDoc(win, doc, () => stopRequested);
+      totalErrors += errors.length;
+      let added = 0;
+      for (const r of rows) { if (r.appNumber && !store[r.appNumber]) added++; if (r.appNumber) store[r.appNumber] = r; }
+      localStorage.setItem(KEY, JSON.stringify(store));
+      const total = Object.keys(store).length;
+      setStatus('Page ' + pageNum + ': ' + cardCount + ' card(s), ' + added + ' new.\\nTotal stored: ' + total + '.' + (errors.length ? ' (' + errors.length + ' issue(s), see console)' : ''));
+      console.log('[ipoji auto] page', pageNum, { cardCount, added, errors });
+
+      if (stopRequested) { stoppedReason = 'Stopped manually mid-page ' + pageNum + ' - everything scraped before the stop is saved.'; break; }
+      if (cardCount < 10) { stoppedReason = 'Page ' + pageNum + ' had fewer than 10 cards - last page.'; break; }
+      if (added === 0 && pageNum > 1) { stoppedReason = 'Page ' + pageNum + ' had no new app numbers - stopped to avoid a loop.'; break; }
+
+      const nextLink = findNextLink(doc);
+      if (isDisabled(nextLink)) { stoppedReason = 'Next is disabled on page ' + pageNum + '.'; break; }
+
+      setStatus('Clicking Next (leaving page ' + pageNum + ').');
+      const nextLoad = waitForIframeLoad(iframe);
+      nextLink.click();
+      await nextLoad;
+      pageNum++;
+    }
+    if (pageNum > MAX_PAGES && !stoppedReason) {
+      stoppedReason = 'Hit the ' + MAX_PAGES + '-page safety cap - there may be more pages left. Run again to continue (already-stored rows are skipped automatically).';
+    }
+  } catch (e) {
+    stoppedReason = 'Stopped on an error: ' + String(e) + '. Everything scraped before the error is still saved.';
+  }
+
+  iframe.remove();
+  statusBox.remove();
+
   const total = Object.keys(store).length;
   const statusCounts = {};
   for (const r of Object.values(store)) statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
-
-  document.querySelectorAll('#__ipojiAccumBox,#__ipojiAccumStyle').forEach((el) => el.remove());
 
   const style = document.createElement('style');
   style.id = '__ipojiAccumStyle';
@@ -136,32 +208,30 @@ const SYNC_SCRIPT = `(async () => {
     .ia-btn-danger { background: #fdecea; color: #d93025; }
     .ia-btn-ghost { background: transparent; color: #6b7280; }
     .ia-pill { display: inline-flex; align-items: center; gap: 6px; background: #e8f5e9; color: #1e7e34; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
+    .ia-pill-warn { background: #fff4e5; color: #b26a00; }
   \`;
   document.head.appendChild(style);
 
   const box = document.createElement('div');
   box.id = '__ipojiAccumBox';
   box.style.cssText = 'position:fixed;inset:5% 6%;z-index:999999;background:#f4f5fb;color:#1a1a2e;' +
-    'border-radius:18px;padding:0;display:flex;flex-direction:column;overflow:hidden;' +
-    'box-shadow:0 20px 60px rgba(30,20,80,.35);';
+    'border-radius:18px;padding:0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(30,20,80,.35);';
 
   const statusLine = Object.entries(statusCounts).map(([s, n]) => s + ': <b>' + n + '</b>').join(' &nbsp;\\u00b7&nbsp; ');
 
   box.innerHTML =
-    '<div style="padding:18px 22px;background:#fff;border-bottom:1px solid #ececf5;display:flex;align-items:center;justify-content:space-between;">' +
+    '<div style="padding:18px 22px;background:#fff;border-bottom:1px solid #ececf5;display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
       '<div>' +
-        '<div style="font-size:15px;font-weight:700;color:#2b2350;">ipoji sync \\u2014 accumulator</div>' +
-        '<div style="font-size:12px;color:#8a8aa3;margin-top:2px;">This page: ' + rows.length + ' card(s), <span style="color:#4f46e5;font-weight:700;">' + added + ' new</span>' +
-          (errors.length ? ' &nbsp;\\u00b7&nbsp; <span style="color:#d93025;">' + errors.length + ' skipped</span>' : '') +
-        '</div>' +
+        '<div style="font-size:15px;font-weight:700;color:#2b2350;">ipoji sync \\u2014 ' + (stopRequested ? 'stopped early' : 'auto-pagination done') + '</div>' +
+        '<div style="font-size:12px;color:#8a8aa3;margin-top:2px;">' + stoppedReason + '</div>' +
       '</div>' +
-      '<span class="ia-pill">\\u2713 ' + total + ' total stored</span>' +
+      '<div style="display:flex;gap:6px;flex-shrink:0;">' +
+        (totalErrors > 0 ? '<span class="ia-pill ia-pill-warn">\\u26a0 ' + totalErrors + ' issue(s)</span>' : '') +
+        '<span class="ia-pill">\\u2713 ' + total + ' total stored</span>' +
+      '</div>' +
     '</div>' +
     '<div style="padding:10px 22px;background:#fbfbff;border-bottom:1px solid #ececf5;font-size:12px;color:#6b6b85;">' +
-      (statusLine || 'No rows stored yet') +
-    '</div>' +
-    '<div style="padding:12px 22px;background:#fff;border-bottom:1px solid #ececf5;font-size:12px;color:#6b6b85;">' +
-      'Click <b>Next</b> on ipoji, then run this script again on that page. When you\\'re on the last page, click <b>Show all</b>.' +
+      (statusLine || 'No rows stored') +
     '</div>' +
     '<div style="display:flex;gap:10px;padding:14px 22px;background:#fff;border-bottom:1px solid #ececf5;">' +
       '<button id="__ipojiShowAll" class="ia-btn ia-btn-secondary">Show all (' + total + ')</button>' +
@@ -176,40 +246,28 @@ const SYNC_SCRIPT = `(async () => {
   document.body.appendChild(box);
 
   const ta = document.getElementById('__ipojiAccumTA');
-  const status = document.getElementById('__ipojiCopyStatus');
+  const statusEl = document.getElementById('__ipojiCopyStatus');
   const fill = () => { ta.value = JSON.stringify(Object.values(store), null, 2); ta.style.display = 'block'; };
 
-  // Close only dismisses the box — the accumulator itself is untouched, so
-  // running this again on the next page still merges into what's already
-  // stored. Closing used to also clear localStorage, which meant closing
-  // between pages (to see the page underneath, or by mis-click) silently
-  // threw away everything scraped so far. Clear stored data is the only
-  // way to actually reset now — a deliberate, separate action.
-  document.getElementById('__ipojiAccumClose').onclick = () => {
-    box.remove();
-    style.remove();
-  };
+  document.getElementById('__ipojiAccumClose').onclick = () => { box.remove(); style.remove(); };
   document.getElementById('__ipojiClearAll').onclick = () => {
     if (confirm('Clear all ' + total + ' stored rows?')) { localStorage.removeItem(KEY); box.remove(); style.remove(); }
   };
   document.getElementById('__ipojiShowAll').onclick = () => { fill(); ta.focus(); ta.select(); };
   document.getElementById('__ipojiCopyAll').onclick = async () => {
     fill();
-    status.style.display = 'block';
+    statusEl.style.display = 'block';
     try {
       await navigator.clipboard.writeText(ta.value);
-      status.style.background = '#e8f5e9';
-      status.style.color = '#1e7e34';
-      status.textContent = '\\u2713 Copied ' + total + ' row(s) to clipboard.';
+      statusEl.style.background = '#e8f5e9'; statusEl.style.color = '#1e7e34';
+      statusEl.textContent = '\\u2713 Copied ' + total + ' row(s) to clipboard.';
     } catch {
-      ta.focus();
-      ta.select();
-      status.style.background = '#fff4e5';
-      status.style.color = '#b26a00';
-      status.textContent = 'Clipboard blocked by ipoji \\u2014 text is selected, press Ctrl+C to copy.';
+      ta.focus(); ta.select();
+      statusEl.style.background = '#fff4e5'; statusEl.style.color = '#b26a00';
+      statusEl.textContent = 'Clipboard blocked by ipoji - text is selected, press Ctrl+C to copy.';
     }
   };
-  console.log('ipoji sync accumulate \\u2014 this page', rows, 'errors', errors, 'total stored', total);
+  console.log('[ipoji auto] FINISHED', stoppedReason, 'total stored:', total, 'errors:', totalErrors, Object.values(store));
 })();`
 
 interface ScrapedRow {
@@ -735,21 +793,25 @@ export function IpojiSyncPanel({
                   Applications page stays clean when this panel isn't in use. */}
               <span
                 title={
-                  'Open ipoji.com/bids → Orders/Bids → Current tab in your own browser. ' +
-                  'Open DevTools (F12) → Console, paste the copied script, press Enter. ' +
-                  "It only reads the page you're already logged into (opening each card's " +
-                  'detail sheet for its UPI ID and PAN) and shows the result in a text box on the ' +
-                  'page — ipoji blocks clipboard writes, so select-all and copy from that box ' +
-                  'manually. Your ipoji login never touches this app.\n\n' +
-                  'If ipoji\'s list has more than one page, this only reads the current page. ' +
-                  'Paste this page\'s result below, then click Next on ipoji and run the script ' +
-                  'again for the next page — running it multiple times and pasting each result ' +
-                  'is safe, already-applied entries are automatically skipped.\n\n' +
-                  "Lots/amount aren't scraped — they're assumed to be 1 lot at the IPO's own " +
-                  'cutoff price (true for every application seen so far); edit an imported ' +
-                  'application afterward if someone actually applied for more than one lot.\n\n' +
-                  "If a scraped application's IPO isn't in this portal at all yet, Preview fetches " +
-                  "it from ipoji's own current-IPO list and creates it automatically before matching."
+                  'How to use this:\n\n' +
+                  '1. Go to ipoji.com/bids -> Orders/Bids -> Current tab, in your own browser, logged in as usual.\n' +
+                  '2. Click "Copy sync script" below.\n' +
+                  '3. On the ipoji tab, open DevTools (press F12), click the Console tab, paste (Ctrl+V), press Enter.\n' +
+                  '4. The script runs by itself from there — it reads the page in the background, opens every ' +
+                  'card to grab its UPI ID and PAN, then automatically moves to the next page and repeats, ' +
+                  'until it runs out of pages. A small box in the bottom-right corner shows progress as it goes. ' +
+                  'You do not need to click Next yourself, and you can leave that tab alone while it runs.\n' +
+                  '5. If you ever want to stop early, click "Stop and show data scraped so far" in that progress box.\n' +
+                  '6. When it finishes (or you stop it), a bigger box pops up with everything found. Click ' +
+                  '"Copy all", then come back here and paste into the box below, then press Enter.\n\n' +
+                  'Notes: your ipoji login never touches this app — the script only reads what is already on ' +
+                  'the page you are logged into, and this app only ever sees what you paste back in. ipoji blocks ' +
+                  'the normal "Copy" button from working sometimes, so if Copy all fails, the text in that box is ' +
+                  'already selected — just press Ctrl+C. Lots/amount are not scraped — they are assumed to be ' +
+                  '1 lot at the IPO\'s own cutoff price (true for every application seen so far); edit an imported ' +
+                  'application afterward if someone actually applied for more than one lot. If a scraped ' +
+                  'application\'s IPO is not in this portal at all yet, Preview fetches it from ipoji\'s own ' +
+                  'current-IPO list and creates it automatically before matching.'
                 }
                 style={{ cursor: 'help', display: 'inline-flex' }}
               >
