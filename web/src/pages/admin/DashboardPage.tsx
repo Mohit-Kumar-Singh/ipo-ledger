@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon } from '@primer/octicons-react'
+import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -9,15 +9,21 @@ import { isLiveIpo } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
-import { computeIpoAttribution, type IpoAttribution } from '../../lib/applicationAttribution'
+import { computeIpoAttribution, sameIdentity, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
+import {
+  buildFunderAllottedCards,
+  expectedProfitBreakdown,
+  rupees,
+  type FunderAllottedCard,
+  type ProfitProjectionRow,
+} from '../../lib/expectedProfit'
 import { useCountUp } from '../../lib/useCountUp'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
   DematAccount,
   Ipo,
-  Notification,
 } from '../../types/database'
 
 interface PendingPayoutLine {
@@ -60,15 +66,21 @@ interface HighGmpAlert {
 }
 
 interface DashboardData {
-  closingSoon: Ipo[]
+  closingToday: Ipo[]
   pendingMandate: AllotmentBoardRow[]
   allottedNotSold: AllotmentBoardRow[]
-  failedMessages: Notification[]
   attribution: IpoAttribution[]
   ipoProgress: IpoProgress[]
   highGmpAlerts: HighGmpAlert[]
   pendingPayouts: PendingPayout[]
   totalApplied: number
+  // Sum of projected net profit (your half, after the demat holder's cut)
+  // across every currently-allotted-or-sold application with a price band
+  // on file — same per-lot math as NotificationsPage's funder "Allotment
+  // updates" cards (buildFunderAllottedCards/expectedProfitBreakdown,
+  // shared via lib/expectedProfit.ts so the two numbers can't drift apart).
+  expectedProfitTotal: number
+  expectedProfitTooltip: string
 }
 
 // Sums, per recipient, everything you still owe out of already-sold
@@ -114,6 +126,31 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
   return Array.from(byName.entries())
     .map(([name, lines]) => ({ name, amount: lines.reduce((s, l) => s + l.amount, 0), lines }))
     .sort((a, b) => b.amount - a.amount)
+}
+
+// One block per IPO, one line per funder within it — e.g.
+//   Milky Mist Dairy Food
+//   Manjeet, Amit, Saksham = ₹1,798
+//   from Dhoot: Priya = ₹899
+// The funder name only shows when an IPO has more than one funder card —
+// with just one, the holder names alone already say who this line is
+// about, so a redundant "from X" prefix would just be noise.
+function buildExpectedProfitTooltip(cards: FunderAllottedCard[]): string {
+  if (cards.length === 0) return 'No allotted applications with a price band on file yet.'
+  const byIpo = new Map<string, FunderAllottedCard[]>()
+  for (const c of cards) {
+    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, [])
+    byIpo.get(c.ipoName)!.push(c)
+  }
+  const blocks = Array.from(byIpo.entries()).map(([ipoName, ipoCards]) => {
+    const lines = ipoCards.map((c) => {
+      const names = c.holderNames.map((h) => h.name).join(', ')
+      const profit = rupees(expectedProfitBreakdown(c).netYourProfit)
+      return ipoCards.length > 1 ? `from ${c.funderName}: ${names} = ${profit}` : `${names} = ${profit}`
+    })
+    return `${ipoName}\n${lines.join('\n')}`
+  })
+  return blocks.join('\n\n')
 }
 
 export function DashboardPage() {
@@ -165,23 +202,36 @@ export function DashboardPage() {
     async function load() {
       setLoading(true)
       const todayStr = new Date().toISOString().slice(0, 10)
-      const in7d = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
 
       // Link requests moved off the Dashboard entirely (review now lives on
       // Profile, with a toast on arrival instead of a permanent tile/list
       // here — see ToastHost) — no longer fetched on this page at all.
-      const [closingSoon, allIpos, activeAccounts, board, failedMessages, attributionRes] = await Promise.all([
-        supabase.from('ipos').select('*').gte('close_date', todayStr).lte('close_date', in7d).order('close_date'),
+      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows] = await Promise.all([
+        // Exact close_date match, not a 7-day window — "closing today" is
+        // the thing that actually needs same-day action; a 7-day-out IPO
+        // isn't urgent yet and just crowded out the tile/list with noise.
+        supabase.from('ipos').select('*').eq('close_date', todayStr).order('company_name'),
         supabase.from('ipos').select('*'),
         supabase.from('demat_accounts').select('id, holder_name').eq('is_active', true),
         supabase.from('v_allotment_board').select('*'),
-        supabase
-          .from('notifications')
-          .select('*')
-          .eq('status', 'FAILED')
-          .order('created_at', { ascending: false })
-          .limit(20),
         supabase.from('v_application_attribution').select('*'),
+        // Same row shape/query NotificationsPage's admin-only funder query
+        // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — admin
+        // only, same reasoning as pendingPayouts below (funder/profit-split
+        // data across every account, not just the viewer's own).
+        isAdmin
+          ? supabase
+              .from('applications')
+              .select(
+                'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
+                  'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
+                  'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+                  'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+                  'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+              )
+              .in('status', ['ALLOTTED', 'SOLD'])
+              .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
+          : Promise.resolve({ data: [], error: null }),
       ])
 
       if (cancelled) return
@@ -287,18 +337,32 @@ export function DashboardPage() {
         }
       }
 
+      // Skip archived IPOs (fully settled — not worth projecting profit on
+      // anymore) and cards with no price band on file (same guard the
+      // WhatsApp message itself uses — nothing sane to project without one).
+      const profitCards = buildFunderAllottedCards(
+        ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter((r) => !r.ipos?.is_archived),
+        sameIdentity,
+      ).filter((c) => c.priceHigh)
+      const expectedProfitTotal = profitCards.reduce(
+        (sum, c) => sum + expectedProfitBreakdown(c).netYourProfit,
+        0,
+      )
+      const expectedProfitTooltip = buildExpectedProfitTooltip(profitCards)
+
       setData({
-        closingSoon: (closingSoon.data ?? []) as Ipo[],
+        closingToday: (closingToday.data ?? []) as Ipo[],
         // Real mandate_status (0047/0048), not the previous proxy of "every
         // still-APPLIED application" — that counted plenty of applications
         // whose mandate was already approved and were just waiting on
         // allotment, nothing to do with mandate status at all.
         pendingMandate: boardRows.filter((r) => r.mandate_status === 'PENDING'),
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
-        failedMessages: (failedMessages.data ?? []) as Notification[],
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
         ipoProgress,
         highGmpAlerts,
+        expectedProfitTotal,
+        expectedProfitTooltip,
         pendingPayouts: isAdmin
           ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
           : [],
@@ -366,13 +430,15 @@ export function DashboardPage() {
           3-col grid wrapped 6 admin tiles to two rows; this scales the
           column count to however many tiles actually render for the
           viewer's role instead. */}
-      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-7' : 'lg:grid-cols-5'}`}>
+      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
         {/* Every application whose mandate isn't CANCELLED — a cancelled
             one never actually had money move, so it's not really "applied"
             in any sense worth counting (same reasoning as the accounts-left
             fix and the Settings cancelled-mandates section). */}
         <StatTile icon={FileIcon} label="IPOs applied" value={data.totalApplied} tone="info" to="/applications" />
-        <StatTile icon={ClockIcon} label="Closing within 7 days" value={data.closingSoon.length} tone="info" to="/ipos" />
+        {/* Exact close_date === today, not a 7-day window — see load()'s
+            closingToday query. */}
+        <StatTile icon={ClockIcon} label="Closing today" value={data.closingToday.length} tone="info" to="/ipos" />
         <StatTile
           icon={LawIcon}
           label="Awaiting mandate approval"
@@ -387,13 +453,6 @@ export function DashboardPage() {
           tone="good"
           to="/allotment"
         />
-        <StatTile
-          icon={AlertIcon}
-          label="Failed messages"
-          value={data.failedMessages.length}
-          tone="critical"
-          to="/notifications"
-        />
         {isAdmin && (
           <StatTile
             icon={CreditCardIcon}
@@ -402,6 +461,17 @@ export function DashboardPage() {
             tone="warning"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
             to="/applications"
+          />
+        )}
+        {isAdmin && (
+          <StatTile
+            icon={GraphIcon}
+            label="Expected profit"
+            value={data.expectedProfitTotal}
+            tone="good"
+            format={(n) => `₹${n.toLocaleString('en-IN')}`}
+            to="/notifications"
+            title={data.expectedProfitTooltip}
           />
         )}
       </div>
@@ -444,8 +514,8 @@ export function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Section title="IPOs closing within 7 days" empty="Nothing closing soon" scrollAfter={6}>
-          {data.closingSoon.map((ipo) => (
+        <Section title="IPOs closing today" empty="Nothing closing today" scrollAfter={6}>
+          {data.closingToday.map((ipo) => (
             <Row key={ipo.id} initial={ipo.company_name[0]} tone="info" to="/ipos">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {ipo.company_name}
@@ -526,24 +596,6 @@ export function DashboardPage() {
             ))}
           </Section>
         )}
-
-        <Section title="Failed messages" empty="No failures">
-          {data.failedMessages.map((n) => (
-            <Row key={n.id} initial={n.template_name[0]} tone="critical" to="/notifications">
-              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                {n.template_name}
-              </span>
-              <span style={{ color: 'var(--critical)' }}>{n.error_detail ?? 'failed'}</span>
-            </Row>
-          ))}
-          {data.failedMessages.length > 0 && (
-            <div className="px-4 py-2.5">
-              <Link to="/notifications" className="link-accent text-sm font-medium">
-                Go to notifications →
-              </Link>
-            </div>
-          )}
-        </Section>
       </div>
     </div>
   )
@@ -556,6 +608,7 @@ function StatTile({
   tone = 'info',
   format,
   to,
+  title,
 }: {
   icon: typeof ClockIcon
   label: string
@@ -567,6 +620,10 @@ function StatTile({
   // that says action is needed shouldn't have to go hunt for where to act
   // on it.
   to?: string
+  // Native browser tooltip (title attribute) — used by "Expected profit" to
+  // show the per-IPO/per-funder breakdown on hover without building a whole
+  // custom tooltip component for one tile.
+  title?: string
 }) {
   const toneColor = {
     info: 'var(--accent)',
@@ -605,12 +662,16 @@ function StatTile({
 
   if (to) {
     return (
-      <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-3">
+      <Link to={to} title={title} className="glass-card tile-hover stagger-item flex flex-col p-3">
         {inner}
       </Link>
     )
   }
-  return <div className="glass-card tile-hover stagger-item flex flex-col p-3">{inner}</div>
+  return (
+    <div title={title} className="glass-card tile-hover stagger-item flex flex-col p-3">
+      {inner}
+    </div>
+  )
 }
 
 function Section({

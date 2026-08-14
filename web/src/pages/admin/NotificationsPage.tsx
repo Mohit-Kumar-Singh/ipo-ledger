@@ -5,7 +5,13 @@ import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
-import { parseGmpPercent } from '../../lib/ipoGmp'
+import {
+  buildFunderAllottedCards,
+  expectedProfitBreakdown,
+  rupees,
+  type FunderAllottedCard,
+  type ProfitProjectionRow,
+} from '../../lib/expectedProfit'
 import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ArchivedSection } from '../../components/ArchivedSection'
@@ -46,130 +52,13 @@ interface FunderIpoCard {
   applications: FunderApplicationDetail[]
 }
 
-type ApplicationForFunderRow = {
-  ipo_id: string
-  lots: number
-  applied_at: string
-  status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
-  mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
-  ipoji_status_text: string | null
-  ipos: {
-    company_name: string
-    open_date: string
-    close_date: string
-    listing_date: string | null
-    price_high: number | null
-    lot_size: number
-    gmp_notes: string | null
-  } | null
-  demat_accounts: { holder_name: string; profit_share_percent: number; phone_e164: string | null } | null
-  bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
-  // Manual funder-credit override (migration 0063) — wins over bank_accounts
-  // wherever "who funded this" is computed, via effectiveFunder() below.
-  funder_override: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
-}
+// This page's admin query fetches exactly the shape lib/expectedProfit.ts's
+// ProfitProjectionRow expects — reused as-is (aliased for readability at
+// this page's other call sites) rather than redefined.
+type ApplicationForFunderRow = ProfitProjectionRow
 
 function effectiveFunder(r: ApplicationForFunderRow) {
   return r.funder_override ?? r.bank_accounts
-}
-
-// One card per (funder, IPO) covering only their ALLOTTED (or already SOLD —
-// still allotted, just further along) applications — separate from the
-// funding-summary cards above, which are about what's been *applied for*,
-// not the result. A funder shouldn't have to wait for a payout message to
-// find out an application under them actually got shares.
-interface FunderAllottedCard {
-  key: string
-  funderName: string
-  phone: string | null
-  ipoId: string
-  ipoName: string
-  listingDate: string | null
-  priceHigh: number | null
-  lotSize: number
-  gmpPercent: number | null
-  // Each holder tagged with whether ANY of their applications in this card
-  // were funded via a manual override (funder_override_id) — surfaced as
-  // the same 🏷️ tag ApplicationsPage/the allotment board already show.
-  holderNames: { name: string; isOverride: boolean }[]
-  totalLots: number
-  // Weighted-average cut% across every demat account this funder's money
-  // ended up in for this IPO — different holders can carry different
-  // profit_share_percent (e.g. one account's owner takes 25%, another's
-  // takes 30%), and a single funder's allotted lots can straddle both. A
-  // flat "just use whichever row built the card first" number would be
-  // wrong the moment that happens, so this is accumulated per-lot below
-  // (_cutWeightedSum / totalLots) rather than read off one row.
-  cutPercent: number
-  _cutWeightedSum: number
-}
-
-function buildFunderAllottedCards(rows: ApplicationForFunderRow[]): FunderAllottedCard[] {
-  const cardsByIpo = new Map<string, FunderAllottedCard[]>()
-  for (const r of rows) {
-    const funder = effectiveFunder(r)
-    const name = funder?.account_holder_name
-    if (!name || !r.ipos) continue
-    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
-    if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
-    const cardsForIpo = cardsByIpo.get(r.ipo_id)!
-    let card = cardsForIpo.find((c) => sameIdentity(c.funderName, name))
-    if (!card) {
-      card = {
-        key: `allotted::${r.ipo_id}::${cardsForIpo.length}`,
-        funderName: name,
-        phone: funder?.phone_e164 ?? null,
-        ipoId: r.ipo_id,
-        ipoName: r.ipos.company_name,
-        listingDate: r.ipos.listing_date,
-        priceHigh: r.ipos.price_high,
-        lotSize: r.ipos.lot_size,
-        gmpPercent: parseGmpPercent(r.ipos.gmp_notes),
-        holderNames: [],
-        totalLots: 0,
-        cutPercent: 25,
-        _cutWeightedSum: 0,
-      }
-      cardsForIpo.push(card)
-    } else if (name.length > card.funderName.length) {
-      card.funderName = name
-    }
-    if (!card.phone && funder?.phone_e164) card.phone = funder.phone_e164
-    const holder = r.demat_accounts?.holder_name ?? 'Unknown'
-    const isOverride = !!r.funder_override
-    const existingHolder = card.holderNames.find((h) => h.name === holder)
-    if (!existingHolder) card.holderNames.push({ name: holder, isOverride })
-    else if (isOverride) existingHolder.isOverride = true
-    card.totalLots += r.lots
-    card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
-  }
-  const cards = Array.from(cardsByIpo.values()).flat()
-  for (const c of cards) {
-    if (c.totalLots > 0) c.cutPercent = c._cutWeightedSum / c.totalLots
-  }
-  return cards.sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
-}
-
-// Projected profit, computed the same way the sold-payout messages already
-// do (see payoutMessage below) but *before* an actual sale — an estimate
-// using the IPO's own price band and its GMP%, so a funder sees roughly
-// what to expect the moment allotment lands instead of only after the sale
-// is booked. Per LOT, not per share — that's the unit a funder actually
-// thinks in (one lot invested, one lot's worth of profit), and matches how
-// bid_amount is already shown everywhere else in this app. gmp_notes stores
-// a plain percentage (e.g. "17" for 17%), so the expected sold price is the
-// per-lot invested amount grossed up by that percentage.
-function expectedProfitBreakdown(card: FunderAllottedCard) {
-  const lotAmount = (card.priceHigh ?? 0) * card.lotSize
-  const gmpPercent = card.gmpPercent ?? 0
-  const soldPrice = Math.round(lotAmount * (1 + gmpPercent / 100))
-  const profitPerLot = soldPrice - lotAmount
-  const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
-  const yourProfitPerLot = Math.round(netProfitPerLot / 2)
-  const netYourProfit = yourProfitPerLot * card.totalLots
-  const investedTotal = lotAmount * card.totalLots
-  const amountToReturn = investedTotal + netYourProfit
-  return { lotAmount, gmpPercent, soldPrice, profitPerLot, netProfitPerLot, yourProfitPerLot, netYourProfit, investedTotal, amountToReturn }
 }
 
 // One card per (demat account holder, IPO) whose application got allotted —
@@ -238,10 +127,6 @@ function buildHolderAllottedMessage(card: HolderAllottedCard): string {
     `Hi ${card.holderName}, Good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
     `you! (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'})\n\n${listingLine}`
   )
-}
-
-function rupees(n: number): string {
-  return `₹${Math.round(n).toLocaleString('en-IN')}`
 }
 
 function buildFunderAllottedMessage(card: FunderAllottedCard): string {
@@ -481,7 +366,7 @@ export function NotificationsPage() {
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
     setFunderCards(buildFunderIpoCards(funderRows))
-    setAllottedCards(buildFunderAllottedCards(funderRows))
+    setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
 
     // Bank/UPI names win over demat holder names on a shared phone number —
