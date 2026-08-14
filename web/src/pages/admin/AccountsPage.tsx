@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertIcon, ChevronDownIcon, CreditCardIcon, HashIcon, LinkIcon, PencilIcon, DeviceMobileIcon, SearchIcon, TrashIcon } from '@primer/octicons-react'
+import { AlertIcon, ChevronDownIcon, CreditCardIcon, LinkIcon, PencilIcon, SearchIcon, TrashIcon } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
@@ -24,6 +24,7 @@ type EditingAccount = {
   loginPassword: string
   appPassword: string
   tPin: string
+  loggedInNotes: string
 }
 
 // Alphabetical, case-insensitive, regardless of when an account was added —
@@ -153,6 +154,7 @@ export function AccountsPage() {
       loginPassword: a.login_password ?? '',
       appPassword: a.app_password ?? '',
       tPin: a.t_pin ?? '',
+      loggedInNotes: a.logged_in_notes ?? '',
     })
   }
 
@@ -414,7 +416,7 @@ function AccountSection({
                         {a.holder_name[0]?.toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex min-w-0 items-center gap-1.5">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                           <p className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
                             {a.holder_name}
                           </p>
@@ -424,6 +426,26 @@ function AccountSection({
                           {duplicatePanIds.has(a.id) && (
                             <span className="badge badge-critical shrink-0">duplicate PAN</span>
                           )}
+                          {/* PAN moved up next to the name, with a bit of
+                              breathing room (ml-1) so it doesn't crowd
+                              straight into the name/badges — it's the one
+                              detail worth seeing at a glance without opening
+                              edit mode. */}
+                          <span className="ml-1 flex items-center gap-1 text-xs" style={{ color: 'var(--ink-secondary)' }}>
+                            <CreditCardIcon size={13} className="shrink-0" fill="var(--ink-muted)" />
+                            <span className="font-mono">{pan}</span>
+                            {revealed[a.id] ? (
+                              <CopyButton value={pan} label="PAN" />
+                            ) : (
+                              <button
+                                onClick={() => onRevealPan(a.id)}
+                                disabled={revealing === a.id}
+                                className="link-accent font-medium disabled:opacity-50"
+                              >
+                                {revealing === a.id ? 'Revealing…' : 'Reveal'}
+                              </button>
+                            )}
+                          </span>
                         </div>
                         <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                           Profit cut {a.profit_share_percent}%
@@ -451,40 +473,16 @@ function AccountSection({
                     </div>
                   </div>
 
-                  <div
-                    className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm"
-                    style={{ borderColor: 'var(--border)' }}
-                  >
-                    <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <CreditCardIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
-                      <span className="font-mono">{pan}</span>
-                      {revealed[a.id] ? (
-                        <CopyButton value={pan} label="PAN" />
-                      ) : (
-                        <button
-                          onClick={() => onRevealPan(a.id)}
-                          disabled={revealing === a.id}
-                          className="link-accent text-xs font-medium disabled:opacity-50"
-                        >
-                          {revealing === a.id ? 'Revealing…' : 'Reveal'}
-                        </button>
-                      )}
-                    </span>
-                    {a.dp_client_id && (
-                      <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                        <HashIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
-                        <span style={{ color: 'var(--ink-primary)' }}>{a.dp_client_id}</span>
-                        <CopyButton value={a.dp_client_id} label="Client ID" />
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1.5" style={{ color: 'var(--ink-secondary)' }}>
-                      <DeviceMobileIcon size={14} className="shrink-0" fill="var(--ink-muted)" />
-                      {a.phone_e164}
-                      <CopyButton value={a.phone_e164} label="phone number" />
-                    </span>
-                  </div>
-
-                  {(a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin) && (
+                  {/* Demat account no. and phone number no longer show on the
+                      card itself — both are still fully editable in edit
+                      mode (nothing is lost), they were just taking up card
+                      space that isn't needed for a quick glance. */}
+                  {(a.application_name ||
+                    a.login_email ||
+                    a.login_password ||
+                    a.app_password ||
+                    a.t_pin ||
+                    a.logged_in_notes) && (
                     <div
                       className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 border-t pt-3 text-sm"
                       style={{ borderColor: 'var(--border)' }}
@@ -495,23 +493,41 @@ function AccountSection({
                         </span>
                       )}
                       {a.login_email && (
-                        <span style={{ color: 'var(--ink-secondary)' }}>
+                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
                           Login ID: <span style={{ color: 'var(--ink-primary)' }}>{a.login_email}</span>
+                          <CopyButton value={a.login_email} label="login ID" />
                         </span>
                       )}
                       {a.login_password && (
-                        <span style={{ color: 'var(--ink-secondary)' }}>
-                          Password: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.login_password}</span>
+                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
+                          Password:{' '}
+                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
+                            {a.login_password}
+                          </span>
+                          <CopyButton value={a.login_password} label="login password" />
                         </span>
                       )}
                       {a.app_password && (
-                        <span style={{ color: 'var(--ink-secondary)' }}>
-                          App password: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.app_password}</span>
+                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
+                          App password:{' '}
+                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
+                            {a.app_password}
+                          </span>
+                          <CopyButton value={a.app_password} label="app password" />
                         </span>
                       )}
                       {a.t_pin && (
+                        <span className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
+                          T-PIN:{' '}
+                          <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>
+                            {a.t_pin}
+                          </span>
+                          <CopyButton value={a.t_pin} label="T-PIN" />
+                        </span>
+                      )}
+                      {a.logged_in_notes && (
                         <span style={{ color: 'var(--ink-secondary)' }}>
-                          T-PIN: <span className="font-mono" style={{ color: 'var(--ink-primary)' }}>{a.t_pin}</span>
+                          Logged in: <span style={{ color: 'var(--ink-primary)' }}>{a.logged_in_notes}</span>
                         </span>
                       )}
                     </div>
@@ -601,6 +617,7 @@ function AccountForm({
   const [loginPassword, setLoginPassword] = useState(draft?.loginPassword ?? existing?.loginPassword ?? '')
   const [appPassword, setAppPassword] = useState(draft?.appPassword ?? existing?.appPassword ?? '')
   const [tPin, setTPin] = useState(draft?.tPin ?? existing?.tPin ?? '')
+  const [loggedInNotes, setLoggedInNotes] = useState(draft?.loggedInNotes ?? existing?.loggedInNotes ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -620,6 +637,7 @@ function AccountForm({
       loginPassword,
       appPassword,
       tPin,
+      loggedInNotes,
     })
   }, [
     draftKey,
@@ -634,6 +652,7 @@ function AccountForm({
     loginPassword,
     appPassword,
     tPin,
+    loggedInNotes,
   ])
 
   function handleCancel() {
@@ -680,6 +699,7 @@ function AccountForm({
           login_password: loginPassword || null,
           app_password: appPassword || null,
           t_pin: tPin || null,
+          logged_in_notes: loggedInNotes || null,
         },
       },
     )
@@ -694,7 +714,7 @@ function AccountForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
+    <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
       <Field label="Holder name">
         <input required value={holderName} onChange={(e) => setHolderName(e.target.value)} className="input" />
       </Field>
@@ -772,21 +792,42 @@ function AccountForm({
         </div>
       </Field>
 
-      <Field label="Application name" hint="optional — which broker app this is for">
-        <input value={applicationName} onChange={(e) => setApplicationName(e.target.value)} className="input" />
-      </Field>
-      <Field label="Email ID / User ID" hint="optional — login identifier">
-        <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" />
-      </Field>
-      <Field label="Login password" hint="optional">
-        <input value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="input" />
-      </Field>
-      <Field label="App password" hint="optional">
-        <input value={appPassword} onChange={(e) => setAppPassword(e.target.value)} className="input" />
-      </Field>
-      <Field label="T-PIN" hint="optional">
-        <input value={tPin} onChange={(e) => setTPin(e.target.value)} className="input" />
-      </Field>
+      {/* Denser 3-across grid + a bordered box, distinct from the core
+          fields above it — this is 6 optional fields that would otherwise
+          double the form's height at 2-per-row; keeping them visually
+          grouped also makes clear they're all "broker-app login" info, not
+          part of the required account record above. */}
+      <div
+        className="col-span-1 grid grid-cols-2 gap-3 rounded-lg border p-3 sm:col-span-2 sm:grid-cols-3"
+        style={{ borderColor: 'var(--border)' }}
+      >
+        <p className="col-span-2 text-xs font-medium sm:col-span-3" style={{ color: 'var(--ink-muted)' }}>
+          Broker-app login (all optional)
+        </p>
+        <Field label="Application name" hint="which app">
+          <input value={applicationName} onChange={(e) => setApplicationName(e.target.value)} className="input" />
+        </Field>
+        <Field label="Email ID / User ID">
+          <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" />
+        </Field>
+        <Field label="Login password">
+          <input value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} className="input" />
+        </Field>
+        <Field label="App password">
+          <input value={appPassword} onChange={(e) => setAppPassword(e.target.value)} className="input" />
+        </Field>
+        <Field label="T-PIN">
+          <input value={tPin} onChange={(e) => setTPin(e.target.value)} className="input" />
+        </Field>
+        <Field label="Logged in earlier" hint="notes">
+          <input
+            value={loggedInNotes}
+            onChange={(e) => setLoggedInNotes(e.target.value)}
+            className="input"
+            placeholder="e.g. already logged in on Dad's phone"
+          />
+        </Field>
+      </div>
       {existing && existing.linkedUserId && isAdmin && (
         <Field label="Linked member">
           <div className="flex items-center gap-2 py-2">

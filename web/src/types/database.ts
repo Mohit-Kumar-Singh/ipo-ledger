@@ -44,6 +44,10 @@ export interface DematAccount {
   login_password: string | null
   app_password: string | null
   t_pin: string | null
+  // Free text — where/when this account has already been logged in, so a
+  // fresh login/OTP isn't accidentally re-triggered. Same plaintext, no
+  // reveal-step treatment as the other credential fields.
+  logged_in_notes: string | null
 }
 
 export interface BankAccount {

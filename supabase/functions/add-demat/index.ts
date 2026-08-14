@@ -55,6 +55,7 @@ Deno.serve(async (req) => {
       login_password,
       app_password,
       t_pin,
+      logged_in_notes,
     } = body
 
     if (!isAdmin && demat_id) {
@@ -135,6 +136,7 @@ Deno.serve(async (req) => {
     if (login_password !== undefined) followUp.login_password = login_password || null
     if (app_password !== undefined) followUp.app_password = app_password || null
     if (t_pin !== undefined) followUp.t_pin = t_pin || null
+    if (logged_in_notes !== undefined) followUp.logged_in_notes = logged_in_notes || null
     if (!isAdmin && !demat_id) followUp.linked_user_id = userData.user.id
     await admin.from('demat_accounts').update(followUp).eq('id', newId)
 
