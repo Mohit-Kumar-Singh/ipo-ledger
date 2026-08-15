@@ -640,7 +640,7 @@ export function IposPage() {
                           {label}
                         </span>
                       )}
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {list.map((ipo) => (
                           <IpoCard
                             key={ipo.id}
@@ -694,9 +694,9 @@ function IpoCard({
   const gmpPercent = parseGmpPercent(ipo.gmp_notes)
   const isHotGmp = gmpPercent != null && gmpPercent > 45
   const card = (
-    <div className="card stagger-item flex flex-col gap-3 p-5">
+    <div className="card stagger-item flex flex-col gap-2 p-3.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 items-start gap-2.5">
+        <div className="flex min-w-0 items-start gap-2">
           {isAdmin && onToggleSelected && (
             <input
               type="checkbox"
@@ -711,12 +711,12 @@ function IpoCard({
               the separate pill on the right, not this badge. */}
           <div
             className="icon-badge icon-badge-good shrink-0"
-            style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.5625rem' }}
+            style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem' }}
           >
-            <CheckIcon size={16} />
+            <CheckIcon size={15} />
           </div>
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {ipo.company_name}
             </h3>
             <p className="font-mono-ipo truncate text-[13px]" style={{ color: 'var(--ink-muted)' }}>
@@ -772,7 +772,7 @@ function IpoCard({
 
       {(ipo.issue_size || ipo.retail_issue_size || ipo.shareholder_issue_size) && (
         <div
-          className="grid grid-cols-2 gap-3 border-t border-b py-3.5 text-xs"
+          className="grid grid-cols-2 gap-2 border-t border-b py-2.5 text-xs"
           style={{ borderColor: 'var(--border)' }}
         >
           <Stat label="Overall issue size" value={ipo.issue_size ?? '—'} />

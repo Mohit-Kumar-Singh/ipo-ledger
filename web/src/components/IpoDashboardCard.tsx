@@ -117,17 +117,17 @@ export function IpoDashboardCard({
             open/closed instead of snapping, same technique the old side
             panel used. Each card manages this independently (expanded is
             per-ipoId from the caller's Set, not one shared boolean), so
-            several cards can be open across the grid at once. Capped at
-            ~6 rows' worth (not 400px) — the old cap let the whole card
-            visibly grow/shrink by however many accounts were left (one
-            account looked nothing like thirty); now the list's own height
-            barely moves regardless of count, it just scrolls internally
-            past 5-6 rows instead of pushing the card taller. */}
+            several cards can be open across the grid at once. Fixed height
+            for exactly 5 rows, not a scrollable cap — showing only the
+            first 5 names (rather than all of them behind a scrollbar) means
+            this panel's height is now the same constant no matter how many
+            accounts are actually left, so expanding it never changes the
+            card's size even slightly. */}
         <div
           className="overflow-hidden"
           style={{
             maxWidth: expanded ? 210 : 0,
-            maxHeight: expanded ? 190 : 0,
+            maxHeight: expanded ? 168 : 0,
             transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
@@ -135,8 +135,8 @@ export function IpoDashboardCard({
             <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
               Accounts yet to apply ({remainingHolderNames.length})
             </p>
-            <ul className="max-h-[164px] overflow-y-auto">
-              {remainingHolderNames.map((name) => (
+            <ul>
+              {remainingHolderNames.slice(0, 5).map((name) => (
                 <li
                   key={name}
                   className="truncate border-b py-1.5 text-xs last:border-b-0"
@@ -145,6 +145,11 @@ export function IpoDashboardCard({
                   {name}
                 </li>
               ))}
+              {remainingHolderNames.length > 5 && (
+                <li className="pt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  +{remainingHolderNames.length - 5} more
+                </li>
+              )}
             </ul>
           </div>
         </div>
