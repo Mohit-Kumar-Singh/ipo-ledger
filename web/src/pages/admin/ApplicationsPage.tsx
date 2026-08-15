@@ -504,18 +504,44 @@ export function ApplicationsPage() {
     return result
   }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo, searchQuery, duplicateAppIds])
 
-  // (ipo_id, demat_id, bank_account_id) -> {id, mandate_status} for
-  // applications already on file — the sync panel's own dedupe check
-  // against what ipoji reports (so re-running a sync never creates a
-  // duplicate), and also lets it offer a mandate-status update for an
-  // existing PENDING application instead of only ever creating new rows.
-  // Keyed by bank_account_id too, not just (ipo_id, demat_id) — migration
-  // 0070 allows more than one active application per account+IPO as long as
-  // each is funded via a different bank/UPI account (e.g. the same person
-  // bid twice through two different funders), so a bare (ipo_id, demat_id)
-  // key would collapse two genuinely distinct applications onto one Map
-  // entry and make the sync panel treat the second ipoji row as "already
-  // imported" instead of a real new application to create.
+  // Two lookup maps, checked in priority order by the sync panel (see
+  // existingByAppNumber's own comment for why one alone isn't enough):
+  //
+  // 1. (ipo_id, demat_id, ipoji_app_number) — ipoji's own application number
+  //    is the actual stable identity of a bid; this MUST win when present.
+  //    Real bug this fixes: a re-sync sometimes resolves the same bid to a
+  //    slightly different bank_accounts row than the first sync did (e.g.
+  //    ipoji's UPI text case changed, "MKS...@OKICICI" vs "mks...@okicici",
+  //    or a new bank_accounts row got added since — matchBank() isn't
+  //    guaranteed stable run to run). Keying existence purely on
+  //    (ipo_id, demat_id, bank_account_id) treated that as a brand new
+  //    application every time it happened, silently creating a real
+  //    duplicate row for the exact same ipoji bid — confirmed live: 10 such
+  //    pairs, same ipoji_app_number, different bank_account_id, one row per
+  //    sync run days apart.
+  // 2. (ipo_id, demat_id, bank_account_id) — the fallback for rows with no
+  //    ipoji_app_number at all (manual/backdated entries), and still what
+  //    correctly tells apart two genuinely different bids on the same
+  //    account+IPO through two different funders (migration 0070) when
+  //    ipoji happens to report different app numbers for each, as it does
+  //    for a real distinct bid.
+  const existingByAppNumber = useMemo(
+    () =>
+      new Map(
+        applications
+          .filter((a) => a.ipoji_app_number)
+          .map((a) => [
+            `${a.ipo_id}_${a.demat_id}_${a.ipoji_app_number}`,
+            {
+              id: a.id,
+              mandate_status: a.mandate_status,
+              ipoji_app_number: a.ipoji_app_number,
+              imported_from_ipoji: a.imported_from_ipoji,
+            },
+          ]),
+      ),
+    [applications],
+  )
   const existingByKey = useMemo(
     () =>
       new Map(
@@ -578,6 +604,7 @@ export function ApplicationsPage() {
             accounts={accounts}
             banks={banks}
             existingByKey={existingByKey}
+            existingByAppNumber={existingByAppNumber}
             onImported={loadApplications}
             onIposCreated={loadFormData}
             lookupsLoading={formDataLoading}

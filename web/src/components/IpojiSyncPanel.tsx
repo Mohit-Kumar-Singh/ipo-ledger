@@ -558,6 +558,7 @@ export function IpojiSyncPanel({
   accounts,
   banks,
   existingByKey,
+  existingByAppNumber,
   onImported,
   onIposCreated,
   lookupsLoading,
@@ -571,6 +572,15 @@ export function IpojiSyncPanel({
   accounts: DematAccount[]
   banks: BankAccount[]
   existingByKey: Map<
+    string,
+    { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null; imported_from_ipoji: boolean }
+  >
+  // Keyed by (ipo_id, demat_id, ipoji_app_number) instead — checked FIRST,
+  // since ipoji's own application number is the actual stable identity of a
+  // bid and has to win over a bank-account-derived key that isn't
+  // guaranteed stable run to run (see the ApplicationsPage comment where
+  // this is built for the real duplicate bug it fixes).
+  existingByAppNumber: Map<
     string,
     { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null; imported_from_ipoji: boolean }
   >
@@ -647,16 +657,22 @@ export function IpojiSyncPanel({
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
         const matchedBank = matchBank(r.upiId, banks)
         const { lots, amount: amountNum } = defaultLotsAndAmount(matchedIpo)
-        // Keyed by matched bank account too, not just IPO+demat — migration
-        // 0070 allows more than one active application per account+IPO when
-        // each is funded via a different bank/UPI account (e.g. the same
-        // person bid twice through two different funders, both still
-        // "Accepted by Investor"). A bare IPO+demat key would make the
-        // second ipoji row for that same pair look like an update to the
-        // first instead of a genuinely separate application to create.
+        // App-number match FIRST — ipoji's own application number is the
+        // real stable identity of a bid, and has to win over a
+        // bank-account-derived key that isn't guaranteed stable run to run
+        // (matchBank() can resolve the same bid to a different
+        // bank_accounts row on a later sync — a UPI-text case difference,
+        // a newly-added bank account, etc.). Only when there's no app
+        // number to go on (or no existing row matches it) does this fall
+        // back to (ipo_id, demat_id, bank_account_id) — migration 0070's
+        // "more than one active application per account+IPO when each is
+        // funded via a different bank/UPI account" case, which ipoji
+        // reports with genuinely different app numbers per bid, not the
+        // same one resolving differently.
         const existing =
           matchedIpo && matchedDemat
-            ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}_${matchedBank?.id ?? 'self'}`)
+            ? (r.appNumber && existingByAppNumber.get(`${matchedIpo.id}_${matchedDemat.id}_${r.appNumber}`)) ||
+              existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}_${matchedBank?.id ?? 'self'}`)
             : undefined
         return {
           ...r,
