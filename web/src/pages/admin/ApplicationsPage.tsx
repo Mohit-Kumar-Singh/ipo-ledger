@@ -2,7 +2,8 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent,
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, InfoIcon, PencilIcon, PersonIcon, SearchIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
@@ -59,7 +60,7 @@ function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: M
   return funderNameFor(a, resolvedBankNames)
 }
 
-type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled' | 'not_on_ipoji'
+type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled' | 'not_on_ipoji' | 'duplicates'
 
 // Same eligibility rule the existing single-row "Not allotted" button
 // already used (owner + still APPLIED + allotment_date actually passed) —
@@ -412,6 +413,28 @@ export function ApplicationsPage() {
     () => visibleApplications.filter((a) => a.mandate_status === 'CANCELLED').length,
     [visibleApplications],
   )
+  // More than one active (non-cancelled) application for the same
+  // (ipo_id, demat_id) — legitimate as of migration 0070 (each funded via a
+  // different bank/UPI account, e.g. two different people funded the same
+  // demat holder's bid on the same IPO separately), but still worth
+  // surfacing explicitly rather than letting it blend into the list, since
+  // it used to be structurally impossible and is still an edge case worth a
+  // second look.
+  const duplicateAppIds = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const a of visibleApplications) {
+      if (a.mandate_status === 'CANCELLED') continue
+      const key = `${a.ipo_id}_${a.demat_id}`
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    const ids = new Set<string>()
+    for (const a of visibleApplications) {
+      if (a.mandate_status === 'CANCELLED') continue
+      if ((counts.get(`${a.ipo_id}_${a.demat_id}`) ?? 0) > 1) ids.add(a.id)
+    }
+    return ids
+  }, [visibleApplications])
+  const duplicatesCount = duplicateAppIds.size
 
   const groupedApplications = useMemo(() => {
     // "Not on ipoji" and "Cancelled mandate" are FILTERS, not just sorts —
@@ -432,7 +455,9 @@ export function ApplicationsPage() {
         ? visibleApplications.filter((a) => !a.imported_from_ipoji)
         : sortMode === 'cancelled'
           ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
-          : visibleApplications
+          : sortMode === 'duplicates'
+            ? visibleApplications.filter((a) => duplicateAppIds.has(a.id))
+            : visibleApplications
     // Free-text search — matches holder name, IPO name, or funder name.
     // Applied after the sort-mode filter above, so e.g. searching within
     // "Not on ipoji" still only searches that already-narrowed set.
@@ -477,18 +502,25 @@ export function ApplicationsPage() {
       }
     }
     return result
-  }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo, searchQuery])
+  }, [visibleApplications, sortMode, resolvedBankInfo, resolvedDematInfo, searchQuery, duplicateAppIds])
 
-  // (ipo_id, demat_id) -> {id, mandate_status} for applications already on
-  // file — the sync panel's own dedupe check against what ipoji reports (so
-  // re-running a sync never creates a duplicate), and also lets it offer a
-  // mandate-status update for an existing PENDING application instead of
-  // only ever creating new rows.
+  // (ipo_id, demat_id, bank_account_id) -> {id, mandate_status} for
+  // applications already on file — the sync panel's own dedupe check
+  // against what ipoji reports (so re-running a sync never creates a
+  // duplicate), and also lets it offer a mandate-status update for an
+  // existing PENDING application instead of only ever creating new rows.
+  // Keyed by bank_account_id too, not just (ipo_id, demat_id) — migration
+  // 0070 allows more than one active application per account+IPO as long as
+  // each is funded via a different bank/UPI account (e.g. the same person
+  // bid twice through two different funders), so a bare (ipo_id, demat_id)
+  // key would collapse two genuinely distinct applications onto one Map
+  // entry and make the sync panel treat the second ipoji row as "already
+  // imported" instead of a real new application to create.
   const existingByKey = useMemo(
     () =>
       new Map(
         applications.map((a) => [
-          `${a.ipo_id}_${a.demat_id}`,
+          `${a.ipo_id}_${a.demat_id}_${a.bank_account_id ?? 'self'}`,
           {
             id: a.id,
             mandate_status: a.mandate_status,
@@ -579,6 +611,10 @@ export function ApplicationsPage() {
                 // to rows never confirmed against ipoji at all, for spotting
                 // ones created by mistake and cleaning them up.
                 ['not_on_ipoji', `Not on ipoji (${notOnIpojiCount})`],
+                // Another filter — more than one active application for the
+                // same account+IPO (now allowed when each is funded via a
+                // different bank/UPI account, migration 0070).
+                ['duplicates', `Duplicate applications (${duplicatesCount})`],
               ] as [SortMode, string][]
             ).map(([mode, label]) => (
               <button
@@ -845,34 +881,60 @@ export function ApplicationsPage() {
                               {'\u{1F3F7}\u{FE0F}'}
                             </span>
                           )}
+                          {/* More than one active (non-cancelled) application
+                              for this same account+IPO — legitimate now
+                              (migration 0070 allows it when each is funded
+                              via a different bank/UPI account, e.g. someone
+                              bid twice through two different funders), but
+                              still worth flagging so it's never mistaken for
+                              an accidental double-entry. */}
+                          {duplicateAppIds.has(a.id) && (
+                            <span className="badge badge-warning shrink-0 text-[10px]" title="More than one active application for this account on this IPO — see the 'Duplicate applications' sort.">
+                              duplicate
+                            </span>
+                          )}
                         </div>
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
                           </p>
                         )}
-                        {/* Funder-only rows show PAN instead of the full demat/phone
-                            details — enough for the funder to self-check allotment
-                            status on the registrar's site, nothing more. Masked by
-                            default (same reveal-then-copy pattern as AccountsPage); a
-                            masked PAN can't actually be used to check allotment, so
-                            "Reveal" calls reveal-pan (now funder-authorized too). */}
-                        {resolvedDemat?.pan_masked && (
-                          <p className="flex items-center gap-1 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                            <span className="font-mono">PAN: {revealedPans[a.demat_id] ?? resolvedDemat.pan_masked}</span>
-                            {revealedPans[a.demat_id] ? (
-                              <CopyButton value={revealedPans[a.demat_id]} label="PAN" />
-                            ) : (
-                              <button
-                                onClick={() => revealPan(a.demat_id)}
-                                disabled={revealingPan === a.demat_id}
-                                className="link-accent font-medium disabled:opacity-50"
-                              >
-                                {revealingPan === a.demat_id ? 'Revealing…' : 'Reveal'}
-                              </button>
-                            )}
-                          </p>
-                        )}
+                        {/* Funder-only rows show something to self-check allotment
+                            status on the registrar's site, not the full demat/phone
+                            details. Now that ipoji sync brings in the real
+                            application number, that's what a funder actually needs
+                            (it's literally what the registrar's own lookup asks
+                            for) — PAN is only shown as a fallback for rows that
+                            don't have one (manual/backdated entries, or ones from
+                            before ipoji_app_number was tracked). Masked by default
+                            when it does fall back to PAN (same reveal-then-copy
+                            pattern as AccountsPage); a masked PAN can't actually be
+                            used to check allotment, so "Reveal" calls reveal-pan
+                            (funder-authorized). */}
+                        {resolvedDemat &&
+                          (a.ipoji_app_number ? (
+                            <p className="flex items-center gap-1 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                              <span className="font-mono">App #: {a.ipoji_app_number}</span>
+                              <CopyButton value={a.ipoji_app_number} label="application number" />
+                            </p>
+                          ) : (
+                            resolvedDemat.pan_masked && (
+                              <p className="flex items-center gap-1 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                <span className="font-mono">PAN: {revealedPans[a.demat_id] ?? resolvedDemat.pan_masked}</span>
+                                {revealedPans[a.demat_id] ? (
+                                  <CopyButton value={revealedPans[a.demat_id]} label="PAN" />
+                                ) : (
+                                  <button
+                                    onClick={() => revealPan(a.demat_id)}
+                                    disabled={revealingPan === a.demat_id}
+                                    className="link-accent font-medium disabled:opacity-50"
+                                  >
+                                    {revealingPan === a.demat_id ? 'Revealing…' : 'Reveal'}
+                                  </button>
+                                )}
+                              </p>
+                            )
+                          ))}
                       </div>
 
                       {/* App # (ipoji's own application number, when synced from there)
@@ -1299,12 +1361,7 @@ function NewApplicationForm({
         label={
           <span className="inline-flex items-center gap-1.5">
             Funder
-            <span
-              title="Only needed when the real funder handed money over some other way and someone else's UPI actually paid — e.g. they gave you cash/a transfer and you applied using your own account. This overrides who gets funding credit (pie chart, profit-split messages) everywhere; it never affects mandate tracking, and the ipoji sync never sets or changes it."
-              style={{ cursor: 'help', display: 'inline-flex' }}
-            >
-              <InfoIcon size={13} fill="var(--ink-muted)" />
-            </span>
+            <InfoTooltip text="Only needed when the real funder handed money over some other way and someone else's UPI actually paid — e.g. they gave you cash/a transfer and you applied using your own account. This overrides who gets funding credit (pie chart, profit-split messages) everywhere; it never affects mandate tracking, and the ipoji sync never sets or changes it." />
           </span>
         }
       >

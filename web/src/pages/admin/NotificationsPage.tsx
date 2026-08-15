@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { InfoIcon } from '@primer/octicons-react'
+import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -237,7 +237,10 @@ function buildFunderIpoCards(rows: ApplicationForFunderRow[]): FunderIpoCard[] {
   }
   return Array.from(cardsByIpo.values())
     .flat()
-    .sort((a, b) => a.funderName.localeCompare(b.funderName) || a.ipoName.localeCompare(b.ipoName))
+    // IPO first, funder name only to break ties within the same IPO — all
+    // of one IPO's funders now sit together, instead of every funder's
+    // cards for different IPOs being interleaved alphabetically by name.
+    .sort((a, b) => a.ipoName.localeCompare(b.ipoName) || a.funderName.localeCompare(b.funderName))
 }
 
 // Full URL, protocol included — a bare domain (tried first, to keep the
@@ -380,12 +383,7 @@ export function NotificationsPage() {
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             Allotment updates
-            <span
-              title="One card per funder per IPO where at least one of their funded accounts got allotted — with an expected-profit projection based on the IPO's price band and GMP."
-              style={{ cursor: 'help', display: 'inline-flex' }}
-            >
-              <InfoIcon size={12} fill="var(--ink-muted)" />
-            </span>
+            <InfoTooltip text="One card per funder per IPO where at least one of their funded accounts got allotted — with an expected-profit projection based on the IPO's price band and GMP." />
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
@@ -420,12 +418,7 @@ export function NotificationsPage() {
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             Notify holders — allotted
-            <span
-              title={`One card per account holder per IPO where their own application got allotted — a plain "you got shares" notice sent to the account holder themselves, separate from the funder's profit-projection message above.`}
-              style={{ cursor: 'help', display: 'inline-flex' }}
-            >
-              <InfoIcon size={12} fill="var(--ink-muted)" />
-            </span>
+            <InfoTooltip text={`One card per account holder per IPO where their own application got allotted — a plain "you got shares" notice sent to the account holder themselves, separate from the funder's profit-projection message above.`} />
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {holderAllottedCards.map((c) => {
@@ -470,16 +463,13 @@ export function NotificationsPage() {
                   and app count are recomputed from just today's applications,
                   and cards where the funder has nothing new today drop out
                   entirely rather than showing an empty card. */}
-              <span
-                title={
+              <InfoTooltip
+                text={
                   todayOnly
                     ? "One card per funder per IPO, showing only applications entered today — for messaging a funder about just what's new."
                     : "One card per funder per currently-live IPO — if someone's funded applications across multiple ongoing IPOs, send each one separately."
                 }
-                style={{ cursor: 'help', display: 'inline-flex' }}
-              >
-                <InfoIcon size={12} fill="var(--ink-muted)" />
-              </span>
+              />
             </h2>
             <label className="flex cursor-pointer items-center gap-1.5 text-xs" style={{ color: 'var(--ink-secondary)' }}>
               <input

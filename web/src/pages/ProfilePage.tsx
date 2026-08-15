@@ -4,7 +4,6 @@ import {
   CreditCardIcon,
   LawIcon,
   DeviceMobileIcon,
-  InfoIcon,
   PaintbrushIcon,
   PeopleIcon,
   SearchIcon,
@@ -15,6 +14,7 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { InfoTooltip } from '../components/HoverCard'
 import { useTheme } from '../contexts/ThemeContext'
 import { AccountsPage } from './admin/AccountsPage'
 import type {
@@ -495,12 +495,9 @@ export function ProfilePage() {
           <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
             <span className="flex items-center gap-1.5">
               Full name
-              <span
-                title={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`}
-                style={{ cursor: 'help', display: 'inline-flex' }}
-              >
-                <InfoIcon size={12} fill="var(--ink-muted)" />
-              </span>
+              <InfoTooltip
+                text={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`}
+              />
             </span>
             <div className="mt-1 flex items-center gap-2">
               <PersonIcon size={15} fill="var(--ink-muted)" />
@@ -511,9 +508,7 @@ export function ProfilePage() {
           <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
             <span className="flex items-center gap-1.5">
               Phone number
-              <span title="Optional, 10 digits." style={{ cursor: 'help', display: 'inline-flex' }}>
-                <InfoIcon size={12} fill="var(--ink-muted)" />
-              </span>
+              <InfoTooltip text="Optional, 10 digits." />
             </span>
             <div className="mt-1 flex items-center gap-2">
               <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
@@ -548,12 +543,7 @@ export function ProfilePage() {
               <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
                 <span className="flex items-center gap-1.5">
                   Your PAN
-                  <span
-                    title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
-                    style={{ cursor: 'help', display: 'inline-flex' }}
-                  >
-                    <InfoIcon size={12} fill="var(--ink-muted)" />
-                  </span>
+                  <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link." />
                 </span>
                 <div className="mt-1 flex items-center gap-2">
                   <CreditCardIcon size={15} fill="var(--ink-muted)" />
@@ -600,12 +590,7 @@ export function ProfilePage() {
               <div className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
                 <span className="flex items-center gap-1.5">
                   Your PAN
-                  <span
-                    title="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link."
-                    style={{ cursor: 'help', display: 'inline-flex' }}
-                  >
-                    <InfoIcon size={12} fill="var(--ink-muted)" />
-                  </span>
+                  <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link." />
                 </span>
                 <div
                   className="mt-1 flex items-center justify-between gap-2 rounded-md border px-3 py-2"
@@ -650,12 +635,7 @@ export function ProfilePage() {
       <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a demat account
-          <span
-            title="Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up here, and only the name and a masked phone number."
-            style={{ cursor: 'help', display: 'inline-flex' }}
-          >
-            <InfoIcon size={12} fill="var(--ink-muted)" />
-          </span>
+          <InfoTooltip text="Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up here, and only the name and a masked phone number." />
         </h2>
         <div className="flex items-center gap-2">
           <SearchIcon size={15} fill="var(--ink-muted)" />
@@ -806,12 +786,7 @@ export function ProfilePage() {
       <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-4">
         <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Request to link a bank/UPI account
-          <span
-            title="For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4 digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead."
-            style={{ cursor: 'help', display: 'inline-flex' }}
-          >
-            <InfoIcon size={12} fill="var(--ink-muted)" />
-          </span>
+          <InfoTooltip text="For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4 digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead." />
         </h2>
         <div className="flex items-center gap-2">
           <SearchIcon size={15} fill="var(--ink-muted)" />
@@ -1118,6 +1093,7 @@ function PanAccessLogSection() {
         <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           <ShieldCheckIcon size={16} fill="var(--violet)" />
           PAN access log
+          <InfoTooltip text={`Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose PAN, and when. Grouped by day, most recent first.`} />
         </span>
         <span
           className="inline-flex transition-transform duration-200"
@@ -1128,10 +1104,6 @@ function PanAccessLogSection() {
       </button>
       {open && (
         <div className="space-y-3 border-t p-4" style={{ borderColor: 'var(--border)' }}>
-          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose
-            PAN, and when. Grouped by day, most recent first.
-          </p>
           {loading ? (
             <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
               Loading…

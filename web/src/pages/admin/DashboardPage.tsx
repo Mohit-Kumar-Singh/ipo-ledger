@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { IpoDashboardCard } from '../../components/IpoDashboardCard'
+import { HoverCard } from '../../components/HoverCard'
 import { bidCutoffMs, isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
@@ -634,17 +635,9 @@ export function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Section title="IPOs closing today" empty="Nothing closing today" scrollAfter={6}>
-          {data.closingToday.map((ipo) => (
-            <Row key={ipo.id} initial={ipo.company_name[0]} tone="info" to="/ipos">
-              <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                {ipo.company_name}
-              </span>
-              <span style={{ color: 'var(--ink-muted)' }}>closes {ipo.close_date}</span>
-            </Row>
-          ))}
-        </Section>
-
+        {/* "IPOs closing today" list dropped from here — the top KPI tile
+            already covers this (with its own hover panel listing the same
+            IPOs), a duplicate list further down the page was redundant. */}
         <Section title="Applications awaiting mandate approval" empty="None pending" scrollAfter={6}>
           {data.pendingMandate.map((r) => (
             <Row
@@ -790,50 +783,9 @@ function StatTile({
 
   if (!panel) return tile
   return (
-    <HoverCard tone={tone} panel={panel}>
+    <HoverCard tone={tone} align="right" panel={panel}>
       {tile}
     </HoverCard>
-  )
-}
-
-// A real floating card on hover/focus, not a plain-text browser tooltip —
-// tinted by the tile's own tone, with a little pop-in so it feels like part
-// of the tile rather than a bolted-on afterthought. CSS-only (group-hover),
-// no JS positioning library needed for a fixed "just below the tile" spot.
-function HoverCard({ children, panel, tone }: { children: ReactNode; panel: ReactNode; tone: 'info' | 'warning' | 'good' | 'critical' }) {
-  const toneColor = {
-    info: 'var(--accent)',
-    warning: 'var(--warning)',
-    good: 'var(--good)',
-    critical: 'var(--critical)',
-  }[tone]
-  return (
-    <div className="group relative">
-      {children}
-      {/* Right-anchored to the tile, not centered — a centered panel run off
-          the right edge of the viewport for the last tile in each row (its
-          right half got clipped, unreadable). Anchoring to the tile's right
-          edge and growing leftward keeps it on-screen for every tile in a
-          left-to-right grid, since there's always room to the left of the
-          rightmost tile but not necessarily room to the right of it. */}
-      <div
-        className="pointer-events-none absolute top-full right-0 z-30 mt-2 w-72 max-w-[88vw] translate-y-1 opacity-0 transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100"
-      >
-        <div
-          className="overflow-hidden rounded-xl border p-3 text-xs shadow-2xl backdrop-blur-md"
-          style={{
-            borderColor: toneColor,
-            borderTopWidth: '2px',
-            background: 'var(--surface)',
-            maxHeight: '18rem',
-            overflowY: 'auto',
-            boxShadow: `0 12px 32px -8px ${toneColor}55, 0 4px 12px -2px rgba(0,0,0,0.25)`,
-          }}
-        >
-          {panel}
-        </div>
-      </div>
-    </div>
   )
 }
 

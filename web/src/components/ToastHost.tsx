@@ -106,7 +106,7 @@ export function ToastHost() {
           labelText: 'New link request',
           message: `${name} requested to link a ${kind === 'demat' ? 'demat' : 'bank/UPI'} account — review on your Profile.`,
         },
-        15000,
+        5000,
       )
     }
 
@@ -127,7 +127,7 @@ export function ToastHost() {
   useEffect(() => {
     function pushNotification(notification: Notification) {
       if (notification.status === 'QUEUED') return
-      pushToast(notificationToast(notification), 15000)
+      pushToast(notificationToast(notification), 5000)
     }
 
     const channel = supabase
@@ -163,7 +163,7 @@ export function ToastHost() {
         message: toast.message,
       }
       setToasts((t) => [...t, rendered])
-      setTimeout(() => removeToast(rendered.id), 10000)
+      setTimeout(() => removeToast(rendered.id), 5000)
     })
 
     return () => {

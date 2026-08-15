@@ -110,12 +110,17 @@ export function IpoDashboardCard({
             open/closed instead of snapping, same technique the old side
             panel used. Each card manages this independently (expanded is
             per-ipoId from the caller's Set, not one shared boolean), so
-            several cards can be open across the grid at once. */}
+            several cards can be open across the grid at once. Capped at
+            ~6 rows' worth (not 400px) — the old cap let the whole card
+            visibly grow/shrink by however many accounts were left (one
+            account looked nothing like thirty); now the list's own height
+            barely moves regardless of count, it just scrolls internally
+            past 5-6 rows instead of pushing the card taller. */}
         <div
           className="overflow-hidden"
           style={{
             maxWidth: expanded ? 210 : 0,
-            maxHeight: expanded ? 400 : 0,
+            maxHeight: expanded ? 190 : 0,
             transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
@@ -123,7 +128,7 @@ export function IpoDashboardCard({
             <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
               Accounts yet to apply ({remainingHolderNames.length})
             </p>
-            <ul className="max-h-64 overflow-y-auto">
+            <ul className="max-h-[164px] overflow-y-auto">
               {remainingHolderNames.map((name) => (
                 <li
                   key={name}

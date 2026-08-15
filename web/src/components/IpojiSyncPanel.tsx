@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { InfoIcon } from '@primer/octicons-react'
+import { InfoTooltip } from './HoverCard'
 import { supabase } from '../lib/supabase'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
@@ -647,7 +647,17 @@ export function IpojiSyncPanel({
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
         const matchedBank = matchBank(r.upiId, banks)
         const { lots, amount: amountNum } = defaultLotsAndAmount(matchedIpo)
-        const existing = matchedIpo && matchedDemat ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}`) : undefined
+        // Keyed by matched bank account too, not just IPO+demat — migration
+        // 0070 allows more than one active application per account+IPO when
+        // each is funded via a different bank/UPI account (e.g. the same
+        // person bid twice through two different funders, both still
+        // "Accepted by Investor"). A bare IPO+demat key would make the
+        // second ipoji row for that same pair look like an update to the
+        // first instead of a genuinely separate application to create.
+        const existing =
+          matchedIpo && matchedDemat
+            ? existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}_${matchedBank?.id ?? 'self'}`)
+            : undefined
         return {
           ...r,
           matchedIpo,
@@ -820,8 +830,8 @@ export function IpojiSyncPanel({
               {/* Native title tooltip on hover — full instructions live here
                   instead of as permanent on-page text/code blocks, so the
                   Applications page stays clean when this panel isn't in use. */}
-              <span
-                title={
+              <InfoTooltip
+                text={
                   'How to use this:\n\n' +
                   '1. Go to ipoji.com/bids -> Orders/Bids -> Current tab, in your own browser, logged in as usual.\n' +
                   '2. Click "Copy sync script" below.\n' +
@@ -842,10 +852,7 @@ export function IpojiSyncPanel({
                   'application\'s IPO is not in this portal at all yet, Preview fetches it from ipoji\'s own ' +
                   'current-IPO list and creates it automatically before matching.'
                 }
-                style={{ cursor: 'help', display: 'inline-flex' }}
-              >
-                <InfoIcon size={14} fill="var(--ink-muted)" />
-              </span>
+              />
             </div>
             <button
               onClick={async () => {
