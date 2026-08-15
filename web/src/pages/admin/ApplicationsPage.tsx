@@ -576,15 +576,21 @@ export function ApplicationsPage() {
             </button>
           ) : (
             <>
-              <button
-                onClick={() => {
-                  setIpojiSyncOpen((v) => !v)
-                  if (!ipojiSyncOpen) loadFormData()
-                }}
-                className="btn-secondary"
-              >
-                {ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
-              </button>
+              {/* Admin-only — this bulk-imports from ipoji against every
+                  account in the portal, not just whatever a funder-only
+                  viewer is allowed to see; showing it to them would just be
+                  a button that does nothing useful. */}
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setIpojiSyncOpen((v) => !v)
+                    if (!ipojiSyncOpen) loadFormData()
+                  }}
+                  className="btn-secondary"
+                >
+                  {ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
+                </button>
+              )}
               <button onClick={() => openForm(true)} className="btn-secondary">
                 + Backdated application
               </button>
@@ -596,7 +602,7 @@ export function ApplicationsPage() {
         </div>
       </div>
 
-      {!showForm && ipojiSyncOpen && (
+      {isAdmin && !showForm && ipojiSyncOpen && (
         <Suspense fallback={<InlineSpinner label="Loading sync panel…" />}>
           <IpojiSyncPanel
             open={ipojiSyncOpen}
@@ -624,7 +630,14 @@ export function ApplicationsPage() {
         </div>
       )}
 
-      {!showForm && visibleApplications.length > 0 && (
+      {/* Admin-only — every one of these is either meaningless or actively
+          confusing to a funder-only viewer: "Who funded it"/UPI ID sorting
+          group by funder identity, but a funder only ever sees applications
+          THEY funded (RLS already scopes the list down to that), so there's
+          nothing to sort by. The other three are admin housekeeping filters
+          (cancelled-mandate review, ipoji-audit, duplicate detection) a
+          funder has no reason to act on. */}
+      {isAdmin && !showForm && visibleApplications.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
           <span>Sort within each IPO by</span>
           <div className="segmented">
