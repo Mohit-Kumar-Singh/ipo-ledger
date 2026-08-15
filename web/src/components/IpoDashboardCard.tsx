@@ -52,12 +52,12 @@ export function IpoDashboardCard({
   const canExpand = accountsLeft > 0
 
   return (
-    <div className="glass-card stagger-item p-4">
+    <div className="glass-card stagger-item p-3">
       {/* "N left" used to sit here as its own badge — moved down into
           IpoProgressGauge itself, directly under the applied/total ratio
           it's derived from, since it's a reading of the ring, not a
           separate header-level fact. */}
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           {companyName}
         </h3>
@@ -74,18 +74,25 @@ export function IpoDashboardCard({
         )}
       </div>
 
-      {gmpNotes && (
-        <p
-          className="font-mono-ipo mb-1 inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
-          style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-        >
-          {gmpNotes}
-        </p>
-      )}
-      {subscriptionRate && (
-        <p className="font-mono-ipo mb-2 text-xs font-medium" style={{ color: 'var(--accent)' }}>
-          Retail subscription: {subscriptionRate}
-        </p>
+      {/* GMP + subscription rate on one line instead of two stacked ones —
+          both are short, and stacking them was one more row of height this
+          card didn't need. */}
+      {(gmpNotes || subscriptionRate) && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {gmpNotes && (
+            <p
+              className="font-mono-ipo inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
+              style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+            >
+              {gmpNotes}
+            </p>
+          )}
+          {subscriptionRate && (
+            <p className="font-mono-ipo truncate text-xs font-medium" style={{ color: 'var(--accent)' }}>
+              Retail subscription: {subscriptionRate}
+            </p>
+          )}
+        </div>
       )}
 
       <IpoTimeline openDate={openDate} closeDate={closeDate} allotmentDate={allotmentDate} listingDate={listingDate} />
@@ -95,7 +102,7 @@ export function IpoDashboardCard({
           separate block below, full-width; now it opens up right beside
           the ring instead, same row as the pie chart. */}
       <div
-        className="mt-4 flex flex-wrap items-start justify-center gap-6 border-t pt-4"
+        className="mt-3 flex flex-wrap items-start justify-center gap-4 border-t pt-3"
         style={{ borderColor: 'var(--border)' }}
       >
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
