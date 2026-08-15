@@ -298,6 +298,33 @@ export function DashboardPage() {
         if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
         allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
       }
+      // An IPO drops out of the progress cards once EVERY row of it this
+      // viewer can see (their own rows only, for a funder-only viewer —
+      // RLS scopes boardRows that way already; every row, for admin) came
+      // back NOT_ALLOTTED more than a day ago — rather than sitting there
+      // until the IPO's own listing date (isLiveIpo's window). Real case
+      // this fixes: Dhoot Transmission funded by several different people,
+      // some allotted and some not — a funder whose OWN application was
+      // rejected shouldn't keep seeing this IPO's progress card a day
+      // later just because someone else's application under it is still
+      // live, and the same viewer-scoped check correctly keeps it visible
+      // for the funders whose applications DID get allotted.
+      const ONE_DAY_MS = 24 * 60 * 60 * 1000
+      const rowsByIpo = new Map<string, AllotmentBoardRow[]>()
+      for (const r of boardRows) {
+        if (!rowsByIpo.has(r.ipo_id)) rowsByIpo.set(r.ipo_id, [])
+        rowsByIpo.get(r.ipo_id)!.push(r)
+      }
+      const staleNotAllottedIpoIds = new Set(
+        Array.from(rowsByIpo.entries())
+          .filter(([, ipoRows]) =>
+            ipoRows.every(
+              (r) => r.status === 'NOT_ALLOTTED' && Date.now() - new Date(r.status_changed_at).getTime() > ONE_DAY_MS,
+            ),
+          )
+          .map(([ipoId]) => ipoId),
+      )
+
       const activeDematAccounts = (activeAccounts.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[]
       const totalActive = activeDematAccounts.length
       const ipoProgress: IpoProgress[] = ((allIpos.data ?? []) as Ipo[])
@@ -325,8 +352,10 @@ export function DashboardPage() {
           }
         })
         // No point showing a progress tile for an IPO nobody has applied to
-        // yet — it's not "in progress," there's nothing to track.
-        .filter((p) => p.applied > 0)
+        // yet — it's not "in progress," there's nothing to track. Nor for
+        // one this viewer's own visible applications have already settled
+        // as NOT_ALLOTTED a day or more ago (see staleNotAllottedIpoIds).
+        .filter((p) => p.applied > 0 && !staleNotAllottedIpoIds.has(p.ipoId))
         // Most recently opened first, not soonest-closing first — the
         // latest IPO is what someone's actually here to check on.
         .sort((a, b) => b.openDate.localeCompare(a.openDate))

@@ -179,6 +179,11 @@ export interface AllotmentBoardRow {
   // an admin) from "this viewer merely funded it" (read-only). See
   // migration 0071.
   demat_linked_user_id: string | null
+  // When this row's status last changed — used to drop a NOT_ALLOTTED
+  // application out of the Dashboard's IPO progress cards a day after the
+  // result came in, rather than leaving it visible until the IPO's
+  // listing date. See migration 0072.
+  status_changed_at: string
 }
 
 export interface RegistrarLink {

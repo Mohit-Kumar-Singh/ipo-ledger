@@ -335,30 +335,33 @@ export function NotificationsPage() {
   async function load() {
     setLoading(true)
     const [fundersRes, myNotifsRes] = await Promise.all([
-      isAdmin
-        ? supabase
-            .from('applications')
-            .select(
-              // Explicit FK on both bank_accounts embeds — applications now
-              // has two relationships into that table (bank_account_id, the
-              // literal paying UPI, and funder_override_id, migration 0063)
-              // — and funder cards/messages prefer the override when set
-              // (see effectiveFunder()).
-              'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
-                'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
-                'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
-                'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-                'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-            )
-            // No .or(bank_account_id/funder_override_id not null) filter —
-            // that used to drop genuinely self-funded applications (no
-            // bank/UPI account tracked at all) from every card below
-            // entirely, including "my own" IPOs. effectiveFunder() falls
-            // back to the demat holder identity when neither is set, same
-            // as the attribution pie chart already does — this just needs
-            // the row to actually be fetched for that fallback to run.
-            .order('applied_at', { ascending: false })
-        : Promise.resolve({ data: [], error: null }),
+      // Not admin-gated — RLS already scopes this to "every application" for
+      // admin and "just what I funded" for a funder-only viewer, which is
+      // exactly what the (now non-admin-visible-too) 'Allotment updates'
+      // card below needs: a funder's own 'this IPO is allotted, funded by
+      // you' card.
+      supabase
+        .from('applications')
+        .select(
+          // Explicit FK on both bank_accounts embeds — applications now
+          // has two relationships into that table (bank_account_id, the
+          // literal paying UPI, and funder_override_id, migration 0063)
+          // — and funder cards/messages prefer the override when set
+          // (see effectiveFunder()).
+          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
+            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
+            'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+        )
+        // No .or(bank_account_id/funder_override_id not null) filter —
+        // that used to drop genuinely self-funded applications (no
+        // bank/UPI account tracked at all) from every card below
+        // entirely, including "my own" IPOs. effectiveFunder() falls
+        // back to the demat holder identity when neither is set, same
+        // as the attribution pie chart already does — this just needs
+        // the row to actually be fetched for that fallback to run.
+        .order('applied_at', { ascending: false }),
       !isAdmin
         ? supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50)
         : Promise.resolve({ data: [], error: null }),
@@ -395,8 +398,8 @@ export function NotificationsPage() {
         </h1>
       </div>
 
-      {isAdmin && !loading && fundersError && (
-        <p className="badge badge-critical w-fit">Couldn't load funders: {fundersError}</p>
+      {!loading && fundersError && (
+        <p className="badge badge-critical w-fit">Couldn't load {isAdmin ? 'funders' : 'your allotments'}: {fundersError}</p>
       )}
 
       {/* Non-admin only — the funder/holder card sections below are
@@ -441,34 +444,49 @@ export function NotificationsPage() {
         </section>
       )}
 
-      {isAdmin && !loading && allottedCards.length > 0 && (
+      {/* Non-admin now sees this too, not just admin — a funder's own "this
+          IPO is allotted, funded by you" card, same underlying data
+          (RLS already scopes it to just their own applications), just no
+          Send button (nothing to send to themselves) — the expected-profit
+          number is shown directly instead, since that's the actual thing
+          they're here to see. */}
+      {!loading && allottedCards.length > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-            Allotment updates
+            {isAdmin ? 'Allotment updates' : 'Allotted — funded by you'}
             <InfoTooltip text="One card per funder per IPO where at least one of their funded accounts got allotted — with an expected-profit projection based on the IPO's price band and GMP." />
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
               const message = buildFunderAllottedMessage(c)
+              const profit = c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
               return (
                 <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">
                     <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.funderName}
+                      {isAdmin ? c.funderName : c.ipoName}
                     </p>
                     <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · {c.holderNames.length} allotted
+                      {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Send
-                  </button>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                      disabled={!c.phone}
+                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Send
+                    </button>
+                  ) : (
+                    profit != null && (
+                      <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
+                        {rupees(profit)}
+                      </span>
+                    )
+                  )}
                 </div>
               )
             })}
