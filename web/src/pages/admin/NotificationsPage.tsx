@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronDownIcon } from '@primer/octicons-react'
+import { ChevronDownIcon, InfoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -427,45 +427,36 @@ export function NotificationsPage() {
 
       {isAdmin && !loading && allottedCards.length > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             Allotment updates
+            <span
+              title="One card per funder per IPO where at least one of their funded accounts got allotted — with an expected-profit projection based on the IPO's price band and GMP."
+              style={{ cursor: 'help', display: 'inline-flex' }}
+            >
+              <InfoIcon size={12} fill="var(--ink-muted)" />
+            </span>
           </h2>
-          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            One card per funder per IPO where at least one of their funded accounts got allotted — with an
-            expected-profit projection based on the IPO's price band and GMP.
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
               const message = buildFunderAllottedMessage(c)
               return (
-                <div key={c.key} className="aura-card stagger-item flex flex-col gap-2 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.funderName}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName}
-                      </p>
-                    </div>
-                    <span className="badge badge-good shrink-0 text-xs">
-                      {c.holderNames.length} allotted
-                    </span>
-                  </div>
-                  <div
-                    className="max-h-48 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
-                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-                  >
-                    {message}
+                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.funderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · {c.holderNames.length} allotted
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
                     title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send on WhatsApp
+                    Send
                   </button>
                 </div>
               )
@@ -476,48 +467,41 @@ export function NotificationsPage() {
 
       {isAdmin && !loading && holderAllottedCards.length > 0 && (
         <section>
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
             Notify holders — allotted
+            <span
+              title={`One card per account holder per IPO where their own application got allotted — a plain "you got shares" notice sent to the account holder themselves, separate from the funder's profit-projection message above.`}
+              style={{ cursor: 'help', display: 'inline-flex' }}
+            >
+              <InfoIcon size={12} fill="var(--ink-muted)" />
+            </span>
           </h2>
-          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            One card per account holder per IPO where their own application got allotted — a plain "you got shares"
-            notice sent to the account holder themselves, separate from the funder's profit-projection message above.
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {holderAllottedCards.map((c) => {
               const message = buildHolderAllottedMessage(c)
               return (
-                <div key={c.key} className="aura-card stagger-item flex flex-col gap-2 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.holderName}
-                        {c.hasOverride && (
-                          <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
-                            {'\u{1F3F7}\u{FE0F}'}
-                          </span>
-                        )}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName}
-                      </p>
-                    </div>
-                    <span className="badge badge-good shrink-0 text-xs">{c.totalLots} lot(s)</span>
-                  </div>
-                  <div
-                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
-                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-                  >
-                    {message}
+                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.holderName}
+                      {c.hasOverride && (
+                        <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
+                          {'\u{1F3F7}\u{FE0F}'}
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · {c.totalLots} lot(s)
+                    </p>
                   </div>
                   <button
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
                     title={c.phone ? undefined : 'No phone number on file for this account'}
-                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send on WhatsApp
+                    Send
                   </button>
                 </div>
               )
@@ -529,13 +513,23 @@ export function NotificationsPage() {
       {isAdmin && !loading && funderCards.length > 0 && (
         <section>
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
               Funders
+              {/* Today-only view — same funder cards, but each one's message
+                  and app count are recomputed from just today's applications,
+                  and cards where the funder has nothing new today drop out
+                  entirely rather than showing an empty card. */}
+              <span
+                title={
+                  todayOnly
+                    ? "One card per funder per IPO, showing only applications entered today — for messaging a funder about just what's new."
+                    : "One card per funder per currently-live IPO — if someone's funded applications across multiple ongoing IPOs, send each one separately."
+                }
+                style={{ cursor: 'help', display: 'inline-flex' }}
+              >
+                <InfoIcon size={12} fill="var(--ink-muted)" />
+              </span>
             </h2>
-            {/* Today-only view — same funder cards, but each one's message
-                and app count are recomputed from just today's applications,
-                and cards where the funder has nothing new today drop out
-                entirely rather than showing an empty card. */}
             <label className="flex cursor-pointer items-center gap-1.5 text-xs" style={{ color: 'var(--ink-secondary)' }}>
               <input
                 type="checkbox"
@@ -546,12 +540,7 @@ export function NotificationsPage() {
               Today's applications only
             </label>
           </div>
-          <p className="mb-3 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            {todayOnly
-              ? "One card per funder per IPO, showing only applications entered today — for messaging a funder about just what's new."
-              : 'One card per funder per currently-live IPO — if someone\'s funded applications across multiple ongoing IPOs, send each one separately.'}
-          </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {funderCards
               .map((c) =>
                 todayOnly ? { ...c, applications: c.applications.filter((a) => isToday(a.createdAt)) } : c,
@@ -560,45 +549,23 @@ export function NotificationsPage() {
               .map((c) => {
               const message = buildFunderIpoMessage(c, { todayOnly })
               return (
-                <div key={c.key} className="card stagger-item flex flex-col gap-2 p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.funderName}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName}
-                      </p>
-                    </div>
-                    <span className="badge badge-neutral shrink-0 text-xs">
-                      {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
-                    </span>
+                <div key={c.key} className="card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.funderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
+                    </p>
                   </div>
-
-                  {/* Exact send preview, not just the summarized list above
-                      — a WhatsApp-bubble-styled block of buildFunderIpoMessage's
-                      own output, so what gets sent is visible before Send is
-                      clicked instead of only after, in the chat itself. Capped
-                      height + its own scroll, not unbounded — a funder with
-                      several UPI groups (each its own numbered list) made this
-                      block push the card taller than its neighbors in the
-                      grid, and taller than the card's own edit/send controls
-                      staying reachable without scrolling the whole page. */}
-                  <div
-                    className="max-h-40 overflow-y-auto rounded-lg px-3 py-2 text-xs whitespace-pre-wrap"
-                    style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-                  >
-                    {message}
-                  </div>
-
                   <button
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
                     title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary mt-1 self-start text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send on WhatsApp
+                    Send
                   </button>
                 </div>
               )

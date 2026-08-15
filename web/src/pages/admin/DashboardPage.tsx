@@ -564,7 +564,9 @@ export function DashboardPage() {
           icon={CheckCircleIcon}
           label="Allotted, not sold"
           value={data.allottedNotSold.length}
-          tone="good"
+          // Same tone as "Awaiting mandate approval" — both are "still
+          // needs action" states, not a settled/good one.
+          tone="warning"
           to="/allotment"
           panel={<AllottedNotSoldPanel rows={data.allottedNotSold} />}
         />
@@ -573,7 +575,7 @@ export function DashboardPage() {
             icon={CreditCardIcon}
             label="Payouts pending"
             value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
-            tone="warning"
+            tone="good"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
             // Where the money's owed actually gets marked paid — Applications
             // has no payout UI at all, that's Allotment board's job.
@@ -661,7 +663,7 @@ export function DashboardPage() {
 
         <Section title="Allotted, not yet sold" empty="Nothing outstanding">
           {sortedAllottedNotSold.map((r) => (
-            <Row key={r.application_id} initial={r.holder_name[0]} tone="good" to="/allotment">
+            <Row key={r.application_id} initial={r.holder_name[0]} tone="warning" to="/allotment">
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
@@ -677,7 +679,7 @@ export function DashboardPage() {
             {data.pendingPayouts.map((p) => (
               <div key={p.name} className="row-card stagger-item flex items-center gap-3 p-4 text-sm">
                 <div
-                  className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
+                  className="icon-badge icon-badge-good shrink-0 text-xs font-semibold"
                   style={{ width: '2rem', height: '2rem' }}
                 >
                   {p.name[0]?.toUpperCase()}
@@ -687,7 +689,7 @@ export function DashboardPage() {
                     <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {p.name}
                     </span>
-                    <span style={{ color: 'var(--warning)' }}>₹{Math.round(p.amount).toLocaleString('en-IN')}</span>
+                    <span style={{ color: 'var(--good)' }}>₹{Math.round(p.amount).toLocaleString('en-IN')}</span>
                   </div>
                   <div className="mt-1 space-y-1">
                     {p.lines.map((l) => (
@@ -920,7 +922,7 @@ function PendingPayoutsPanel({ payouts }: { payouts: PendingPayout[] }) {
           <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
             {p.name}
           </span>
-          <span className="shrink-0" style={{ color: 'var(--warning)' }}>
+          <span className="shrink-0" style={{ color: 'var(--good)' }}>
             {rupees(p.amount)}
           </span>
         </div>

@@ -259,7 +259,7 @@ function PayoutSection({
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div
-                      className="icon-badge icon-badge-warning shrink-0 text-xs font-semibold"
+                      className="icon-badge icon-badge-good shrink-0 text-xs font-semibold"
                       style={{ width: '2rem', height: '2rem' }}
                     >
                       {g.name[0]?.toUpperCase()}
@@ -268,7 +268,7 @@ function PayoutSection({
                       {g.name}
                     </span>
                   </div>
-                  <span style={{ color: 'var(--warning)' }}>₹{Math.round(g.total).toLocaleString('en-IN')}</span>
+                  <span style={{ color: 'var(--good)' }}>₹{Math.round(g.total).toLocaleString('en-IN')}</span>
                 </div>
                 <div className="mt-2 space-y-1.5">
                   {g.lines.map((l) => (
