@@ -29,8 +29,18 @@ export type ProfitProjectionRow = {
   funder_override: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
 }
 
+// Falls back to the demat holder's own identity when there's no bank/UPI
+// account on file at all — a genuinely self-funded application still needs
+// to generate a funder card (e.g. the Expected profit projection), same
+// fallback lib/applicationAttribution.ts's pie chart already uses.
 export function effectiveFunder(r: ProfitProjectionRow) {
-  return r.funder_override ?? r.bank_accounts
+  return (
+    r.funder_override ??
+    r.bank_accounts ??
+    (r.demat_accounts
+      ? { account_holder_name: r.demat_accounts.holder_name, phone_e164: r.demat_accounts.phone_e164, upi_id: null }
+      : null)
+  )
 }
 
 // One card per (funder, IPO) covering only their ALLOTTED (or already SOLD —

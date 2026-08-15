@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronDownIcon, InfoIcon } from '@primer/octicons-react'
+import { useEffect, useState } from 'react'
+import { InfoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import {
@@ -12,18 +12,7 @@ import {
   type FunderAllottedCard,
   type ProfitProjectionRow,
 } from '../../lib/expectedProfit'
-import type { Notification } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
-import { ArchivedSection } from '../../components/ArchivedSection'
-
-// Almost every notification carries application_id, not ipo_id directly —
-// send-whatsapp's queueForApplication only ever sets application_id/demat_id
-// (see supabase/functions/send-whatsapp/index.ts), so notifications.ipo_id
-// stays null except for the handful of gmp-alert rows (migration 0039) that
-// set it explicitly. Checking archive status has to go through
-// applications.ipo_id instead, or every application-linked notification
-// (i.e. almost all of them) would never match its IPO's archived state.
-type NotificationRow = Notification & { applications: { ipos: { is_archived: boolean } | null } | null }
 
 interface FunderApplicationDetail {
   holderName: string
@@ -57,8 +46,21 @@ interface FunderIpoCard {
 // this page's other call sites) rather than redefined.
 type ApplicationForFunderRow = ProfitProjectionRow
 
+// Falls back to the demat holder's own identity when there's no bank/UPI
+// account on file at all — a genuinely self-funded application (no funder
+// distinct from the holder) still needs to show up as a "funder" card, same
+// fallback lib/applicationAttribution.ts's pie chart already uses ("no
+// bank/UPI account on file to attribute funding to at all" -> the holder).
+// Without this, self-funded applications (including an admin's own) never
+// generated a Funders/Allotment-updates card at all.
 function effectiveFunder(r: ApplicationForFunderRow) {
-  return r.funder_override ?? r.bank_accounts
+  return (
+    r.funder_override ??
+    r.bank_accounts ??
+    (r.demat_accounts
+      ? { account_holder_name: r.demat_accounts.holder_name, phone_e164: r.demat_accounts.phone_e164, upi_id: null }
+      : null)
+  )
 }
 
 // One card per (demat account holder, IPO) whose application got allotted —
@@ -303,18 +305,10 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
 export function NotificationsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [notifications, setNotifications] = useState<NotificationRow[]>([])
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
   const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
   const [loading, setLoading] = useState(true)
-  const [retrying, setRetrying] = useState<string | null>(null)
-  // Notification rows only ever stored a raw phone number ("To") — useless
-  // for recognizing who a message actually went to at a glance. Built once
-  // from whatever demat/bank accounts RLS already lets this viewer see (no
-  // new grant, same rows the rest of the app already exposes to them), not
-  // stored on the notification itself.
-  const [phoneNames, setPhoneNames] = useState<Map<string, string>>(new Map())
   // Surfaced instead of silently swallowed — the funders query previously
   // just fell back to an empty array on any error (data ?? []), so a real
   // failure here looked identical to "nobody's funded anything live," no
@@ -328,12 +322,7 @@ export function NotificationsPage() {
 
   async function load() {
     setLoading(true)
-    const [notifRes, fundersRes, dematRes, bankRes] = await Promise.all([
-      supabase
-        .from('notifications')
-        .select('*, applications(ipos(is_archived))')
-        .order('created_at', { ascending: false })
-        .limit(200),
+    const [fundersRes] = await Promise.all([
       isAdmin
         ? supabase
             .from('applications')
@@ -349,38 +338,21 @@ export function NotificationsPage() {
                 'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
                 'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
             )
-            // A row now counts if EITHER points somewhere — an override can
-            // legitimately be the only funder link on a row that otherwise
-            // has no bank_account_id at all.
-            .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
+            // No .or(bank_account_id/funder_override_id not null) filter —
+            // that used to drop genuinely self-funded applications (no
+            // bank/UPI account tracked at all) from every card below
+            // entirely, including "my own" IPOs. effectiveFunder() falls
+            // back to the demat holder identity when neither is set, same
+            // as the attribution pie chart already does — this just needs
+            // the row to actually be fetched for that fallback to run.
+            .order('applied_at', { ascending: false })
         : Promise.resolve({ data: [], error: null }),
-      supabase.from('demat_accounts').select('phone_e164, holder_name'),
-      supabase.from('bank_accounts').select('phone_e164, account_holder_name'),
     ])
-    if (notifRes.error) {
-      alert(`Couldn't load notifications: ${notifRes.error.message}`)
-      setLoading(false)
-      return
-    }
-    setNotifications((notifRes.data ?? []) as unknown as NotificationRow[])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
     setFunderCards(buildFunderIpoCards(funderRows))
     setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
-
-    // Bank/UPI names win over demat holder names on a shared phone number —
-    // a notification's "To" is almost always the funder who needs to act on
-    // it (send a payment, confirm a mandate), not the demat holder it's
-    // about.
-    const nameMap = new Map<string, string>()
-    for (const d of (dematRes.data ?? []) as { phone_e164: string | null; holder_name: string }[]) {
-      if (d.phone_e164) nameMap.set(d.phone_e164, d.holder_name)
-    }
-    for (const b of (bankRes.data ?? []) as { phone_e164: string | null; account_holder_name: string | null }[]) {
-      if (b.phone_e164 && b.account_holder_name) nameMap.set(b.phone_e164, b.account_holder_name)
-    }
-    setPhoneNames(nameMap)
     setLoading(false)
   }
 
@@ -392,33 +364,12 @@ export function NotificationsPage() {
     load()
   }, [isAdmin])
 
-  async function dispatch(n: Notification) {
-    setRetrying(n.id)
-    if (isAdmin) {
-      await dispatchAdminWhatsapp(n.id)
-    } else {
-      await openWhatsAppForNotification(n)
-    }
-    setRetrying(null)
-    load()
-  }
-
-  // A notification for an IPO that's since moved to /archives (e.g. every
-  // application came back NOT_ALLOTTED) drops out of the main list the same
-  // way its IPO did — folded into the same collapsed "Archived" section as
-  // notification-level archiving, not a third separate state.
-  const visibleNotifications = notifications.filter((n) => !n.is_archived && !n.applications?.ipos?.is_archived)
-  const archivedNotifications = notifications.filter((n) => n.is_archived || n.applications?.ipos?.is_archived)
-
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Notifications
         </h1>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          {notifications.length} messages
-        </p>
       </div>
 
       {isAdmin && !loading && fundersError && (
@@ -574,164 +525,7 @@ export function NotificationsPage() {
         </section>
       )}
 
-      {loading ? (
-        <InlineSpinner />
-      ) : (
-        <>
-          <NotificationsListSection count={visibleNotifications.length}>
-            <NotificationsTable
-              notifications={visibleNotifications}
-              emptyLabel="No messages sent yet."
-              isAdmin={isAdmin}
-              retrying={retrying}
-              onDispatch={dispatch}
-              phoneNames={phoneNames}
-            />
-          </NotificationsListSection>
-
-          {/* Notifications for an application whose IPO ended up NOT_ALLOTTED
-              (or never got an allotment status at all) more than 3 days past
-              the IPO's own allotment_date archive themselves here on their
-              own (daily cron sweep, migration 0050) — same "out of the way,
-              never deleted" pattern as archived IPOs. */}
-          {archivedNotifications.length > 0 && (
-            <ArchivedSection>
-              <NotificationsTable
-                notifications={archivedNotifications}
-                emptyLabel="Nothing archived."
-                isAdmin={isAdmin}
-                retrying={retrying}
-                onDispatch={dispatch}
-                phoneNames={phoneNames}
-              />
-            </ArchivedSection>
-          )}
-        </>
-      )}
+      {loading && <InlineSpinner />}
     </div>
   )
-}
-
-// Wraps the main (non-archived) message list — below the Allotment
-// updates/Funders cards, this flat table of every sent message was always
-// fully expanded and could run long. Collapsible now, open by default (it's
-// still the primary content, unlike ArchivedSection's own default-closed).
-function NotificationsListSection({ count, children }: { count: number; children: ReactNode }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <section className="space-y-2">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 text-sm font-semibold"
-        style={{ color: 'var(--ink-secondary)' }}
-      >
-        <span
-          className="inline-flex transition-transform duration-200"
-          style={{ transform: open ? 'rotate(180deg)' : undefined }}
-        >
-          <ChevronDownIcon size={14} />
-        </span>
-        Messages
-        <span className="badge badge-neutral">{count}</span>
-      </button>
-      {open && children}
-    </section>
-  )
-}
-
-// Extracted so the same table renders both the active list and the
-// collapsed archived one, instead of two copies of the same markup.
-function NotificationsTable({
-  notifications,
-  emptyLabel,
-  isAdmin,
-  retrying,
-  onDispatch,
-  phoneNames,
-}: {
-  notifications: Notification[]
-  emptyLabel: string
-  isAdmin: boolean
-  retrying: string | null
-  onDispatch: (n: Notification) => void
-  phoneNames: Map<string, string>
-}) {
-  return (
-    <div className="card overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
-          <tr>
-            <th className="px-4 py-2.5 font-medium">Sent</th>
-            <th className="px-4 py-2.5 font-medium">To</th>
-            <th className="px-4 py-2.5 font-medium">Template</th>
-            <th className="px-4 py-2.5 font-medium">Status</th>
-            <th className="px-4 py-2.5 font-medium">Error</th>
-            <th className="px-4 py-2.5"></th>
-          </tr>
-        </thead>
-        <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-          {notifications.map((n) => (
-            <tr key={n.id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-              <td className="px-4 py-2.5" style={{ color: 'var(--ink-muted)' }}>
-                {new Date(n.created_at).toLocaleString()}
-              </td>
-              <td className="px-4 py-2.5">
-                {phoneNames.has(n.to_phone) ? (
-                  <span title={n.to_phone}>{phoneNames.get(n.to_phone)}</span>
-                ) : (
-                  n.to_phone
-                )}
-              </td>
-              <td className="px-4 py-2.5">{n.template_name}</td>
-              <td className="px-4 py-2.5">
-                <StatusBadge status={n.status} />
-              </td>
-              <td className="px-4 py-2.5" style={{ color: 'var(--critical)' }}>
-                {n.error_detail ?? ''}
-              </td>
-              <td className="px-4 py-2.5">
-                {(n.status === 'QUEUED' || n.status === 'FAILED') && (
-                  <button
-                    onClick={() => onDispatch(n)}
-                    disabled={retrying === n.id}
-                    className="link-accent text-xs font-medium disabled:opacity-50"
-                  >
-                    {retrying === n.id
-                      ? isAdmin
-                        ? 'Sending…'
-                        : 'Opening…'
-                      : isAdmin
-                        ? n.status === 'FAILED'
-                          ? 'Retry'
-                          : 'Send'
-                        : 'Open WhatsApp'}
-                  </button>
-                )}
-              </td>
-            </tr>
-          ))}
-          {notifications.length === 0 && (
-            <tr>
-              <td colSpan={6} className="px-4 py-8 text-center" style={{ color: 'var(--ink-muted)' }}>
-                {emptyLabel}
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: Notification['status'] }) {
-  const classes: Record<Notification['status'], string> = {
-    QUEUED: 'badge-neutral',
-    SENT: 'badge-info',
-    DELIVERED: 'badge-good',
-    READ: 'badge-violet',
-    FAILED: 'badge-critical',
-    SIMULATED: 'badge-warning',
-  }
-  return <span className={`badge ${classes[status]}`}>{status}</span>
 }
