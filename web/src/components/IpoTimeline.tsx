@@ -116,7 +116,7 @@ export function IpoTimeline({ milestones }: IpoTimelineProps) {
           line (i / segmentCount), lit the same fill color the moment that
           milestone is reached, animated in sync with the line's own fill
           transition. */}
-      <div className="relative flex items-center gap-1 py-1">
+      <div className="flex items-center gap-1">
         {segmentFill.map((fill, i) => (
           <div
             key={i}
@@ -127,25 +127,6 @@ export function IpoTimeline({ milestones }: IpoTimelineProps) {
             }}
           />
         ))}
-        {segmentCount > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
-            {milestones.map((m, i) => {
-              const reached = i <= currentIdx
-              const pct = (i / segmentCount) * 100
-              return (
-                <span
-                  key={`${m.label}-${i}`}
-                  className="absolute h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 transition-colors duration-500"
-                  style={{
-                    left: `${pct}%`,
-                    background: reached ? 'var(--good)' : 'var(--surface)',
-                    borderColor: reached ? 'var(--good)' : 'var(--border)',
-                  }}
-                />
-              )
-            })}
-          </div>
-        )}
       </div>
       <div className="mt-2 grid gap-1 text-xs" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
         {milestones.map((m, i) => {
