@@ -113,14 +113,7 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
 
   return (
     <div>
-      {/* The bar and its stage dots are one timeline, not a plain progress
-          bar with a separate date row underneath — each dot sits exactly on
-          the bar at the instant its own date lands (0%, 1/3, 2/3, 100% for
-          the 4 stages), lit the same var(--good) the fill uses the moment
-          that stage is actually reached, so the line and the dates read as
-          a single animated element instead of two things that happen to be
-          stacked. */}
-      <div className="relative flex items-center gap-1 py-1">
+      <div className="flex items-center gap-1">
         {segmentFill.map((fill, i) => (
           <div
             key={i}
@@ -131,23 +124,6 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
             }}
           />
         ))}
-        <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
-          {stages.map((s, i) => {
-            const reached = i <= currentIdx
-            const pct = (i / segmentCount) * 100
-            return (
-              <span
-                key={s.label}
-                className="absolute h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 transition-colors duration-500"
-                style={{
-                  left: `${pct}%`,
-                  background: reached ? 'var(--good)' : 'var(--surface)',
-                  borderColor: reached ? 'var(--good)' : 'var(--border)',
-                }}
-              />
-            )
-          })}
-        </div>
       </div>
       <div className="mt-2 grid grid-cols-4 gap-1 text-xs">
         {stages.map((s, i) => {

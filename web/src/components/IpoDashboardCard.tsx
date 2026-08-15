@@ -102,7 +102,7 @@ export function IpoDashboardCard({
           separate block below, full-width; now it opens up right beside
           the ring instead, same row as the pie chart. */}
       <div
-        className="mt-3 flex flex-wrap items-start justify-center gap-4 border-t pt-3"
+        className="mt-3 flex flex-wrap items-center justify-center gap-4 border-t pt-3"
         style={{ borderColor: 'var(--border)' }}
       >
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
@@ -113,25 +113,29 @@ export function IpoDashboardCard({
           onToggleExpanded={canExpand ? onToggleExpanded : undefined}
         />
 
-        {/* max-width + max-height, not conditional mounting — animates
-            open/closed instead of snapping, same technique the old side
-            panel used. Each card manages this independently (expanded is
-            per-ipoId from the caller's Set, not one shared boolean), so
-            several cards can be open across the grid at once. Fixed height
-            for exactly 5 rows, not a scrollable cap — showing only the
-            first 5 names (rather than all of them behind a scrollbar) means
-            this panel's height is now the same constant no matter how many
-            accounts are actually left, so expanding it never changes the
-            card's size even slightly. */}
-        <div
-          className="overflow-hidden"
-          style={{
-            maxWidth: expanded ? 210 : 0,
-            maxHeight: expanded ? 168 : 0,
-            transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), max-height 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}
-        >
-          <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }} onClick={(e) => e.stopPropagation()}>
+        {/* max-width only, not conditional mounting — animates open/closed
+            instead of snapping, same technique the old side panel used.
+            Each card manages this independently (expanded is per-ipoId from
+            the caller's Set, not one shared boolean), so several cards can
+            be open across the grid at once.
+            Height is a CONSTANT 168px always, collapsed or not — not
+            toggled to 0. A toggled height was exactly what made expanding
+            this panel grow the whole card (168px was taller than the
+            chart/gauge next to it); reserving that height permanently means
+            the card's total height never changes on click, and the pie
+            chart/gauge (now items-center, not items-start) stay vertically
+            centered against it whether the panel is showing or not. */}
+        {canExpand && (
+          <div
+            className="overflow-hidden"
+            style={{
+              maxWidth: expanded ? 210 : 0,
+              height: 168,
+              opacity: expanded ? 1 : 0,
+              transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
+            }}
+          >
+            <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }} onClick={(e) => e.stopPropagation()}>
             <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
               Accounts yet to apply ({remainingHolderNames.length})
             </p>
@@ -151,8 +155,9 @@ export function IpoDashboardCard({
                 </li>
               )}
             </ul>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
