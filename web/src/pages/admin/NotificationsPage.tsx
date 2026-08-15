@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { renderMessageBody } from '../../lib/notificationTemplates'
 import { isLiveIpo } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import {
@@ -13,6 +14,7 @@ import {
   type ProfitProjectionRow,
 } from '../../lib/expectedProfit'
 import { InlineSpinner } from '../../components/PageSpinner'
+import type { Notification } from '../../types/database'
 
 interface FunderApplicationDetail {
   holderName: string
@@ -322,10 +324,17 @@ export function NotificationsPage() {
   // morning, tell the funder about those specifically" instead of resending
   // the full running total every time.
   const [todayOnly, setTodayOnly] = useState(false)
+  // Non-admin only — a funder-only viewer has no funder/holder cards to
+  // show at all (those sections are admin-only above), which used to leave
+  // them looking at a completely blank page once the old flat 'Messages'
+  // table was removed. RLS already scopes this to just their own
+  // notifications either way, same as the old table did.
+  const [myNotifications, setMyNotifications] = useState<Notification[]>([])
+  const [openingId, setOpeningId] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
-    const [fundersRes] = await Promise.all([
+    const [fundersRes, myNotifsRes] = await Promise.all([
       isAdmin
         ? supabase
             .from('applications')
@@ -350,13 +359,24 @@ export function NotificationsPage() {
             // the row to actually be fetched for that fallback to run.
             .order('applied_at', { ascending: false })
         : Promise.resolve({ data: [], error: null }),
+      !isAdmin
+        ? supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50)
+        : Promise.resolve({ data: [], error: null }),
     ])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
     setFunderCards(buildFunderIpoCards(funderRows))
     setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
+    setMyNotifications((myNotifsRes.data ?? []) as Notification[])
     setLoading(false)
+  }
+
+  async function openMyNotification(n: Notification) {
+    setOpeningId(n.id)
+    await openWhatsAppForNotification(n)
+    setOpeningId(null)
+    load()
   }
 
   useEffect(() => {
@@ -377,6 +397,48 @@ export function NotificationsPage() {
 
       {isAdmin && !loading && fundersError && (
         <p className="badge badge-critical w-fit">Couldn't load funders: {fundersError}</p>
+      )}
+
+      {/* Non-admin only — the funder/holder card sections below are
+          admin-only, so without this a funder-only viewer had nothing to
+          look at here at all once the old flat table was removed. Compact
+          on purpose (name + status + one action), not a rebuild of the old
+          full table. */}
+      {!isAdmin && !loading && (
+        <section>
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Your messages
+          </h2>
+          {myNotifications.length === 0 ? (
+            <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+              No messages yet.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {myNotifications.map((n) => (
+                <div key={n.id} className="card flex items-center justify-between gap-3 p-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="truncate" style={{ color: 'var(--ink-primary)' }}>
+                      {renderMessageBody(n.template_name, (n.variables as { params?: string[] } | null)?.params ?? []).split('\n')[0]}
+                    </p>
+                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {new Date(n.created_at).toLocaleString()} · {n.status}
+                    </p>
+                  </div>
+                  {(n.status === 'QUEUED' || n.status === 'FAILED') && (
+                    <button
+                      onClick={() => openMyNotification(n)}
+                      disabled={openingId === n.id}
+                      className="btn-secondary shrink-0 text-xs disabled:opacity-50"
+                    >
+                      {openingId === n.id ? 'Opening…' : 'Open WhatsApp'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {isAdmin && !loading && allottedCards.length > 0 && (

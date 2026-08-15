@@ -202,10 +202,22 @@ export function AllotmentBoardPage() {
     })
   }
 
-  // Only APPLIED rows carry a checkbox at all (see the per-row render below)
-  // — selecting/deselecting "all" only ever means all of those, matching
-  // what the bulk "Mark selected as Not allotted" action can actually act on.
-  const selectableIds = rows.filter((r) => r.status === 'APPLIED').map((r) => r.application_id)
+  // Whether THIS viewer can actually mark this row's status — applications'
+  // own RLS write policy (p_apps_member_write, migration 0032) only lets
+  // the demat account's owner or an admin update status; a funder-only
+  // viewer has read-only access. Without this check, a funder saw the same
+  // Allotted/Not-allotted buttons as an owner, clicked them, and the
+  // update silently matched zero rows under RLS — no error, the board just
+  // reloaded showing the same unchanged status.
+  function canMark(row: AllotmentBoardRow): boolean {
+    return isAdmin || row.demat_linked_user_id === profile?.id
+  }
+
+  // Only APPLIED rows this viewer can actually mark carry a checkbox at all
+  // (see the per-row render below) — selecting/deselecting "all" only ever
+  // means all of those, matching what the bulk "Mark selected as Not
+  // allotted" action can actually act on.
+  const selectableIds = rows.filter((r) => r.status === 'APPLIED' && canMark(r)).map((r) => r.application_id)
 
   function toggleSelectAll() {
     setSelected((s) => (s.size === selectableIds.length ? new Set() : new Set(selectableIds)))
@@ -359,7 +371,7 @@ export function AllotmentBoardPage() {
                 return (
                 <tr key={row.application_id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
                   <td className="px-4 py-2.5">
-                    {row.status === 'APPLIED' && (
+                    {row.status === 'APPLIED' && canMark(row) && (
                       <input
                         type="checkbox"
                         checked={selected.has(row.application_id)}
@@ -411,7 +423,12 @@ export function AllotmentBoardPage() {
                     )}
                   </td>
                   <td className="px-4 py-2.5">
-                    {row.status === 'APPLIED' &&
+                    {/* Marking status is owner/admin-only — applications' own
+                        RLS write policy blocks a funder-only viewer from
+                        updating status at all, so these controls are hidden
+                        for them entirely instead of appearing to work and
+                        silently no-op'ing on click. */}
+                    {row.status === 'APPLIED' && canMark(row) &&
                       // Defense in depth: the IPO dropdown above only lists IPOs whose
                       // allotment_date has already passed, but re-check here too in case
                       // the IPO's date got edited to a future date after this board was
@@ -434,7 +451,7 @@ export function AllotmentBoardPage() {
                           Awaiting allotment
                         </span>
                       ))}
-                    {row.status === 'NOT_ALLOTTED' && (
+                    {row.status === 'NOT_ALLOTTED' && canMark(row) && (
                       <button
                         onClick={() => markStatus(row.application_id, 'APPLIED')}
                         className="text-xs font-medium hover:underline"

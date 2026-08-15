@@ -173,6 +173,12 @@ export interface AllotmentBoardRow {
   // PENDING after the bidding cutoff, where approving no longer does
   // anything. See migration 0069.
   close_date: string
+  // Who owns (is linked to) the demat account this row is about — used to
+  // tell apart "this viewer owns this account" (can mark Allotted/Not
+  // allotted; applications' own RLS write policy only allows the owner or
+  // an admin) from "this viewer merely funded it" (read-only). See
+  // migration 0071.
+  demat_linked_user_id: string | null
 }
 
 export interface RegistrarLink {
