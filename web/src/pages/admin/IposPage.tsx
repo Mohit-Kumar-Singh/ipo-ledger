@@ -788,10 +788,12 @@ function IpoCard({
       )}
 
       <IpoTimeline
-        openDate={ipo.open_date}
-        closeDate={ipo.close_date}
-        allotmentDate={ipo.allotment_date}
-        listingDate={ipo.listing_date}
+        milestones={[
+          { date: ipo.open_date, label: 'Open' },
+          { date: ipo.close_date, label: 'Close' },
+          { date: ipo.allotment_date, label: 'Allotment', estimated: true },
+          { date: ipo.listing_date, label: 'Listing', estimated: true },
+        ]}
       />
     </div>
   )

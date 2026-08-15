@@ -95,7 +95,14 @@ export function IpoDashboardCard({
         </div>
       )}
 
-      <IpoTimeline openDate={openDate} closeDate={closeDate} allotmentDate={allotmentDate} listingDate={listingDate} />
+      <IpoTimeline
+        milestones={[
+          { date: openDate, label: 'Open' },
+          { date: closeDate, label: 'Close' },
+          { date: allotmentDate, label: 'Allotment', estimated: true },
+          { date: listingDate, label: 'Listing', estimated: true },
+        ]}
+      />
 
       {/* Pie chart, progress ring, and (once expanded) the "accounts yet to
           apply" list all sit in this one row — the list used to live in a

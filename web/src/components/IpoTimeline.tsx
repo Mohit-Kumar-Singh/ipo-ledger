@@ -1,17 +1,21 @@
 import { useEffect, useState } from 'react'
 import { bidCutoffMs } from '../lib/ipoStatus'
 
-interface IpoTimelineProps {
-  openDate: string | null
-  closeDate: string | null
-  allotmentDate: string | null
-  listingDate: string | null
+export interface IpoTimelineMilestone {
+  date: string | null
+  label: string
+  // Trailing "*" on the label + dimmer treatment for a date that's a
+  // schedule estimate (allotment/listing) rather than a locked-in fact
+  // (open/close) — purely cosmetic, defaults to false.
+  estimated?: boolean
 }
 
-interface Stage {
-  label: string
-  date: string | null
-  estimated: boolean
+interface IpoTimelineProps {
+  // Data-driven, not fixed 4-date props — segment count and dot count both
+  // come from this array's length, so a caller with more or fewer
+  // milestones (or a totally different kind of timeline) doesn't need a
+  // second component.
+  milestones: IpoTimelineMilestone[]
 }
 
 function ordinal(n: number): string {
@@ -41,71 +45,65 @@ function toMidnightUtc(iso: string): number {
   return Date.UTC(y, m - 1, d)
 }
 
-// Every stage lands at its date's midnight UTC EXCEPT Close — retail
-// bidding actually cuts off at 4:50pm IST on the close date itself, not at
-// midnight, so treating "Close" as reached only once that real cutoff has
-// passed (not just once the calendar date arrives) keeps this in sync with
-// isOpenForBidding/hasBiddingClosed, which already enforce the same cutoff
-// for eligibility elsewhere.
-function stageInstantMs(label: string, dateIso: string): number {
+// Every milestone lands at its date's midnight UTC EXCEPT one labeled
+// "Close" — retail bidding actually cuts off at 4:50pm IST on the close
+// date itself, not at midnight, so treating it as reached only once that
+// real cutoff has passed (not just once the calendar date arrives) keeps
+// this in sync with isOpenForBidding/hasBiddingClosed, which already
+// enforce the same cutoff for eligibility elsewhere. Label-matched, not a
+// positional assumption — works whether "Close" is milestone 1 of 4 or
+// anywhere else in a differently-shaped milestones array.
+function milestoneInstantMs(label: string, dateIso: string): number {
   return label === 'Close' ? bidCutoffMs(dateIso) : toMidnightUtc(dateIso)
 }
 
-// 12h, not a per-second/per-minute tick — the underlying stage dates only
-// change daily at most, so anything finer than "twice a day" is spending
-// re-renders on a value that can't have meaningfully moved. Recomputing on
-// an interval (not just once on mount) is what makes the segment actually
-// creep forward across a page left open, rather than freezing at whatever
-// fraction it happened to load at.
+// 12h, not a per-second/per-minute tick — the underlying milestone dates
+// only change daily at most, so anything finer than "twice a day" is
+// spending re-renders on a value that can't have meaningfully moved.
+// Recomputing on an interval (not just once on mount) is what makes the
+// segment actually creep forward across a page left open, rather than
+// freezing at whatever fraction it happened to load at.
 const RECOMPUTE_INTERVAL_MS = 12 * 60 * 60 * 1000
 
-// Straight port of the reference's stageSet()/segs() (IPO Tracker.dc.html)
-// for the stage set/labels/bolding — but the fill itself is continuous, not
-// discrete: the leading edge sits at how far elapsed time is through the
-// CURRENT segment (e.g. exactly halfway between Open and Close lands the
-// edge at the segment's midpoint), not snapped fully to the next stage the
-// moment its date arrives.
-export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }: IpoTimelineProps) {
+// Horizontal stepper: one continuous progress line broken into
+// (milestones.length - 1) segments, a breaker dot at every milestone, and a
+// date/label row underneath. The fill is continuous within the live
+// segment (e.g. exactly halfway between two dates lands the edge at that
+// segment's midpoint), not snapped fully to the next milestone the moment
+// its date arrives.
+export function IpoTimeline({ milestones }: IpoTimelineProps) {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), RECOMPUTE_INTERVAL_MS)
     return () => clearInterval(id)
   }, [])
 
-  const stages: Stage[] = [
-    { label: 'Open', date: openDate, estimated: false },
-    { label: 'Close', date: closeDate, estimated: false },
-    { label: 'Allotment', date: allotmentDate, estimated: true },
-    { label: 'Listing', date: listingDate, estimated: true },
-  ]
-
-  // The latest stage whose instant has actually arrived — matches the
-  // reference's currentIdx (0 = "we're in the Open window" for its Open
-  // examples, -1 = "hasn't opened yet" for its Upcoming ones). Close uses
-  // its real 4:50pm IST cutoff (stageInstantMs), not just its calendar
-  // date, so this stays "Open" (not "Close") for the rest of the close
-  // date's afternoon, matching isOpenForBidding elsewhere.
+  // The latest milestone whose instant has actually arrived — -1 means
+  // none yet (e.g. an "Upcoming" IPO that hasn't opened). Close uses its
+  // real 4:50pm IST cutoff (milestoneInstantMs), not just its calendar
+  // date, so this stays on "Open" for the rest of the close date's
+  // afternoon, matching isOpenForBidding elsewhere.
   let currentIdx = -1
-  stages.forEach((s, i) => {
-    if (s.date && stageInstantMs(s.label, s.date) <= now) currentIdx = i
+  milestones.forEach((m, i) => {
+    if (m.date && milestoneInstantMs(m.label, m.date) <= now) currentIdx = i
   })
-  const segmentCount = stages.length - 1
+  const segmentCount = milestones.length - 1
 
   // Continuous fill fraction per segment (0..1) — segments fully before the
   // live position are 1, fully after are 0, and the one live segment is
-  // whatever fraction of its own span has elapsed. Undated stages (TBA
+  // whatever fraction of its own span has elapsed. Undated milestones (TBA
   // allotment/listing) can't be interpolated into — that segment either
   // stays fully unfilled (its start hasn't happened) or, if its start
-  // stage HAS happened but the end date is unknown, holds at the start
+  // milestone HAS happened but the end date is unknown, holds at the start
   // (0) rather than guessing how far through an undated span "now" is.
-  const segmentFill = Array.from({ length: segmentCount }, (_, i) => {
-    const startDate = stages[i].date
-    const endDate = stages[i + 1].date
+  const segmentFill = Array.from({ length: Math.max(segmentCount, 0) }, (_, i) => {
+    const startDate = milestones[i].date
+    const endDate = milestones[i + 1].date
     if (!startDate) return 0 // segment hasn't started
-    const startTs = stageInstantMs(stages[i].label, startDate)
+    const startTs = milestoneInstantMs(milestones[i].label, startDate)
     if (now < startTs) return 0 // segment hasn't started
-    if (!endDate) return 0 // started, but next stage date unknown — nothing to interpolate toward
-    const endTs = stageInstantMs(stages[i + 1].label, endDate)
+    if (!endDate) return 0 // started, but next milestone's date unknown — nothing to interpolate toward
+    const endTs = milestoneInstantMs(milestones[i + 1].label, endDate)
     if (now >= endTs) return 1 // segment has fully elapsed
     if (endTs <= startTs) return 1 // guard against equal/out-of-order dates
     return Math.min(1, Math.max(0, (now - startTs) / (endTs - startTs)))
@@ -113,32 +111,56 @@ export function IpoTimeline({ openDate, closeDate, allotmentDate, listingDate }:
 
   return (
     <div>
-      <div className="flex items-center gap-1">
+      {/* The line and its breaker dots are one element, not two things
+          stacked — each dot sits exactly at its milestone's position on the
+          line (i / segmentCount), lit the same fill color the moment that
+          milestone is reached, animated in sync with the line's own fill
+          transition. */}
+      <div className="relative flex items-center gap-1 py-1">
         {segmentFill.map((fill, i) => (
           <div
             key={i}
-            className="h-[3px] flex-1 rounded-full"
+            className="h-1 flex-1 rounded-full"
             style={{
               background: `linear-gradient(to right, var(--good) ${fill * 100}%, var(--border) ${fill * 100}%)`,
               transition: 'background 0.6s ease',
             }}
           />
         ))}
+        {segmentCount > 0 && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2">
+            {milestones.map((m, i) => {
+              const reached = i <= currentIdx
+              const pct = (i / segmentCount) * 100
+              return (
+                <span
+                  key={`${m.label}-${i}`}
+                  className="absolute h-2.5 w-2.5 -translate-x-1/2 rounded-full border-2 transition-colors duration-500"
+                  style={{
+                    left: `${pct}%`,
+                    background: reached ? 'var(--good)' : 'var(--surface)',
+                    borderColor: reached ? 'var(--good)' : 'var(--border)',
+                  }}
+                />
+              )
+            })}
+          </div>
+        )}
       </div>
-      <div className="mt-2 grid grid-cols-4 gap-1 text-xs">
-        {stages.map((s, i) => {
+      <div className="mt-2 grid gap-1 text-xs" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
+        {milestones.map((m, i) => {
           const isCurrent = i === currentIdx
           return (
-            <div key={s.label}>
+            <div key={`${m.label}-${i}`}>
               <p
                 className="font-mono-ipo tabular-nums"
                 style={{ fontWeight: isCurrent ? 700 : 400, color: isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
               >
-                {formatDate(s.date)}
+                {formatDate(m.date)}
               </p>
               <p style={{ color: 'var(--ink-muted)' }}>
-                {s.label}
-                {s.estimated && s.date ? '*' : ''}
+                {m.label}
+                {m.estimated && m.date ? '*' : ''}
               </p>
             </div>
           )
