@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { bidCutoffMs } from '../lib/ipoStatus'
+import { istTimeMs } from '../lib/ipoStatus'
 
 export interface IpoTimelineMilestone {
   date: string | null
@@ -40,21 +40,25 @@ function formatDate(iso: string | null): string {
   return `${ordinal(d)} ${month}`
 }
 
-function toMidnightUtc(iso: string): number {
-  const [y, m, d] = iso.split('-').map(Number)
-  return Date.UTC(y, m - 1, d)
+// Each milestone lands at its own real IST time of day, not a blanket
+// midnight — matches how these actually happen in practice: bidding opens
+// at 10am, cuts off at 4:50pm IST (the same cutoff isOpenForBidding/
+// hasBiddingClosed already enforce elsewhere), allotment is typically
+// finalized around midday, and listing/trading opens at 10am same as the
+// exchanges' own market open. Label-matched, not a positional assumption —
+// works whether "Close" is milestone 1 of 4 or anywhere else in a
+// differently-shaped milestones array; anything with an unrecognized label
+// falls back to midnight IST.
+const MILESTONE_IST_TIME: Record<string, { hour: number; minute: number }> = {
+  Open: { hour: 10, minute: 0 },
+  Close: { hour: 16, minute: 50 },
+  Allotment: { hour: 12, minute: 0 },
+  Listing: { hour: 10, minute: 0 },
 }
 
-// Every milestone lands at its date's midnight UTC EXCEPT one labeled
-// "Close" — retail bidding actually cuts off at 4:50pm IST on the close
-// date itself, not at midnight, so treating it as reached only once that
-// real cutoff has passed (not just once the calendar date arrives) keeps
-// this in sync with isOpenForBidding/hasBiddingClosed, which already
-// enforce the same cutoff for eligibility elsewhere. Label-matched, not a
-// positional assumption — works whether "Close" is milestone 1 of 4 or
-// anywhere else in a differently-shaped milestones array.
 function milestoneInstantMs(label: string, dateIso: string): number {
-  return label === 'Close' ? bidCutoffMs(dateIso) : toMidnightUtc(dateIso)
+  const t = MILESTONE_IST_TIME[label] ?? { hour: 0, minute: 0 }
+  return istTimeMs(dateIso, t.hour, t.minute)
 }
 
 // 12h, not a per-second/per-minute tick — the underlying milestone dates

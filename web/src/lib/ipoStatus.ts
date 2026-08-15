@@ -42,17 +42,23 @@ export function nowIst(): { dateStr: string; hour: number; minute: number } {
   return { dateStr: ist.toISOString().slice(0, 10), hour: ist.getUTCHours(), minute: ist.getUTCMinutes() }
 }
 
-// The exact instant (epoch ms) bidding ends for a given close date — 4:50pm
-// IST that day, i.e. 11:20 UTC (16:50 - the 5:30 IST offset). Exported so
-// anything rendering a continuous/time-based fill (IpoTimeline's progress
-// line) can treat the Open->Close segment as ending here instead of at
-// that day's midnight, matching the same cutoff isOpenForBidding/
-// hasBiddingClosed already enforce for eligibility.
+// The exact instant (epoch ms) a given IST wall-clock time lands on a given
+// calendar date — e.g. istTimeMs('2026-08-14', 16, 50) is 4:50pm IST on the
+// 14th, in UTC epoch ms. Exported so anything rendering a continuous/
+// time-based fill (IpoTimeline's progress line) can treat a milestone as
+// landing at its own real time of day instead of always at midnight.
+export function istTimeMs(dateIso: string, hour: number, minute: number): number {
+  const [y, m, d] = dateIso.split('-').map(Number)
+  const minutesIst = hour * 60 + minute
+  const minutesUtc = minutesIst - IST_OFFSET_MS / 60000
+  return Date.UTC(y, m - 1, d, 0, 0, 0, 0) + minutesUtc * 60 * 1000
+}
+
+// The exact instant bidding ends for a given close date — 4:50pm IST that
+// day. Matches the same cutoff isOpenForBidding/hasBiddingClosed already
+// enforce for eligibility.
 export function bidCutoffMs(closeDateIso: string): number {
-  const [y, m, d] = closeDateIso.split('-').map(Number)
-  const cutoffMinutesIst = BID_CUTOFF_HOUR * 60 + BID_CUTOFF_MINUTE
-  const cutoffMinutesUtc = cutoffMinutesIst - IST_OFFSET_MS / 60000
-  return Date.UTC(y, m - 1, d, 0, 0, 0, 0) + cutoffMinutesUtc * 60 * 1000
+  return istTimeMs(closeDateIso, BID_CUTOFF_HOUR, BID_CUTOFF_MINUTE)
 }
 
 // Strictly the bidding window (open_date..close_date, cut off at 4:50pm IST
