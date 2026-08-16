@@ -142,12 +142,22 @@ export function IpoDashboardCard({
               transition: 'max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease',
             }}
           >
-            <div className="w-[210px] border-l pl-3" style={{ borderColor: 'var(--border)' }} onClick={(e) => e.stopPropagation()}>
-            <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+            {/* h-full + flex-col so the heading stays fixed and the list
+                itself is the thing that scrolls (min-h-0 + flex-1 + its own
+                overflow-y-auto) — the OUTER wrapper's height stays the same
+                constant 168px either way (that's what keeps the card's own
+                size from changing), but now every name is actually reachable
+                by scrolling instead of the list capping at 5 + "N more". */}
+            <div
+              className="flex h-full w-[210px] flex-col border-l pl-3"
+              style={{ borderColor: 'var(--border)' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+            <p className="mb-1 shrink-0 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
               Accounts yet to apply ({remainingHolderNames.length})
             </p>
-            <ul>
-              {remainingHolderNames.slice(0, 5).map((name) => (
+            <ul className="min-h-0 flex-1 overflow-y-auto">
+              {remainingHolderNames.map((name) => (
                 <li
                   key={name}
                   className="truncate border-b py-1.5 text-xs last:border-b-0"
@@ -156,11 +166,6 @@ export function IpoDashboardCard({
                   {name}
                 </li>
               ))}
-              {remainingHolderNames.length > 5 && (
-                <li className="pt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  +{remainingHolderNames.length - 5} more
-                </li>
-              )}
             </ul>
             </div>
           </div>
