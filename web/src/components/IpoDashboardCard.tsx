@@ -104,29 +104,27 @@ export function IpoDashboardCard({
         ]}
       />
 
-      {/* Phone: a strict 2x2 quadrant grid — funder legend / pie chart on
+      {/* Phone: a strict 2x2 quadrant grid — pie chart / funder legend on
           row 1, progress tracker / accounts-left list on row 2 — instead of
           the desktop row, which has no room on a phone width for 3-4
-          pieces side by side. Desktop/tablet (sm:+, hidden on phone):
-          unchanged single row with the accounts list opening as a narrow
-          sidebar next to the ring. */}
+          pieces side by side. The accounts-left list (quadrant 4) is always
+          shown here, not gated behind a tap-to-expand — so the gauge's own
+          expand toggle is disabled on phone (expanded/onToggleExpanded left
+          undefined) since there's nothing left for it to reveal. Desktop/
+          tablet (sm:+, hidden on phone): unchanged single row with the
+          accounts list opening as a narrow sidebar next to the ring. */}
       <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t pt-3 sm:hidden" style={{ borderColor: 'var(--border)' }}>
-        <div className="flex min-w-0 items-center">
-          {attribution && <AttributionLegend attribution={attribution} />}
-        </div>
         <div className="flex min-w-0 items-center justify-center">
           {attribution && <AttributionChart attribution={attribution} hideHeader hideLegend compact />}
         </div>
         <div className="flex min-w-0 items-center">
-          <IpoProgressGauge
-            applied={applied}
-            total={totalActive}
-            expanded={canExpand ? expanded : undefined}
-            onToggleExpanded={canExpand ? onToggleExpanded : undefined}
-          />
+          {attribution && <AttributionLegend attribution={attribution} />}
         </div>
-        <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
-          {canExpand && expanded ? (
+        <div className="flex min-w-0 items-center">
+          <IpoProgressGauge applied={applied} total={totalActive} />
+        </div>
+        <div className="min-w-0">
+          {canExpand ? (
             <>
               <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
                 Accounts yet to apply ({remainingHolderNames.length})
@@ -144,11 +142,9 @@ export function IpoDashboardCard({
               </ul>
             </>
           ) : (
-            canExpand && (
-              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                Tap "{accountsLeft} left" to view
-              </p>
-            )
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              All accounts have applied
+            </p>
           )}
         </div>
       </div>
