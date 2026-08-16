@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
 // Cycled via modulo, not capped — every funder gets a real slice now (no
@@ -236,23 +237,6 @@ export function AttributionChart({
             onMouseMove={handleMove}
             onMouseLeave={() => setHover(null)}
           />
-          {hover && (
-            <div
-              className="pointer-events-none fixed z-10 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium shadow-lg"
-              style={{
-                left: hover.x,
-                top: hover.y,
-                transform: 'translate(-50%, -130%)',
-                background: 'var(--surface)',
-                border: '1px solid var(--border)',
-                color: 'var(--ink-primary)',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: hover.color }} />
-              {hover.name}: {formatCount(hover.value)}
-            </div>
-          )}
           {/* Total count in the hole — the donut's center was empty dead
               space before; this gives it a job, same way the reference's
               own chart leads with a headline number. */}
@@ -270,6 +254,36 @@ export function AttributionChart({
             )}
           </div>
         </div>
+
+        {/* Ported straight to <body>, not rendered in place — this card
+            (and every Dashboard card) has `.stagger-item`'s one-time
+            entrance animation on an ancestor, which uses
+            `animation-fill-mode: forwards` and so leaves a permanent
+            (if identity) `transform` on that ancestor even after it
+            finishes. A transformed ancestor becomes the containing block
+            for any `position: fixed` descendant per spec, no matter how
+            far up the tree it is — so without the portal this tooltip
+            positioned itself relative to that ancestor's box instead of
+            the viewport, landing far from the actual cursor. */}
+        {hover &&
+          createPortal(
+            <div
+              className="pointer-events-none fixed z-50 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium shadow-lg"
+              style={{
+                left: hover.x,
+                top: hover.y,
+                transform: 'translate(-50%, -130%)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                color: 'var(--ink-primary)',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: hover.color }} />
+              {hover.name}: {formatCount(hover.value)}
+            </div>,
+            document.body,
+          )}
 
         {/* Single column, not a 2-col grid — narrow tile, and two columns
             there left names truncating hard. Every funder gets a real
