@@ -50,6 +50,7 @@ Deno.serve(async (req) => {
       dp_client_id,
       profit_share_percent,
       is_active,
+      platform,
       application_name,
       login_email,
       login_password,
@@ -131,6 +132,10 @@ Deno.serve(async (req) => {
       profit_share_percent: profitShare,
       is_active: typeof is_active === 'boolean' ? is_active : true,
     }
+    // Constrained trading platform (migration 0074). undefined = not in the
+    // request (leave alone); '' / null clears it. The DB enum rejects any
+    // value outside the five apps + 'other', so no extra validation here.
+    if (platform !== undefined) followUp.platform = platform || null
     if (application_name !== undefined) followUp.application_name = application_name || null
     if (login_email !== undefined) followUp.login_email = login_email || null
     if (login_password !== undefined) followUp.login_password = login_password || null

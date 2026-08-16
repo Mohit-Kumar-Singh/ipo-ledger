@@ -14,8 +14,10 @@ import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
 import { CopyButton } from '../../components/CopyButton'
+import { Combobox } from '../../components/Combobox'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { PLATFORM_OPTIONS, platformLabel, type DematPlatform } from '../../lib/platforms'
 
 type EditingAccount = {
   id: string
@@ -26,6 +28,9 @@ type EditingAccount = {
   profitSharePercent: string
   isActive: boolean
   linkedUserId: string | null
+  // Constrained trading platform (migration 0074) — replaces the old free-
+  // text "Application name" as the "which app" field. '' = not set.
+  platform: DematPlatform | ''
   // Broker-app login details — plaintext, optional, shown directly (no
   // reveal step, unlike PAN).
   applicationName: string
@@ -158,6 +163,7 @@ export function AccountsPage() {
       profitSharePercent: String(a.profit_share_percent),
       isActive: a.is_active,
       linkedUserId: a.linked_user_id,
+      platform: a.platform ?? '',
       applicationName: a.application_name ?? '',
       loginEmail: a.login_email ?? '',
       loginPassword: a.login_password ?? '',
@@ -415,7 +421,7 @@ function AccountSection({
               }
 
               const hasCredentials =
-                a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin || a.logged_in_notes
+                a.platform || a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin || a.logged_in_notes
               const hasShareableCredentials = a.login_email || a.login_password || a.app_password || a.t_pin
 
               return (
@@ -497,8 +503,10 @@ function AccountSection({
                       className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-2 text-xs sm:grid-cols-3"
                       style={{ borderColor: 'var(--border)' }}
                     >
-                      {a.application_name && (
-                        <CredentialField label="App" value={a.application_name} />
+                      {a.platform ? (
+                        <CredentialField label="Platform" value={platformLabel(a.platform)} />
+                      ) : (
+                        a.application_name && <CredentialField label="App" value={a.application_name} />
                       )}
                       {a.login_email && <CredentialField label="Login ID" value={a.login_email} copyLabel="login ID" />}
                       {a.login_password && (
@@ -529,7 +537,8 @@ function ShareDetailsButton({ account }: { account: DematAccount }) {
 
   function buildText(): string {
     const lines = [`Account: ${account.holder_name}`]
-    if (account.application_name) lines.push(`App: ${account.application_name}`)
+    if (account.platform) lines.push(`Platform: ${platformLabel(account.platform)}`)
+    else if (account.application_name) lines.push(`App: ${account.application_name}`)
     if (account.login_email) lines.push(`Login ID: ${account.login_email}`)
     if (account.login_password) lines.push(`Password: ${account.login_password}`)
     if (account.app_password) lines.push(`App password: ${account.app_password}`)
@@ -660,7 +669,7 @@ function AccountForm({
     draft?.profitSharePercent ?? existing?.profitSharePercent ?? '25',
   )
   const [isActive, setIsActive] = useState(draft?.isActive ?? existing?.isActive ?? true)
-  const [applicationName, setApplicationName] = useState(draft?.applicationName ?? existing?.applicationName ?? '')
+  const [platform, setPlatform] = useState<DematPlatform | ''>(draft?.platform ?? existing?.platform ?? '')
   const [loginEmail, setLoginEmail] = useState(draft?.loginEmail ?? existing?.loginEmail ?? '')
   const [loginPassword, setLoginPassword] = useState(draft?.loginPassword ?? existing?.loginPassword ?? '')
   const [appPassword, setAppPassword] = useState(draft?.appPassword ?? existing?.appPassword ?? '')
@@ -680,7 +689,7 @@ function AccountForm({
       dematAccountNo,
       profitSharePercent,
       isActive,
-      applicationName,
+      platform,
       loginEmail,
       loginPassword,
       appPassword,
@@ -695,7 +704,7 @@ function AccountForm({
     dematAccountNo,
     profitSharePercent,
     isActive,
-    applicationName,
+    platform,
     loginEmail,
     loginPassword,
     appPassword,
@@ -742,7 +751,7 @@ function AccountForm({
           dp_client_id: dematAccountNo || null,
           profit_share_percent: profitShareNum,
           is_active: isActive,
-          application_name: applicationName || null,
+          platform: platform || null,
           login_email: loginEmail || null,
           login_password: loginPassword || null,
           app_password: appPassword || null,
@@ -852,8 +861,14 @@ function AccountForm({
         <p className="col-span-2 text-xs font-medium sm:col-span-3" style={{ color: 'var(--ink-muted)' }}>
           Broker-app login (all optional)
         </p>
-        <Field label="Application name" hint="which app">
-          <input value={applicationName} onChange={(e) => setApplicationName(e.target.value)} className="input" />
+        <Field label="Platform" hint="which app">
+          <Combobox
+            options={PLATFORM_OPTIONS}
+            value={platform}
+            onChange={(v) => setPlatform(v as DematPlatform)}
+            placeholder="Select platform…"
+            aria-label="Trading platform"
+          />
         </Field>
         <Field label="Email ID / User ID">
           <input value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} className="input" />

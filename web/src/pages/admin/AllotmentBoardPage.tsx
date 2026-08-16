@@ -18,6 +18,7 @@ import type {
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { InfoTooltip } from '../../components/HoverCard'
+import { SellReminderComposer } from './SellReminderComposer'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
@@ -75,6 +76,7 @@ export function AllotmentBoardPage() {
   const [soldForms, setSoldForms] = useState<Record<string, SoldFormState>>({})
   const [savingSold, setSavingSold] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
+  const [showSellComposer, setShowSellComposer] = useState(false)
 
   // Archived IPOs (fully settled, moved to /archives) drop out of this
   // dropdown — their board is still viewable there. Re-run after any action
@@ -201,6 +203,7 @@ export function AllotmentBoardPage() {
 
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
   const registrarUrl = selectedIpo?.registrar_url || registrarLinks[selectedIpo?.registrar ?? '']
+  const allottedCount = rows.filter((r) => r.status === 'ALLOTTED').length
 
   async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
     await supabase.from('applications').update({ status }).eq('id', applicationId)
@@ -328,7 +331,20 @@ export function AllotmentBoardPage() {
             Mark {selected.size} selected as Not allotted
           </button>
         )}
+        {isAdmin && selectedIpoId && allottedCount > 0 && (
+          <button onClick={() => setShowSellComposer(true)} className="btn-primary">
+            Send sell reminder ({allottedCount})
+          </button>
+        )}
       </div>
+
+      {showSellComposer && selectedIpo && (
+        <SellReminderComposer
+          ipo={{ id: selectedIpo.id, company_name: selectedIpo.company_name, listing_date: selectedIpo.listing_date }}
+          allottedRows={rows.filter((r) => r.status === 'ALLOTTED')}
+          onClose={() => setShowSellComposer(false)}
+        />
+      )}
 
       {loading && <InlineSpinner />}
 

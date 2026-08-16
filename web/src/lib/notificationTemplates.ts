@@ -10,6 +10,7 @@ export type TemplateName =
   | 'ipo_allotted'
   | 'ipo_applied_funder'
   | 'ipo_allotted_funder'
+  | 'sell_reminder'
   // Old name for ipo_applied_funder, kept only so historic notification
   // rows created before this rename still render instead of falling
   // through to the raw params-joined default.
@@ -55,6 +56,13 @@ export function renderMessageBody(templateName: string, params: string[]): strin
         `Listing date: *${p(3)}*.` +
         portalLine()
       )
+    case 'sell_reminder':
+      // Whole body composed on the client (IPO name + listing date +
+      // admin's editable note), passed as a single param — same "doesn't
+      // fit fixed p(0..3) slots" reason ipo_close_rollup passes one blob.
+      // Any PDF is a separate signed URL the admin attaches by hand in
+      // WhatsApp, not part of the text body.
+      return `${p(0)}${portalLine()}`
     case 'ipo_close_rollup':
       // Body built server-side in full (grouped by application date, one
       // line per demat account) — passed through as a single param rather

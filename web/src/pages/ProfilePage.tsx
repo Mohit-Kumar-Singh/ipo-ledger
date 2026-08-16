@@ -17,6 +17,7 @@ import { ThemeToggle } from '../components/ThemeToggle'
 import { InfoTooltip } from '../components/HoverCard'
 import { useTheme } from '../contexts/ThemeContext'
 import { AccountsPage } from './admin/AccountsPage'
+import { SellInstructionPdfsSection } from './admin/SellInstructionPdfs'
 import type {
   BankAccount,
   BankLinkRequest,
@@ -955,6 +956,7 @@ export function ProfilePage() {
       </div>
 
       <AccountsSection />
+      {isAdmin && <SellInstructionPdfsSection />}
       {isAdmin && <PanAccessLogSection />}
     </div>
   )

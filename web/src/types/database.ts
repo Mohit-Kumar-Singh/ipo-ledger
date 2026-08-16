@@ -30,6 +30,10 @@ export interface DematAccount {
   pan_masked: string
   pan_hash: string
   broker: string | null
+  // Constrained trading platform (migration 0074) — drives which how-to-sell
+  // PDF a listing-day reminder attaches. Replaces free-text application_name
+  // as the "which app" field; null = not recorded.
+  platform: import('../lib/platforms').DematPlatform | null
   dp_client_id: string | null
   linked_user_id: string | null
   notes: string | null
@@ -187,6 +191,9 @@ export interface AllotmentBoardRow {
   // The IPO's own GMP notes — shown alongside the account on the Sold
   // status & payouts cards. See migration 0073.
   gmp_notes: string | null
+  // The demat holder's trading platform — drives which how-to-sell PDF a
+  // listing-day sell reminder attaches. See migration 0074.
+  platform: import('../lib/platforms').DematPlatform | null
 }
 
 export interface RegistrarLink {

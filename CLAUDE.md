@@ -10,7 +10,11 @@ conventions and hard-won gotchas that aren't visible just from reading code.
 feature ships without a doc update — it does not yet mention the demat/bank
 link-request-and-approve flow, funder-side application visibility, self-service
 unlink, or the Combobox component (all shipped v1.29.0–v1.33.3). `01`–`06` are
-explicitly the original planning docs and are further behind. Treat both as
+explicitly the original planning docs and are further behind. Neither yet
+mentions the constrained `demat_accounts.platform` enum (0074, replaced the
+free-text "which app" field) or the admin-managed `sell_instruction_pdfs`
+library + `sell-instructions` private Storage bucket + listing-day
+SELL_REMINDER send flow (0075, v1.134.0). Treat both as
 directional, not authoritative — for current behavior, prefer `git log
 --oneline` and the actual migrations/code over trusting these docs blindly.
 
