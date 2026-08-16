@@ -132,7 +132,12 @@ export function AttributionChart({
                   style={{
                     transition: `stroke-dasharray 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${i * 0.08}s`,
                   }}
-                />
+                >
+                  {/* Native browser tooltip on hover, "Name: value" — same
+                      job as the reference chart's tooltip callback, without
+                      pulling in a charting library for it. */}
+                  <title>{`${g.name}: ${formatCount(g.value)}`}</title>
+                </circle>
               ))}
             </g>
             {/* Sheen ring — same radius/width as the data ring, drawn last so
@@ -196,19 +201,39 @@ export function AttributionChart({
 // renders by default. Same color-index/name/count logic as the legend
 // column above, just without the arc geometry a standalone legend has no
 // use for.
-export function AttributionLegend({ attribution, className = '' }: { attribution: IpoAttribution; className?: string }) {
+export function AttributionLegend({
+  attribution,
+  className = '',
+  firstNameOnly = false,
+}: {
+  attribution: IpoAttribution
+  className?: string
+  // Dashboard's phone quadrant column is too narrow for a full "Mohit Kumar
+  // Singh" — it wraps to a second line and blows out the row height. First
+  // name only keeps every legend line to one row on a phone-width column.
+  firstNameOnly?: boolean
+}) {
   const { totalApplications, slices } = attribution
   if (totalApplications === 0 || slices.length === 0) return null
+  // More than 5 funders no longer fits the quadrant's fixed height — scroll
+  // instead of pushing the row (and the whole card) taller.
+  const scrollable = slices.length > 5
   return (
-    <div className={`flex min-w-0 flex-col gap-1 text-xs ${className}`}>
+    <div
+      className={`flex min-w-0 flex-col gap-1 text-xs ${scrollable ? 'max-h-24 overflow-y-auto' : ''} ${className}`}
+    >
       {slices.map((s, i) => (
         <div key={s.name} className="flex min-w-0 items-center gap-1.5">
           <span
             className="inline-block h-2 w-2 shrink-0 rounded-full"
             style={{ background: `var(${SERIES_VARS[i % SERIES_VARS.length]})` }}
           />
-          <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
-            {s.name} — {formatCount(s.value)}
+          <span
+            className="font-mono-ipo truncate font-medium"
+            style={{ color: 'var(--ink-secondary)' }}
+            title={`${s.name} — ${formatCount(s.value)}`}
+          >
+            {firstNameOnly ? s.name.split(' ')[0] : s.name} — {formatCount(s.value)}
           </span>
         </div>
       ))}

@@ -118,7 +118,7 @@ export function IpoDashboardCard({
           {attribution && <AttributionChart attribution={attribution} hideHeader hideLegend compact />}
         </div>
         <div className="flex min-w-0 items-center">
-          {attribution && <AttributionLegend attribution={attribution} />}
+          {attribution && <AttributionLegend attribution={attribution} firstNameOnly />}
         </div>
         <div className="flex min-w-0 items-center">
           <IpoProgressGauge applied={applied} total={totalActive} />
