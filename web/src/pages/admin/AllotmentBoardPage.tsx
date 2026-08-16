@@ -101,9 +101,22 @@ export function AllotmentBoardPage() {
     // Deep-link from the Dashboard's "N allotted" badge (?ipo=<id>) —
     // auto-select that IPO's board the moment the dropdown's own options
     // have loaded, instead of leaving the visitor to pick it again by hand.
+    // Otherwise default to whichever listed IPO needs selling soonest: the
+    // dropdown is already scoped to allotment-out, not-yet-archived IPOs
+    // (an IPO auto-archives once nothing's left pending on it), so the
+    // earliest listing date in that list is the one most overdue to sell —
+    // the visitor can still switch to any other IPO from the dropdown as
+    // usual.
     const ipoIdParam = searchParams.get('ipo')
     loadIpos((loaded) => {
-      if (ipoIdParam && loaded.some((i) => i.id === ipoIdParam)) loadBoard(ipoIdParam)
+      if (ipoIdParam && loaded.some((i) => i.id === ipoIdParam)) {
+        loadBoard(ipoIdParam)
+        return
+      }
+      const withListing = loaded.filter((i) => i.listing_date)
+      const earliest = [...withListing].sort((a, b) => (a.listing_date! < b.listing_date! ? -1 : 1))[0]
+      const fallback = earliest ?? loaded[0]
+      if (fallback) loadBoard(fallback.id)
     })
     supabase
       .from('registrar_links')
