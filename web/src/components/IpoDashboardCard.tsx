@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { CheckCircleIcon } from '@primer/octicons-react'
-import { AttributionChart } from './AttributionChart'
+import { AttributionChart, AttributionLegend } from './AttributionChart'
 import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
@@ -104,55 +104,63 @@ export function IpoDashboardCard({
         ]}
       />
 
-      {/* Phone: stacked, full width, top to bottom — pie chart, then (once
-          expanded) the accounts list as its own full-width scrollable
-          block, then the progress ring. Desktop/tablet (sm:+): unchanged
-          side-by-side row with the accounts list opening as a narrow
-          sidebar next to the ring. Two separate accounts-list renders
-          below (mobile-only / desktop-only via sm:hidden / hidden sm:block)
-          rather than one that tries to serve both layouts — their sizing
-          models are genuinely different (mobile: bounded height that
-          scrolls, appended below; desktop: fixed constant height so
-          expanding never changes the row's own height). */}
-      <div
-        className="mt-3 flex flex-col items-center gap-4 border-t pt-3 sm:flex-row sm:flex-wrap sm:justify-center"
-        style={{ borderColor: 'var(--border)' }}
-      >
-        {attribution && <AttributionChart attribution={attribution} hideHeader />}
+      {/* Phone: a strict 2x2 quadrant grid — funder legend / pie chart on
+          row 1, progress tracker / accounts-left list on row 2 — instead of
+          the desktop row, which has no room on a phone width for 3-4
+          pieces side by side. Desktop/tablet (sm:+, hidden on phone):
+          unchanged single row with the accounts list opening as a narrow
+          sidebar next to the ring. */}
+      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t pt-3 sm:hidden" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex min-w-0 items-center">
+          {attribution && <AttributionLegend attribution={attribution} />}
+        </div>
+        <div className="flex min-w-0 items-center justify-center">
+          {attribution && <AttributionChart attribution={attribution} hideHeader hideLegend compact />}
+        </div>
+        <div className="flex min-w-0 items-center">
+          <IpoProgressGauge
+            applied={applied}
+            total={totalActive}
+            expanded={canExpand ? expanded : undefined}
+            onToggleExpanded={canExpand ? onToggleExpanded : undefined}
+          />
+        </div>
+        <div className="min-w-0" onClick={(e) => e.stopPropagation()}>
+          {canExpand && expanded ? (
+            <>
+              <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+                Accounts yet to apply ({remainingHolderNames.length})
+              </p>
+              <ul className="max-h-32 overflow-y-auto">
+                {remainingHolderNames.map((name) => (
+                  <li
+                    key={name}
+                    className="truncate border-b py-1 text-xs last:border-b-0"
+                    style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
+                  >
+                    {name}
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            canExpand && (
+              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                Tap "{accountsLeft} left" to view
+              </p>
+            )
+          )}
+        </div>
+      </div>
 
+      <div className="mt-3 hidden items-center justify-center gap-4 border-t pt-3 sm:flex sm:flex-wrap" style={{ borderColor: 'var(--border)' }}>
+        {attribution && <AttributionChart attribution={attribution} hideHeader />}
         <IpoProgressGauge
           applied={applied}
           total={totalActive}
           expanded={canExpand ? expanded : undefined}
           onToggleExpanded={canExpand ? onToggleExpanded : undefined}
         />
-
-        {/* Phone only — chart, then gauge, then (once expanded, via the
-            gauge's own "N left" badge) this full-width scrollable list at
-            the very bottom. Desktop/tablet keep the sidebar version below,
-            unchanged. */}
-        {canExpand && expanded && (
-          <div
-            className="w-full border-t pt-3 sm:hidden"
-            style={{ borderColor: 'var(--border)' }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
-              Accounts yet to apply ({remainingHolderNames.length})
-            </p>
-            <ul className="max-h-48 overflow-y-auto">
-              {remainingHolderNames.map((name) => (
-                <li
-                  key={name}
-                  className="truncate border-b py-1.5 text-xs last:border-b-0"
-                  style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
-                >
-                  {name}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
 
         {/* max-width only, not conditional mounting — animates open/closed
             instead of snapping, same technique the old side panel used.
@@ -163,12 +171,10 @@ export function IpoDashboardCard({
             toggled to 0. A toggled height was exactly what made expanding
             this panel grow the whole card (168px was taller than the
             chart/gauge next to it); reserving that height permanently means
-            the card's total height never changes on click, and the pie
-            chart/gauge (now items-center, not items-start) stay vertically
-            centered against it whether the panel is showing or not. */}
+            the card's total height never changes on click. */}
         {canExpand && (
           <div
-            className="hidden overflow-hidden sm:block"
+            className="overflow-hidden"
             style={{
               maxWidth: expanded ? 210 : 0,
               height: 168,

@@ -23,6 +23,7 @@ export function AttributionChart({
   attribution,
   compact = false,
   hideHeader = false,
+  hideLegend = false,
 }: {
   attribution: IpoAttribution
   compact?: boolean
@@ -31,6 +32,11 @@ export function AttributionChart({
   // apps" count) rendered a second time immediately above the donut.
   // ProfilePage's standalone usage keeps the header (default false).
   hideHeader?: boolean
+  // Chart-only, no legend column — IpoDashboardCard's phone quadrant
+  // layout renders the legend as its own separate grid cell (via
+  // AttributionLegend below), not beside the chart, so it needs the chart
+  // alone here instead of the combined side-by-side unit.
+  hideLegend?: boolean
 }) {
   const { companyName, totalApplications, slices } = attribution
   const [grown, setGrown] = useState(false)
@@ -92,12 +98,7 @@ export function AttributionChart({
         </div>
       )}
 
-      {/* Stacked on phone (chart on its own row, funder legend on the row
-          below it, both centered) — side-by-side from sm: up, unchanged.
-          Only consumer of this component is IpoDashboardCard's phone
-          layout, where legend text next to a small donut had no room and
-          needed its own row instead. */}
-      <div className="flex min-w-0 flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-4">
+      <div className="flex min-w-0 items-center gap-4">
         <div className="relative shrink-0" style={{ width: size, height: size }}>
           {/* Glow keyed off the largest (first, since slices sort desc)
               slice's own color — "this chart's accent," not one fixed hue
@@ -214,20 +215,48 @@ export function AttributionChart({
             there left names truncating hard. Every funder gets a real
             legend line now — no "Other" bucket, so no separate dimmed
             "member" sub-entries either; this is just the full slice list. */}
-        <div className="flex w-full min-w-0 flex-col gap-1 text-xs sm:flex-1">
-          {geometry.map((s, i) => (
-            <div key={s.name} className="flex min-w-0 items-center gap-1.5">
-              <span
-                className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: `var(${SERIES_VARS[i % SERIES_VARS.length]})` }}
-              />
-              <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
-                {s.name} — {formatCount(s.value)}
-              </span>
-            </div>
-          ))}
-        </div>
+        {!hideLegend && (
+          <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
+            {geometry.map((s, i) => (
+              <div key={s.name} className="flex min-w-0 items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ background: `var(${SERIES_VARS[i % SERIES_VARS.length]})` }}
+                />
+                <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
+                  {s.name} — {formatCount(s.value)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+    </div>
+  )
+}
+
+// The legend alone, no chart — IpoDashboardCard's phone quadrant layout
+// (funder list top-left, chart top-right) needs these as two independent
+// grid cells instead of the combined side-by-side unit AttributionChart
+// renders by default. Same color-index/name/count logic as the legend
+// column above, just without the arc geometry a standalone legend has no
+// use for.
+export function AttributionLegend({ attribution, className = '' }: { attribution: IpoAttribution; className?: string }) {
+  const { totalApplications, slices } = attribution
+  if (totalApplications === 0 || slices.length === 0) return null
+  return (
+    <div className={`flex min-w-0 flex-col gap-1 text-xs ${className}`}>
+      {slices.map((s, i) => (
+        <div key={s.name} className="flex min-w-0 items-center gap-1.5">
+          <span
+            className="inline-block h-2 w-2 shrink-0 rounded-full"
+            style={{ background: `var(${SERIES_VARS[i % SERIES_VARS.length]})` }}
+          />
+          <span className="font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)', wordBreak: 'break-word' }}>
+            {s.name} — {formatCount(s.value)}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }
