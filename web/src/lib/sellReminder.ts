@@ -62,8 +62,6 @@ export function buildSellReminderText(opts: {
   if (details?.login_password) lines.push(`Password: ${details.login_password}`)
   if (details?.app_password) lines.push(`App password: ${details.app_password}`)
   if (details?.t_pin) lines.push(`T-PIN: ${details.t_pin}`)
-  if (details?.dp_client_id) lines.push(`Demat/DP ID: ${details.dp_client_id}`)
-  if (details?.logged_in_notes) lines.push(`Note: ${details.logged_in_notes}`)
   if (lines.length) msg += `\n\n*Your login details:*\n${lines.join('\n')}`
 
   if (pdfUrl) msg += `\n\n*How to verify (T-PIN) & sell:*\n${pdfUrl}`
