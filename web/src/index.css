@@ -841,3 +841,20 @@ table {
     box-shadow: var(--shadow-sm);
   }
 }
+
+/* Touch-device tap-target floor. The controls are deliberately GitHub-compact
+   (py-2 + text-sm ≈ 36px) on desktop, which is right for a mouse but below
+   the ~44px comfortable-tap size on phones. Gated on `pointer: coarse` so it
+   only affects touchscreens — desktop density is untouched. Covers the
+   primary controls + the searchable Combobox trigger; small inline text
+   links (Undo/PDF/etc.) still rely on their surrounding row height. */
+@media (pointer: coarse) {
+  .btn-primary,
+  .btn-secondary,
+  .btn-warning,
+  .btn-danger,
+  .input,
+  select.input {
+    min-height: 44px;
+  }
+}
