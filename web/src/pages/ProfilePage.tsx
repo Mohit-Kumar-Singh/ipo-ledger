@@ -954,8 +954,8 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {isAdmin && <PanAccessLogSection />}
       <AccountsSection />
+      {isAdmin && <PanAccessLogSection />}
     </div>
   )
 }
