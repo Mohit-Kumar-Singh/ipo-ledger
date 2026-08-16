@@ -550,9 +550,21 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
-          Dashboard
-        </h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            Dashboard
+          </h1>
+          {/* Quick jump to the full IPO list from the overview. */}
+          <Link
+            to="/ipos"
+            aria-label="Go to IPOs"
+            title="Go to IPOs"
+            className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+            style={{ color: 'var(--ink-muted)' }}
+          >
+            <GraphIcon size={16} />
+          </Link>
+        </div>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
           {isAdmin ? 'Overview across all accounts and IPOs' : 'Overview of your accounts and upcoming IPOs'}
         </p>

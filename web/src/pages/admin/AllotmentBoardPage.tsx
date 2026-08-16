@@ -8,13 +8,12 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
   Ipo,
   Notification,
-  RegistrarLink,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { InfoTooltip } from '../../components/HoverCard'
@@ -69,7 +68,6 @@ export function AllotmentBoardPage() {
   const [ipos, setIpos] = useState<Ipo[]>([])
   const [selectedIpoId, setSelectedIpoId] = useState('')
   const [rows, setRows] = useState<AllotmentBoardRow[]>([])
-  const [registrarLinks, setRegistrarLinks] = useState<Record<string, string>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
   const [allottedNotifs, setAllottedNotifs] = useState<Record<string, AllottedNotif>>({})
@@ -121,14 +119,6 @@ export function AllotmentBoardPage() {
       const fallback = earliest ?? loaded[0]
       if (fallback) loadBoard(fallback.id)
     })
-    supabase
-      .from('registrar_links')
-      .select('*')
-      .then(({ data }) => {
-        const map: Record<string, string> = {}
-        for (const l of (data ?? []) as RegistrarLink[]) map[l.registrar] = l.check_url
-        setRegistrarLinks(map)
-      })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -203,7 +193,6 @@ export function AllotmentBoardPage() {
     : sortedRows
 
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
-  const registrarUrl = selectedIpo?.registrar_url || registrarLinks[selectedIpo?.registrar ?? '']
   const allottedCount = rows.filter((r) => r.status === 'ALLOTTED').length
 
   async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
@@ -306,11 +295,31 @@ export function AllotmentBoardPage() {
 
   return (
     <div className="space-y-5">
-      <div>
+      <div className="flex items-center justify-between gap-2">
         <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Allotment board
-          <InfoTooltip text="Open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out are listed below." />
+          <InfoTooltip text="Mark results one row at a time. Only IPOs whose allotment is already out are listed below." />
         </h1>
+        {/* Sell reminder lives here as an icon (with the allotted count as a
+            badge) rather than a wide button in the controls row below. */}
+        {isAdmin && selectedIpoId && allottedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowSellComposer(true)}
+            aria-label={`Send sell reminder (${allottedCount} allotted)`}
+            title={`Send sell reminder (${allottedCount} allotted)`}
+            className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+            style={{ color: 'var(--accent)' }}
+          >
+            <PaperAirplaneIcon size={18} />
+            <span
+              className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+              style={{ background: 'var(--accent)', color: '#ffffff' }}
+            >
+              {allottedCount}
+            </span>
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -322,19 +331,9 @@ export function AllotmentBoardPage() {
             </option>
           ))}
         </select>
-        {registrarUrl && (
-          <a href={registrarUrl} target="_blank" rel="noreferrer" className="btn-secondary">
-            Open registrar page ↗
-          </a>
-        )}
         {selected.size > 0 && (
           <button onClick={bulkMarkNotAllotted} className="btn-secondary">
             Mark {selected.size} selected as Not allotted
-          </button>
-        )}
-        {isAdmin && selectedIpoId && allottedCount > 0 && (
-          <button onClick={() => setShowSellComposer(true)} className="btn-primary">
-            Send sell reminder ({allottedCount})
           </button>
         )}
       </div>

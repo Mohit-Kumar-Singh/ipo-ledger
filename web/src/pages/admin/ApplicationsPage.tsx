@@ -115,8 +115,8 @@ export function ApplicationsPage() {
   const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
-  const [backdatedMode, setBackdatedMode] = useState(false)
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const [searchQuery, setSearchQuery] = useState('')
   const todayStr = nowIst().dateStr
@@ -313,9 +313,8 @@ export function ApplicationsPage() {
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [loading, location.hash])
 
-  function openForm(backdated = false) {
+  function openForm() {
     setShowForm(true)
-    setBackdatedMode(backdated)
     setEditingApplication(null)
     loadFormData()
   }
@@ -405,6 +404,9 @@ export function ApplicationsPage() {
   // groups nobody needs to look at anymore; they're still fully visible on
   // the Archives page.
   const visibleApplications = useMemo(() => applications.filter((a) => !a.ipos?.is_archived), [applications])
+  // Applications on settled/archived IPOs — kept out of the main list, but
+  // surfaced in a collapsed card at the bottom of the page for reference.
+  const archivedApplications = useMemo(() => applications.filter((a) => a.ipos?.is_archived), [applications])
   const notOnIpojiCount = useMemo(
     () => visibleApplications.filter((a) => !a.imported_from_ipoji).length,
     [visibleApplications],
@@ -569,13 +571,28 @@ export function ApplicationsPage() {
             {visibleApplications.length} total
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {showForm ? (
-            <button onClick={() => setShowForm(false)} className="btn-primary">
+            <button onClick={() => setShowForm(false)} className="btn-secondary">
               Cancel
             </button>
           ) : (
             <>
+              {/* Search collapsed to a single icon in the title row; tapping it
+                  reveals the search field below. */}
+              {visibleApplications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen((v) => !v)}
+                  aria-label="Search applications"
+                  aria-expanded={searchOpen}
+                  title="Search"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
+                >
+                  <SearchIcon size={16} />
+                </button>
+              )}
               {/* Admin-only — this bulk-imports from ipoji against every
                   account in the portal, not just whatever a funder-only
                   viewer is allowed to see; showing it to them would just be
@@ -588,13 +605,13 @@ export function ApplicationsPage() {
                   }}
                   className="btn-secondary"
                 >
-                  {ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
+                  {ipojiSyncOpen ? 'Close' : 'from ipoji'}
                 </button>
               )}
-              <button onClick={() => openForm(true)} className="btn-secondary">
-                + Backdated application
-              </button>
-              <button onClick={() => openForm(false)} className="btn-primary">
+              {/* One entry point now — the form auto-detects a backdated
+                  application from the selected IPO's date and badges it, so
+                  the separate "+ Backdated application" button is gone. */}
+              <button onClick={() => openForm()} className="btn-secondary">
                 + New application
               </button>
             </>
@@ -618,10 +635,11 @@ export function ApplicationsPage() {
         </Suspense>
       )}
 
-      {!showForm && visibleApplications.length > 0 && (
+      {!showForm && searchOpen && visibleApplications.length > 0 && (
         <div className="relative max-w-sm">
           <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
           <input
+            autoFocus
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by holder, IPO, or funder…"
@@ -717,7 +735,6 @@ export function ApplicationsPage() {
           ipos={ipos}
           accounts={accounts}
           banks={banks}
-          backdated={backdatedMode}
           onDone={() => {
             setShowForm(false)
             loadApplications()
@@ -769,10 +786,11 @@ export function ApplicationsPage() {
                   </span>
                 </button>
                 {/* Only shows once at least one application in this IPO's
-                    group is actually eligible for the bulk action — no point
-                    offering "select all" over a group with nothing to
-                    select. */}
-                {eligibleIdsInGroup.length > 0 && (
+                    group is actually eligible for the bulk action, AND only
+                    while the group is expanded — a "select all" over a
+                    collapsed (hidden) list is just a confusing lever with no
+                    visible rows to act on. */}
+                {eligibleIdsInGroup.length > 0 && !isCollapsed && (
                   <label className="flex shrink-0 items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
                     <input
                       type="checkbox"
@@ -1153,7 +1171,65 @@ export function ApplicationsPage() {
           })}
         </div>
       )}
+
+      {!showForm && archivedApplications.length > 0 && (
+        <ArchivedApplicationsCard rows={archivedApplications} />
+      )}
     </div>
+  )
+}
+
+// Collapsed-by-default card at the bottom of the page (same pattern as the
+// Profile PAN-access-log card) listing applications whose IPO has been
+// archived — a read-only reference, grouped by IPO.
+function ArchivedApplicationsCard({ rows }: { rows: ApplicationRow[] }) {
+  const [open, setOpen] = useState(false)
+  const byIpo = useMemo(() => {
+    const map = new Map<string, ApplicationRow[]>()
+    for (const a of rows) {
+      const name = a.ipos?.company_name ?? 'Unknown IPO'
+      if (!map.has(name)) map.set(name, [])
+      map.get(name)!.push(a)
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [rows])
+
+  return (
+    <section className="card animate-page-in overflow-hidden p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+        aria-expanded={open}
+      >
+        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <span style={{ color: 'var(--ink-muted)' }}>{open ? '▾' : '▸'}</span>
+          Archived applications
+        </h2>
+        <span className="badge badge-neutral shrink-0">{rows.length}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-4">
+          {byIpo.map(([ipoName, items]) => (
+            <div key={ipoName}>
+              <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                {ipoName} <span style={{ color: 'var(--ink-muted)' }}>({items.length})</span>
+              </p>
+              <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
+                {items.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                    <span className="truncate" style={{ color: 'var(--ink-primary)' }}>
+                      {a.demat_accounts?.holder_name ?? 'Unknown'}
+                    </span>
+                    <StatusBadge status={a.status} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -1172,7 +1248,6 @@ function NewApplicationForm({
   accounts,
   banks,
   existing,
-  backdated = false,
   onCancel,
   onDone,
 }: {
@@ -1180,7 +1255,6 @@ function NewApplicationForm({
   accounts: DematAccount[]
   banks: BankAccount[]
   existing?: ApplicationRow
-  backdated?: boolean
   onCancel?: () => void
   onDone: () => void
 }) {
@@ -1261,9 +1335,15 @@ function NewApplicationForm({
   // panel, which matches against the full unfiltered ipos list) is the
   // deliberate escape hatch for catching up a record after the fact, so
   // both list every IPO instead.
-  const liveIpos = ipos.filter(isOpenForBidding)
-  const selectableIpos = backdated ? ipos : liveIpos
+  // One merged entry point: every IPO is selectable. Whether the result is a
+  // "backdated" record is derived from the chosen IPO — if it's no longer
+  // open for bidding, it's a catch-up/backdated entry and gets badged as
+  // such. Live IPOs sort to the top so the common case stays first.
+  const selectableIpos = [...ipos].sort(
+    (a, b) => Number(isOpenForBidding(b)) - Number(isOpenForBidding(a)),
+  )
   const selectedIpo = ipos.find((i) => i.id === ipoId)
+  const autoBackdated = selectedIpo ? !isOpenForBidding(selectedIpo) : false
   const selectedAccount = accounts.find((a) => a.id === dematId)
   const cutoffPrice = selectedIpo?.price_high ?? 0
   const bidAmount = selectedIpo ? Number(lots || 0) * selectedIpo.lot_size * cutoffPrice : 0
@@ -1314,7 +1394,7 @@ function NewApplicationForm({
           category,
           lots: Number(lots),
           bid_amount: bidAmount || null,
-          is_backdated: backdated,
+          is_backdated: autoBackdated,
         })
         return { id, error }
       }),
@@ -1343,9 +1423,12 @@ function NewApplicationForm({
 
   return (
     <form onSubmit={handleSubmit} className="card animate-page-in grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
-      {!existing && backdated && (
-        <p className="col-span-full text-xs font-medium" style={{ color: 'var(--warning)' }}>
-          Backdated application — any past IPO can be selected, and it'll be flagged as backdated once saved.
+      {!existing && autoBackdated && (
+        <p className="col-span-full inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+          style={{ background: 'var(--warning-tint)', color: 'var(--warning-text)' }}
+        >
+          <HistoryIcon size={13} fill="var(--warning-text)" />
+          Backdated — this IPO is past its bidding window; it'll be flagged as backdated once saved.
         </p>
       )}
       <Field label="IPO">
@@ -1357,19 +1440,15 @@ function NewApplicationForm({
           <>
             <select required value={ipoId} onChange={(e) => setIpoId(e.target.value)} className="input">
               <option value="">
-                {selectableIpos.length === 0 ? (backdated ? 'No IPOs yet' : 'No live IPOs right now') : 'Select IPO'}
+                {selectableIpos.length === 0 ? 'No IPOs yet' : 'Select IPO'}
               </option>
               {selectableIpos.map((i) => (
                 <option key={i.id} value={i.id}>
                   {i.company_name}
+                  {!isOpenForBidding(i) ? ' (past)' : ''}
                 </option>
               ))}
             </select>
-            {selectableIpos.length === 0 && !backdated && (
-              <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                No IPOs currently between open and listing date.
-              </p>
-            )}
           </>
         )}
       </Field>
