@@ -468,6 +468,27 @@ table {
   box-shadow: var(--shadow-sm);
 }
 
+/* iOS "Liquid Glass" floating tab bar — more translucent + a stronger blur
+   than .glass-header so the page content clearly refracts through it, plus a
+   bright top inset edge (the glass highlight) and a soft drop shadow so the
+   pill reads as floating above the page, not welded to the bottom. Works in
+   both themes: color-mix over --header-bg keeps it light-on-light /
+   dark-on-dark, and the highlight/border tokens invert with the theme. */
+.glass-tabbar {
+  background: color-mix(in srgb, var(--header-bg) 62%, transparent);
+  backdrop-filter: blur(24px) saturate(1.9);
+  -webkit-backdrop-filter: blur(24px) saturate(1.9);
+  border: 1px solid var(--glass-border);
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.18),
+    0 2px 8px rgba(0, 0, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+/* A touched tab lifts slightly and brightens — the "liquid" press feedback. */
+.glass-tab-active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
 /* "Hot GMP" hype ring (IposPage, gmp% > 45) — a soft rotating glow behind
    the card, not a fixed brand color: var(--warning)/var(--critical) are
    the same "needs attention" tokens used everywhere else in the app, so

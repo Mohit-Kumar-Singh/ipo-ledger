@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import {
   ChevronDownIcon,
+  ChevronRightIcon,
   CreditCardIcon,
   LawIcon,
+  ChecklistIcon,
+  ArchiveIcon,
+  SignOutIcon,
   DeviceMobileIcon,
   PaintbrushIcon,
   PeopleIcon,
@@ -67,7 +72,7 @@ interface PendingReviewRequest {
 }
 
 export function ProfilePage() {
-  const { session, profile, refreshProfile } = useAuth()
+  const { session, profile, refreshProfile, signOut } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [pendingReview, setPendingReview] = useState<PendingReviewRequest[]>([])
   const [loadingReview, setLoadingReview] = useState(true)
@@ -449,6 +454,49 @@ export function ProfilePage() {
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
           Your display name signs off the WhatsApp messages you send.
+        </p>
+      </div>
+
+      {/* Phone/tablet navigation hub — the destinations NOT on the bottom tab
+          bar (Dashboard/IPOs/Applications/Alerts/Profile) live here so
+          everything is still reachable without the desktop sidebar. Hidden at
+          lg, where the sidebar covers all of these. */}
+      <div className="card animate-page-in overflow-hidden p-1.5 lg:hidden">
+        <nav className="flex flex-col">
+          {[
+            { to: '/bank-accounts', label: 'Bank / UPI accounts', icon: LawIcon, show: true },
+            { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon, show: true },
+            { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, show: isAdmin },
+            { to: '/archives', label: 'Archives', icon: ArchiveIcon, show: true },
+          ]
+            .filter((l) => l.show)
+            .map((l) => {
+              const Icon = l.icon
+              return (
+                <Link
+                  key={l.to}
+                  to={l.to}
+                  className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: 'var(--ink-primary)' }}
+                >
+                  <Icon size={16} fill="var(--ink-muted)" />
+                  <span className="flex-1">{l.label}</span>
+                  <ChevronRightIcon size={16} fill="var(--ink-muted)" />
+                </Link>
+              )
+            })}
+          <button
+            type="button"
+            onClick={signOut}
+            className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
+            style={{ color: 'var(--critical-text)' }}
+          >
+            <SignOutIcon size={16} fill="var(--critical-text)" />
+            <span className="flex-1 text-left">Sign out</span>
+          </button>
+        </nav>
+        <p className="px-3 pt-1 pb-1 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+          v{__APP_VERSION__}
         </p>
       </div>
 

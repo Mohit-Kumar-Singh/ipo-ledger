@@ -16,7 +16,6 @@ import {
   SignOutIcon,
   SunIcon,
   MoonIcon,
-  ThreeBarsIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
@@ -450,7 +449,12 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="min-w-0 flex-1 overflow-x-hidden">
+      {/* viewport-fit=cover lets content run under the iPhone status bar. This
+          top inset keeps the page's own <h1> clear of the clock on first
+          paint; scrolling still slides content up under the status bar as iOS
+          expects. Zero on desktop (no inset), and on the content wrapper (not
+          the sticky sidebar, which handles its own inset). */}
+      <div className="min-w-0 flex-1 overflow-x-hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <main
           className="mx-auto max-w-6xl px-4 pt-6 sm:px-6 md:px-8 md:pt-8 lg:pb-8"
           // Extra bottom padding on phone/tablet so the fixed bottom tab bar
@@ -464,55 +468,85 @@ export function AppShell() {
         </main>
       </div>
 
-      {/* Bottom tab bar — phone + tablet primary navigation (hidden at lg,
-          where the sidebar takes over). Fixed to the viewport bottom, padded
-          up by the iPhone home-indicator inset. "More" opens the full sidebar
-          drawer with everything else. */}
-      <nav
-        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch border-t lg:hidden"
-        style={{
-          background: 'var(--header-bg)',
-          borderColor: 'var(--border)',
-          paddingBottom: 'env(safe-area-inset-bottom)',
-        }}
+      {/* Floating liquid-glass tab bar — phone + tablet primary navigation
+          (hidden at lg, where the sidebar takes over). A centered pill that
+          hovers above the content; the page refracts through its blur. The
+          outer wrapper is click-through (pointer-events-none) so only the
+          pill itself intercepts taps. Profile is the 5th tab (its avatar);
+          everything not on the bar lives on the Profile page. */}
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 lg:hidden"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
       >
-        {BOTTOM_TABS.map((t) => {
-          const Icon = t.icon
-          const isActive = t.to === '/' ? location.pathname === '/' : location.pathname.startsWith(t.to)
-          // Dashboard carries the pending-link-request dot, same as the sidebar.
-          const count = t.to === '/' ? pendingCount : 0
-          return (
-            <NavLink
-              key={t.to}
-              to={t.to}
-              onClick={() => setNavOpen(false)}
-              aria-current={isActive ? 'page' : undefined}
-              className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium"
-              style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.25rem' }}
-            >
-              <Icon size={20} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
-              <span>{t.label}</span>
-              {count > 0 && (
+        <nav className="glass-tabbar pointer-events-auto flex w-full max-w-md items-stretch rounded-[1.75rem] p-1.5">
+          {BOTTOM_TABS.map((t) => {
+            const Icon = t.icon
+            const isActive = t.to === '/' ? location.pathname === '/' : location.pathname.startsWith(t.to)
+            // Dashboard carries the pending-link-request dot, same as the sidebar.
+            const count = t.to === '/' ? pendingCount : 0
+            return (
+              <NavLink
+                key={t.to}
+                to={t.to}
+                onClick={() => setNavOpen(false)}
+                aria-current={isActive ? 'page' : undefined}
+                className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.25rem] py-1.5 text-[10px] font-medium transition-colors ${
+                  isActive ? 'glass-tab-active' : ''
+                }`}
+                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
+              >
+                <Icon size={21} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
+                <span>{t.label}</span>
+                {count > 0 && (
+                  <span
+                    aria-label={`${count} pending`}
+                    className="absolute top-1 right-[24%] h-2 w-2 rounded-full"
+                    style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                  />
+                )}
+              </NavLink>
+            )
+          })}
+          {/* Profile tab rendered as the user's avatar, Instagram-style. */}
+          {(() => {
+            const isActive = location.pathname.startsWith('/profile')
+            return (
+              <NavLink
+                to="/profile"
+                onClick={() => setNavOpen(false)}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label="Profile"
+                className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.25rem] py-1.5 text-[10px] font-medium transition-colors ${
+                  isActive ? 'glass-tab-active' : ''
+                }`}
+                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
+              >
                 <span
-                  aria-label={`${count} pending`}
-                  className="absolute top-1 right-[26%] h-2 w-2 rounded-full"
-                  style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
-                />
-              )}
-            </NavLink>
-          )
-        })}
-        <button
-          type="button"
-          onClick={() => setNavOpen(true)}
-          aria-label="More"
-          className="flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium"
-          style={{ color: navOpen ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.25rem' }}
-        >
-          <ThreeBarsIcon size={20} fill={navOpen ? 'var(--accent)' : 'var(--header-fg-muted)'} />
-          <span>More</span>
-        </button>
-      </nav>
+                  className="flex items-center justify-center rounded-full text-[9px] font-bold"
+                  style={{
+                    height: 21,
+                    width: 21,
+                    background: 'var(--accent)',
+                    color: '#ffffff',
+                    outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                    outlineOffset: 1,
+                  }}
+                >
+                  {initials}
+                </span>
+                <span>Profile</span>
+                {pendingCount > 0 && (
+                  <span
+                    aria-label={`${pendingCount} pending`}
+                    className="absolute top-1 right-[24%] h-2 w-2 rounded-full"
+                    style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                  />
+                )}
+              </NavLink>
+            )
+          })()}
+        </nav>
+      </div>
     </div>
   )
 }
