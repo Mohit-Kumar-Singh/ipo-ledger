@@ -1084,7 +1084,12 @@ function PanAccessLogSection() {
   }
 
   return (
-    <section className="card animate-page-in overflow-hidden">
+    // overflow-hidden, not visible — the (i) tooltip on the heading below
+    // is an absolutely-positioned popup that needs to float OVER this
+    // card's own edge; overflow-hidden here clipped it down to an
+    // unreadable sliver instead of letting it show. AccountsSection above
+    // keeps overflow-hidden since it has no popup content to clip.
+    <section className="card animate-page-in overflow-visible">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}

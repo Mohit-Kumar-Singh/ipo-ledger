@@ -6,6 +6,7 @@ import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp 
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
+import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { SearchIcon } from '@primer/octicons-react'
 import type {
@@ -49,6 +50,14 @@ interface SoldFormState {
 
 function sellPricePerShareFrom(form: SoldFormState, row: AllotmentBoardRow): number {
   return sellPricePerShareFromEntry(form.mode, form.sellPrice, form.totalPayout, row.lot_size * row.lots)
+}
+
+// "18 Aug" — day + short month, no ordinal suffix (unlike formatOrdinalDate
+// elsewhere in this app) — this is a compact card summary line, not prose.
+function formatShortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return `${d} ${date.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })}`
 }
 
 export function AllotmentBoardPage() {
@@ -597,24 +606,23 @@ function SoldPayoutsSection({
                       {row.lots} lot(s)
                       {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
                     </p>
-                    {/* Compact summary — IPO, funder, listing date, GMP — so
-                        this card is self-contained without having to
-                        cross-reference the dropdown above or another page.
-                        Each fact is its own chip, wrapping onto a new line
-                        as a group instead of one long truncated string (the
-                        old version): a long company/funder name used to eat
-                        the whole line and silently drop listing date/GMP off
-                        the visible end entirely on a narrow phone screen. */}
-                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                      <span className="max-w-[10rem] truncate">{row.company_name}</span>
-                      {row.bank_account_holder_name && (
-                        <span className="max-w-[8rem] truncate">via {row.bank_account_holder_name}</span>
-                      )}
-                      {row.listing_date && <span className="shrink-0">listing {row.listing_date}</span>}
-                      {row.gmp_notes && <span className="max-w-[6rem] truncate">GMP {row.gmp_notes}</span>}
-                    </div>
+                    {/* Compact summary — first word of the IPO name, funder,
+                        listing date, GMP% — deliberately terse (a full
+                        company name/funder name/raw GMP string was too much
+                        for one line, especially on phone) rather than
+                        trying to fit the full facts and truncating them. */}
+                    <p className="mt-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                      {row.company_name.split(' ')[0]}
+                      {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
+                      {row.listing_date && ` · ${formatShortDate(row.listing_date)}`}
+                      {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
+                    </p>
                   </div>
-                  <div className="flex items-center gap-3">
+                  {/* Stacked on phone (flex-col), one row from sm: up —
+                      three elements (status, Mark sold/Edit sale, Undo)
+                      cramped into one row was the thing getting clipped/
+                      unreadable on a narrow screen. */}
+                  <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
                     <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
