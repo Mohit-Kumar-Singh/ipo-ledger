@@ -4,7 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { renderMessageBody } from '../../lib/notificationTemplates'
-import { isLiveIpo } from '../../lib/ipoStatus'
+import { isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import {
   buildFunderAllottedCards,
@@ -130,6 +130,68 @@ function buildHolderAllottedMessage(card: HolderAllottedCard): string {
   return (
     `Hi ${card.holderName}, Good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
     `you! (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'})\n\n${listingLine}`
+  )
+}
+
+// One card per account holder per IPO whose allotted (not yet sold) shares
+// list TOMORROW — the day the demat account actually needs to place the
+// sell order. Only ever populated the single day before listing; it's
+// empty every other day, by design, rather than a standing reminder that
+// stays visible the whole holding window.
+interface SellReminderCard {
+  key: string
+  holderName: string
+  phone: string | null
+  ipoId: string
+  ipoName: string
+  listingDate: string
+  totalLots: number
+}
+
+// "Tomorrow," in IST — the same wall-clock day the rest of this app already
+// uses for "today" (nowIst().dateStr), shifted by one calendar day. Not
+// UTC's `new Date()` directly, for the same reason nowIst() itself exists:
+// that rolls over up to 5.5 hours early/late against IST.
+function tomorrowIstDateStr(): string {
+  const d = new Date(`${nowIst().dateStr}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
+function buildSellReminderCards(rows: ApplicationForFunderRow[]): SellReminderCard[] {
+  const tomorrow = tomorrowIstDateStr()
+  const cardsByIpo = new Map<string, SellReminderCard[]>()
+  for (const r of rows) {
+    const holder = r.demat_accounts
+    if (!holder?.phone_e164 || !r.ipos) continue
+    if (r.status !== 'ALLOTTED') continue // already SOLD needs no reminder
+    if (r.ipos.listing_date !== tomorrow) continue
+    if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
+    const cardsForIpo = cardsByIpo.get(r.ipo_id)!
+    let card = cardsForIpo.find((c) => c.phone === holder.phone_e164)
+    if (!card) {
+      card = {
+        key: `sell-reminder::${r.ipo_id}::${holder.phone_e164}`,
+        holderName: holder.holder_name,
+        phone: holder.phone_e164,
+        ipoId: r.ipo_id,
+        ipoName: r.ipos.company_name,
+        listingDate: r.ipos.listing_date!,
+        totalLots: 0,
+      }
+      cardsForIpo.push(card)
+    }
+    card.totalLots += r.lots
+  }
+  return Array.from(cardsByIpo.values())
+    .flat()
+    .sort((a, b) => a.holderName.localeCompare(b.holderName) || a.ipoName.localeCompare(b.ipoName))
+}
+
+function buildSellReminderMessage(card: SellReminderCard): string {
+  return (
+    `Hi ${card.holderName}, reminder \u{23F0} — *${card.ipoName}* lists tomorrow. ` +
+    `We'll be selling your allotted shares (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'}) around *10 AM*, right when the market opens.`
   )
 }
 
@@ -313,6 +375,7 @@ export function NotificationsPage() {
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
   const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
+  const [sellReminderCards, setSellReminderCards] = useState<SellReminderCard[]>([])
   const [loading, setLoading] = useState(true)
   // Surfaced instead of silently swallowed — the funders query previously
   // just fell back to an empty array on any error (data ?? []), so a real
@@ -371,6 +434,7 @@ export function NotificationsPage() {
     setFunderCards(buildFunderIpoCards(funderRows))
     setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
+    setSellReminderCards(buildSellReminderCards(funderRows))
     setMyNotifications((myNotifsRes.data ?? []) as Notification[])
     setLoading(false)
   }
@@ -487,6 +551,45 @@ export function NotificationsPage() {
                       </span>
                     )
                   )}
+                </div>
+              )
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Only ever populated the single day before an allotted (not yet
+          sold) IPO lists — see buildSellReminderCards. Placed above "Notify
+          holders — allotted" since this is the more time-sensitive of the
+          two on the day it appears at all. */}
+      {isAdmin && !loading && sellReminderCards.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Sell tomorrow
+            <InfoTooltip text="One card per account holder per IPO whose allotted shares list tomorrow — a reminder that we'll be selling around 10 AM. Only shows up the day before listing." />
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {sellReminderCards.map((c) => {
+              const message = buildSellReminderMessage(c)
+              return (
+                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.holderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · {c.totalLots} lot(s) · lists tomorrow
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this account'}
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send
+                  </button>
                 </div>
               )
             })}
