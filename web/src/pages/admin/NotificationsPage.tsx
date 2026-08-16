@@ -158,14 +158,17 @@ function tomorrowIstDateStr(): string {
   return d.toISOString().slice(0, 10)
 }
 
-function buildSellReminderCards(rows: ApplicationForFunderRow[]): SellReminderCard[] {
-  const tomorrow = tomorrowIstDateStr()
+// Shared by both "Sell today" (listing_date === today) and "Sell tomorrow"
+// (listing_date === tomorrow) — same card shape, different target date, so
+// an IPO listing today and a different one listing tomorrow can both show
+// up as their own section at once instead of only ever one or the other.
+function buildSellReminderCards(rows: ApplicationForFunderRow[], targetDate: string): SellReminderCard[] {
   const cardsByIpo = new Map<string, SellReminderCard[]>()
   for (const r of rows) {
     const holder = r.demat_accounts
     if (!holder?.phone_e164 || !r.ipos) continue
     if (r.status !== 'ALLOTTED') continue // already SOLD needs no reminder
-    if (r.ipos.listing_date !== tomorrow) continue
+    if (r.ipos.listing_date !== targetDate) continue
     if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
     const cardsForIpo = cardsByIpo.get(r.ipo_id)!
     let card = cardsForIpo.find((c) => c.phone === holder.phone_e164)
@@ -188,9 +191,10 @@ function buildSellReminderCards(rows: ApplicationForFunderRow[]): SellReminderCa
     .sort((a, b) => a.holderName.localeCompare(b.holderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
-function buildSellReminderMessage(card: SellReminderCard): string {
+function buildSellReminderMessage(card: SellReminderCard, when: 'today' | 'tomorrow'): string {
+  const dayWord = when === 'today' ? 'lists today' : 'lists tomorrow'
   return (
-    `Hi ${card.holderName}, reminder \u{23F0} — *${card.ipoName}* lists tomorrow. ` +
+    `Hi ${card.holderName}, reminder \u{23F0} — *${card.ipoName}* ${dayWord}. ` +
     `We'll be selling your allotted shares (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'}) around *10 AM*, right when the market opens.`
   )
 }
@@ -375,7 +379,8 @@ export function NotificationsPage() {
   const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
   const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
   const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
-  const [sellReminderCards, setSellReminderCards] = useState<SellReminderCard[]>([])
+  const [sellTodayCards, setSellTodayCards] = useState<SellReminderCard[]>([])
+  const [sellTomorrowCards, setSellTomorrowCards] = useState<SellReminderCard[]>([])
   const [loading, setLoading] = useState(true)
   // Surfaced instead of silently swallowed — the funders query previously
   // just fell back to an empty array on any error (data ?? []), so a real
@@ -434,7 +439,8 @@ export function NotificationsPage() {
     setFunderCards(buildFunderIpoCards(funderRows))
     setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
-    setSellReminderCards(buildSellReminderCards(funderRows))
+    setSellTodayCards(buildSellReminderCards(funderRows, nowIst().dateStr))
+    setSellTomorrowCards(buildSellReminderCards(funderRows, tomorrowIstDateStr()))
     setMyNotifications((myNotifsRes.data ?? []) as Notification[])
     setLoading(false)
   }
@@ -464,6 +470,17 @@ export function NotificationsPage() {
 
       {!loading && fundersError && (
         <p className="badge badge-critical w-fit">Couldn't load {isAdmin ? 'funders' : 'your allotments'}: {fundersError}</p>
+      )}
+
+      {/* Top of the page, above everything else — the most time-sensitive
+          thing here on any day it's non-empty. Both can show at once: an
+          IPO listing today and a different one listing tomorrow each get
+          their own section. Empty (and hidden) every other day. */}
+      {isAdmin && !loading && sellTodayCards.length > 0 && (
+        <SellReminderSection title="Sell today" when="today" cards={sellTodayCards} />
+      )}
+      {isAdmin && !loading && sellTomorrowCards.length > 0 && (
+        <SellReminderSection title="Sell tomorrow" when="tomorrow" cards={sellTomorrowCards} />
       )}
 
       {/* Non-admin only — the funder/holder card sections below are
@@ -551,45 +568,6 @@ export function NotificationsPage() {
                       </span>
                     )
                   )}
-                </div>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Only ever populated the single day before an allotted (not yet
-          sold) IPO lists — see buildSellReminderCards. Placed above "Notify
-          holders — allotted" since this is the more time-sensitive of the
-          two on the day it appears at all. */}
-      {isAdmin && !loading && sellReminderCards.length > 0 && (
-        <section>
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-            Sell tomorrow
-            <InfoTooltip text="One card per account holder per IPO whose allotted shares list tomorrow — a reminder that we'll be selling around 10 AM. Only shows up the day before listing." />
-          </h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {sellReminderCards.map((c) => {
-              const message = buildSellReminderMessage(c)
-              return (
-                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.holderName}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · {c.totalLots} lot(s) · lists tomorrow
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Send
-                  </button>
                 </div>
               )
             })}
@@ -700,5 +678,52 @@ export function NotificationsPage() {
 
       {loading && <InlineSpinner />}
     </div>
+  )
+}
+
+function SellReminderSection({
+  title,
+  when,
+  cards,
+}: {
+  title: string
+  when: 'today' | 'tomorrow'
+  cards: SellReminderCard[]
+}) {
+  return (
+    <section>
+      <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+        {title}
+        <InfoTooltip
+          text={`One card per account holder per IPO whose allotted shares list ${when} — a reminder that we'll be selling around 10 AM. Only shows up ${when === 'today' ? 'on listing day' : 'the day before listing'}.`}
+        />
+      </h2>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {cards.map((c) => {
+          const message = buildSellReminderMessage(c, when)
+          return (
+            <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+              <div className="min-w-0">
+                <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {c.holderName}
+                </p>
+                <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  {c.ipoName} · {c.totalLots} lot(s) · lists {when}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                disabled={!c.phone}
+                title={c.phone ? undefined : 'No phone number on file for this account'}
+                className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Send
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </section>
   )
 }
