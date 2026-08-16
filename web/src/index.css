@@ -378,6 +378,18 @@ table {
   border-radius: 999px;
 }
 
+/* Scroll still works, the OS/browser scrollbar track just isn't painted —
+   for small horizontally-scrollable strips (e.g. the "Sort within each IPO
+   by" pill row on phone) where a visible scrollbar reads as a stray gray
+   bar sitting under the content, not an intentional UI element. */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
 /* Sidebar collapse — content fades+narrows in step with the aside's own
    width transition (same duration/easing), instead of the old approach of
    instantly mounting/unmounting the text (className={!collapsed && ...}) or

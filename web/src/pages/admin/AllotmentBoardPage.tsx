@@ -575,7 +575,13 @@ function SoldPayoutsSection({
             return (
               <div key={row.application_id} className="card stagger-item p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
+                  {/* min-w-0 is load-bearing here, not decorative — without
+                      it a flex item can't shrink below its content's
+                      natural width, so the summary chips row below
+                      (truncate on each chip) had nothing to truncate
+                      AGAINST and just pushed the card wider than the phone
+                      screen instead of wrapping/clipping in place. */}
+                  <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {row.holder_name}
                       {row.is_funder_override && (
@@ -591,15 +597,22 @@ function SoldPayoutsSection({
                       {row.lots} lot(s)
                       {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
                     </p>
-                    {/* Compact summary line — funder, IPO, listing date, GMP —
-                        so this card is self-contained without having to
-                        cross-reference the dropdown above or another page. */}
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {row.company_name}
-                      {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
-                      {row.listing_date && ` · listing ${row.listing_date}`}
-                      {row.gmp_notes && ` · GMP ${row.gmp_notes}`}
-                    </p>
+                    {/* Compact summary — IPO, funder, listing date, GMP — so
+                        this card is self-contained without having to
+                        cross-reference the dropdown above or another page.
+                        Each fact is its own chip, wrapping onto a new line
+                        as a group instead of one long truncated string (the
+                        old version): a long company/funder name used to eat
+                        the whole line and silently drop listing date/GMP off
+                        the visible end entirely on a narrow phone screen. */}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                      <span className="max-w-[10rem] truncate">{row.company_name}</span>
+                      {row.bank_account_holder_name && (
+                        <span className="max-w-[8rem] truncate">via {row.bank_account_holder_name}</span>
+                      )}
+                      {row.listing_date && <span className="shrink-0">listing {row.listing_date}</span>}
+                      {row.gmp_notes && <span className="max-w-[6rem] truncate">GMP {row.gmp_notes}</span>}
+                    </div>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>

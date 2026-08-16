@@ -648,7 +648,7 @@ export function ApplicationsPage() {
         // unchanged for tablet/desktop.
         <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
           <span className="shrink-0">Sort within each IPO by</span>
-          <div className="segmented max-w-full overflow-x-auto">
+          <div className="segmented scrollbar-none max-w-full overflow-x-auto">
             {(
               [
                 ['recent', 'Recent'],
