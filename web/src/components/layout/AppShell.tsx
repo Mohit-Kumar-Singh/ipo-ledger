@@ -177,8 +177,19 @@ export function AppShell() {
 
       {/* Mobile-only slim top bar — the sidebar below is off-canvas until opened */}
       <div
-        className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b px-4 md:hidden"
-        style={{ background: 'var(--header-bg)', borderColor: 'var(--border)' }}
+        className="sticky top-0 z-30 flex items-center gap-3 border-b md:hidden"
+        style={{
+          background: 'var(--header-bg)',
+          borderColor: 'var(--border)',
+          // viewport-fit=cover (added for the PWA) lets content sit under the
+          // iPhone status bar/notch, so without these safe-area insets the
+          // hamburger was hidden behind the clock. Pad the bar down by the
+          // status-bar height and keep the 3.5rem (h-14) tap area below it.
+          height: 'calc(3.5rem + env(safe-area-inset-top))',
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
+          paddingRight: 'max(1rem, env(safe-area-inset-right))',
+        }}
       >
         <button
           type="button"
@@ -217,6 +228,12 @@ export function AppShell() {
         } ${collapsed ? 'md:w-16' : 'md:w-64'}`}
         style={{
           borderRight: '1px solid var(--border)',
+          // Same viewport-fit=cover safe-area handling as the top bar: keep the
+          // drawer's own top (identity card) below the status bar and its
+          // bottom (sign-out) above the home indicator on iPhone. Insets are 0
+          // on desktop, so this is a no-op there.
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
           // Was var(--shadow-floating-large), a token that was never
           // actually defined anywhere — silently rendered no shadow at all.
           boxShadow: navOpen ? 'var(--shadow-lg)' : undefined,
