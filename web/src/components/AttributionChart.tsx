@@ -55,32 +55,20 @@ export function AttributionChart({
   const cy = size / 2
   const circumference = 2 * Math.PI * r
   const gapPct = Math.min(2, 50 / circumference) // ~1.5px surface gap between segments, in path-length %
-  // A tiny dash length for the two decorative end-cap "bumps" below — short
-  // enough to read as a rounded point, not a visible sliver of its own.
-  const capPct = Math.min(0.5, gapPct / 4)
 
-  // Slices sum to exactly 100% (every application is accounted for), so the
-  // ring has exactly ONE real seam — where the last slice's end meets the
-  // first slice's start again. That's the only place stroke-linecap="round"
-  // and the small gap belong; every OTHER slice-to-slice boundary is two
-  // different colors that should meet at one clean flat point, not each
-  // show its own rounded cap with a gap on both sides of it (what a
-  // uniform "round + gap on every slice" treatment used to draw). So: every
-  // slice is drawn full-length (no gap) with a flat (butt) cap, EXCEPT the
-  // last slice is shortened by gapPct at its own end — the one point that
-  // needs a gap at all — and two small round-capped "cap" arcs are layered
-  // on top afterward, exactly at that one seam, to recreate a rounded tip
-  // there without rounding anything else.
+  // Every slice gets its own round cap on both ends, shortened by gapPct so
+  // a visible gap separates it from its neighbors on both sides — same
+  // recipe as Chart.js's borderRadius+spacing doughnut (see reference
+  // donut-chart-style-a.html): each segment is visually its own rounded
+  // pill, not one continuous flat ring.
   let accPct = 0
-  const geometry = slices.map((s, i) => {
+  const geometry = slices.map((s) => {
     const rawPct = (s.value / totalApplications) * 100
     const startPct = accPct
     accPct += rawPct
-    const isLast = i === slices.length - 1
-    const visiblePct = isLast ? Math.max(rawPct - gapPct, 0) : rawPct
+    const visiblePct = Math.max(rawPct - gapPct, 0)
     return { ...s, rawPct, startPct, visiblePct }
   })
-  const seamEndPct = Math.max(100 - gapPct, 0)
 
   return (
     <div className="min-w-0">
@@ -137,7 +125,7 @@ export function AttributionChart({
                   fill="none"
                   stroke={`var(${SERIES_VARS[i % SERIES_VARS.length]})`}
                   strokeWidth={strokeWidth}
-                  strokeLinecap="butt"
+                  strokeLinecap="round"
                   pathLength={100}
                   strokeDasharray={grown ? `${g.visiblePct} ${100 - g.visiblePct}` : '0 100'}
                   strokeDashoffset={-g.startPct}
@@ -146,39 +134,6 @@ export function AttributionChart({
                   }}
                 />
               ))}
-              {/* The ring's one real seam — first slice's start and last
-                  slice's end — gets its rounded tip from these two tiny
-                  round-capped arcs layered on top, not from the slices
-                  themselves (which are flat/butt everywhere so internal
-                  color-to-color boundaries stay clean). */}
-              {grown && geometry.length > 0 && (
-                <>
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={r}
-                    fill="none"
-                    stroke={`var(${SERIES_VARS[0]})`}
-                    strokeWidth={strokeWidth}
-                    strokeLinecap="round"
-                    pathLength={100}
-                    strokeDasharray={`${capPct} ${100 - capPct}`}
-                    strokeDashoffset={0}
-                  />
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={r}
-                    fill="none"
-                    stroke={`var(${SERIES_VARS[(geometry.length - 1) % SERIES_VARS.length]})`}
-                    strokeWidth={strokeWidth}
-                    strokeLinecap="round"
-                    pathLength={100}
-                    strokeDasharray={`${capPct} ${100 - capPct}`}
-                    strokeDashoffset={-seamEndPct}
-                  />
-                </>
-              )}
             </g>
             {/* Sheen ring — same radius/width as the data ring, drawn last so
                 it sits on top as a highlight rather than tinting the colors
