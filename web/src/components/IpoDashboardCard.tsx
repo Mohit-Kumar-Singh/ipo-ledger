@@ -120,6 +120,17 @@ export function IpoDashboardCard({
       >
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
 
+        <IpoProgressGauge
+          applied={applied}
+          total={totalActive}
+          expanded={canExpand ? expanded : undefined}
+          onToggleExpanded={canExpand ? onToggleExpanded : undefined}
+        />
+
+        {/* Phone only — chart, then gauge, then (once expanded, via the
+            gauge's own "N left" badge) this full-width scrollable list at
+            the very bottom. Desktop/tablet keep the sidebar version below,
+            unchanged. */}
         {canExpand && expanded && (
           <div
             className="w-full border-t pt-3 sm:hidden"
@@ -142,13 +153,6 @@ export function IpoDashboardCard({
             </ul>
           </div>
         )}
-
-        <IpoProgressGauge
-          applied={applied}
-          total={totalActive}
-          expanded={canExpand ? expanded : undefined}
-          onToggleExpanded={canExpand ? onToggleExpanded : undefined}
-        />
 
         {/* max-width only, not conditional mounting — animates open/closed
             instead of snapping, same technique the old side panel used.

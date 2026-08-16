@@ -92,7 +92,12 @@ export function AttributionChart({
         </div>
       )}
 
-      <div className="flex min-w-0 items-center gap-4">
+      {/* Stacked on phone (chart on its own row, funder legend on the row
+          below it, both centered) — side-by-side from sm: up, unchanged.
+          Only consumer of this component is IpoDashboardCard's phone
+          layout, where legend text next to a small donut had no room and
+          needed its own row instead. */}
+      <div className="flex min-w-0 flex-col items-center gap-3 sm:flex-row sm:items-center sm:gap-4">
         <div className="relative shrink-0" style={{ width: size, height: size }}>
           {/* Glow keyed off the largest (first, since slices sort desc)
               slice's own color — "this chart's accent," not one fixed hue
@@ -209,7 +214,7 @@ export function AttributionChart({
             there left names truncating hard. Every funder gets a real
             legend line now — no "Other" bucket, so no separate dimmed
             "member" sub-entries either; this is just the full slice list. */}
-        <div className="flex min-w-0 flex-1 flex-col gap-1 text-xs">
+        <div className="flex w-full min-w-0 flex-col gap-1 text-xs sm:flex-1">
           {geometry.map((s, i) => (
             <div key={s.name} className="flex min-w-0 items-center gap-1.5">
               <span
