@@ -19,6 +19,7 @@ import type {
 import { InlineSpinner } from '../../components/PageSpinner'
 import { InfoTooltip } from '../../components/HoverCard'
 import { SellReminderComposer } from './SellReminderComposer'
+import { buildSellReminderText, resolveSellPdfUrl } from '../../lib/sellReminder'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
@@ -584,6 +585,33 @@ function SoldPayoutsSection({
   // payout status is the thing actually worth acting on once allotment's
   // out, so unlike the plain account list below it, this one starts open.
   const [open, setOpen] = useState(true)
+  const [notifying, setNotifying] = useState<string | null>(null)
+
+  // Ad-hoc "ping this one holder now" — fetches their stored login details
+  // (admin-only under RLS), resolves their platform's how-to-sell PDF to a
+  // signed URL, and opens WhatsApp with the whole thing prefilled. Same
+  // enriched body the Notifications "Sell today/tomorrow" cards build; this
+  // is just the single-holder shortcut right where allotments are worked.
+  async function notifyHolder(row: AllotmentBoardRow) {
+    setNotifying(row.application_id)
+    const { data: demat } = await supabase
+      .from('demat_accounts')
+      .select('platform, dp_client_id, application_name, login_email, login_password, app_password, t_pin, logged_in_notes')
+      .eq('id', row.demat_id)
+      .maybeSingle()
+    const pdfUrl = await resolveSellPdfUrl(demat?.platform ?? row.platform)
+    const listingPhrase = row.listing_date ? `lists on ${formatShortDate(row.listing_date)}` : 'is listing soon'
+    const message = buildSellReminderText({
+      holderName: row.holder_name,
+      ipoName: row.company_name,
+      lots: row.lots,
+      listingPhrase,
+      details: demat ?? { platform: row.platform },
+      pdfUrl,
+    })
+    sendCustomWhatsapp(row.phone_e164, message)
+    setNotifying(null)
+  }
   return (
     <div className="space-y-3">
       <button
@@ -656,6 +684,16 @@ function SoldPayoutsSection({
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
                         {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && (
+                      <button
+                        onClick={() => notifyHolder(row)}
+                        disabled={notifying === row.application_id}
+                        className="link-accent text-xs font-medium disabled:opacity-50"
+                        title="WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF"
+                      >
+                        {notifying === row.application_id ? 'Preparing…' : 'Notify holder'}
                       </button>
                     )}
                     {row.status === 'ALLOTTED' && (

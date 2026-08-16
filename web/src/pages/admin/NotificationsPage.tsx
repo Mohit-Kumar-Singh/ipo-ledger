@@ -6,6 +6,7 @@ import { openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispa
 import { renderMessageBody } from '../../lib/notificationTemplates'
 import { isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { sameIdentity } from '../../lib/applicationAttribution'
+import { buildSellReminderText, resolveSellPdfUrl, type SellAccountDetails } from '../../lib/sellReminder'
 import {
   buildFunderAllottedCards,
   expectedProfitBreakdown,
@@ -146,6 +147,11 @@ interface SellReminderCard {
   ipoName: string
   listingDate: string
   totalLots: number
+  // The holder's platform + login details, so the sell message can hand
+  // back everything they need to log in and sell (plus the how-to-sell PDF,
+  // resolved to a signed URL at send time). null embed for funder-only
+  // viewers under RLS — but they get no sell-reminder card at all anyway.
+  details: SellAccountDetails
 }
 
 // "Tomorrow," in IST — the same wall-clock day the rest of this app already
@@ -181,6 +187,16 @@ function buildSellReminderCards(rows: ApplicationForFunderRow[], targetDate: str
         ipoName: r.ipos.company_name,
         listingDate: r.ipos.listing_date!,
         totalLots: 0,
+        details: {
+          platform: holder.platform,
+          dp_client_id: holder.dp_client_id,
+          application_name: holder.application_name,
+          login_email: holder.login_email,
+          login_password: holder.login_password,
+          app_password: holder.app_password,
+          t_pin: holder.t_pin,
+          logged_in_notes: holder.logged_in_notes,
+        },
       }
       cardsForIpo.push(card)
     }
@@ -191,13 +207,6 @@ function buildSellReminderCards(rows: ApplicationForFunderRow[], targetDate: str
     .sort((a, b) => a.holderName.localeCompare(b.holderName) || a.ipoName.localeCompare(b.ipoName))
 }
 
-function buildSellReminderMessage(card: SellReminderCard, when: 'today' | 'tomorrow'): string {
-  const dayWord = when === 'today' ? 'lists today' : 'lists tomorrow'
-  return (
-    `Hi ${card.holderName}, reminder \u{23F0} — *${card.ipoName}* ${dayWord}. ` +
-    `We'll be selling your allotted shares (${card.totalLots} lot${card.totalLots === 1 ? '' : 's'}) around *10 AM*, right when the market opens.`
-  )
-}
 
 function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   const list = card.holderNames.map((h, i) => `${i + 1}. ${h.name}${h.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}`).join('\n')
@@ -418,7 +427,8 @@ export function NotificationsPage() {
           // (see effectiveFunder()).
           'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
             'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
-            'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+            'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
+            'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
             'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
         )
@@ -690,39 +700,57 @@ function SellReminderSection({
   when: 'today' | 'tomorrow'
   cards: SellReminderCard[]
 }) {
+  // Send is async now — it resolves the platform's how-to-sell PDF to a
+  // signed URL before opening WhatsApp, so the button shows a brief busy
+  // state while that round trip happens.
+  const [sending, setSending] = useState<string | null>(null)
+
+  async function send(c: SellReminderCard) {
+    if (!c.phone) return
+    setSending(c.key)
+    const pdfUrl = await resolveSellPdfUrl(c.details.platform)
+    const message = buildSellReminderText({
+      holderName: c.holderName,
+      ipoName: c.ipoName,
+      lots: c.totalLots,
+      listingPhrase: `lists ${when}`,
+      details: c.details,
+      pdfUrl,
+    })
+    sendCustomWhatsapp(c.phone, message)
+    setSending(null)
+  }
+
   return (
     <section>
       <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
         {title}
         <InfoTooltip
-          text={`One card per account holder per IPO whose allotted shares list ${when} — a reminder that we'll be selling around 10 AM. Only shows up ${when === 'today' ? 'on listing day' : 'the day before listing'}.`}
+          text={`One card per account holder per IPO whose allotted shares list ${when} — a reminder that we'll be selling around 10 AM, with the holder's login details and the how-to-sell PDF for their platform. Only shows up ${when === 'today' ? 'on listing day' : 'the day before listing'}.`}
         />
       </h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {cards.map((c) => {
-          const message = buildSellReminderMessage(c, when)
-          return (
-            <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-              <div className="min-w-0">
-                <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {c.holderName}
-                </p>
-                <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  {c.ipoName} · {c.totalLots} lot(s) · lists {when}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                disabled={!c.phone}
-                title={c.phone ? undefined : 'No phone number on file for this account'}
-                className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Send
-              </button>
+        {cards.map((c) => (
+          <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+            <div className="min-w-0">
+              <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                {c.holderName}
+              </p>
+              <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                {c.ipoName} · {c.totalLots} lot(s) · lists {when}
+              </p>
             </div>
-          )
-        })}
+            <button
+              type="button"
+              onClick={() => send(c)}
+              disabled={!c.phone || sending === c.key}
+              title={c.phone ? undefined : 'No phone number on file for this account'}
+              className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {sending === c.key ? 'Preparing…' : 'Send'}
+            </button>
+          </div>
+        ))}
       </div>
     </section>
   )

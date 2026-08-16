@@ -22,7 +22,26 @@ export type ProfitProjectionRow = {
     gmp_notes: string | null
     is_archived?: boolean
   } | null
-  demat_accounts: { holder_name: string; profit_share_percent: number; phone_e164: string | null } | null
+  // Credential/platform fields are optional — only NotificationsPage's
+  // sell-reminder query selects them (to hand login details back to the
+  // holder); other consumers of this shape leave them undefined. RLS still
+  // returns them only to admin/the account's own owner, so a funder-only
+  // viewer gets a null embed here regardless.
+  demat_accounts:
+    | {
+        holder_name: string
+        profit_share_percent: number
+        phone_e164: string | null
+        platform?: string | null
+        dp_client_id?: string | null
+        application_name?: string | null
+        login_email?: string | null
+        login_password?: string | null
+        app_password?: string | null
+        t_pin?: string | null
+        logged_in_notes?: string | null
+      }
+    | null
   bank_accounts: { account_holder_name: string | null; phone_e164: string | null; upi_id: string | null } | null
   // Manual funder-credit override (migration 0063) — wins over bank_accounts
   // wherever "who funded this" is computed, via effectiveFunder() below.
