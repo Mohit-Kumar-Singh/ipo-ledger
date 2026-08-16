@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 // styled-components runtime (~150KB+ of the app's eager main bundle) for
 // what's a single rotating circle, when every other visual in this app is
 // already plain Tailwind + this app's own CSS custom properties.
-export function Spinner({ size = 16 }: { size?: number }) {
+function Spinner({ size = 16 }: { size?: number }) {
   return (
     <div
       className="animate-spin rounded-full border-2"

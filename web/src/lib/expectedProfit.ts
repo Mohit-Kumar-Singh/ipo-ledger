@@ -33,7 +33,7 @@ export type ProfitProjectionRow = {
 // account on file at all — a genuinely self-funded application still needs
 // to generate a funder card (e.g. the Expected profit projection), same
 // fallback lib/applicationAttribution.ts's pie chart already uses.
-export function effectiveFunder(r: ProfitProjectionRow) {
+function effectiveFunder(r: ProfitProjectionRow) {
   return (
     r.funder_override ??
     r.bank_accounts ??
