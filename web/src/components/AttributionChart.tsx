@@ -56,17 +56,18 @@ export function AttributionChart({
   const circumference = 2 * Math.PI * r
   const gapPct = Math.min(2, 50 / circumference) // ~1.5px surface gap between segments, in path-length %
 
-  // Every slice gets its own round cap on both ends, shortened by gapPct so
-  // a visible gap separates it from its neighbors on both sides — same
-  // recipe as Chart.js's borderRadius+spacing doughnut (see reference
-  // donut-chart-style-a.html): each segment is visually its own rounded
-  // pill, not one continuous flat ring.
+  // Flat (butt) caps on every slice, meeting directly with no gap at each
+  // internal boundary — the ring has exactly ONE visible gap, where the
+  // last slice's end falls short of the first slice's start again (that's
+  // the ring's one true seam). Matches the reference screenshot: solid
+  // color-to-color joins everywhere except that single break at the top.
   let accPct = 0
-  const geometry = slices.map((s) => {
+  const geometry = slices.map((s, i) => {
     const rawPct = (s.value / totalApplications) * 100
     const startPct = accPct
     accPct += rawPct
-    const visiblePct = Math.max(rawPct - gapPct, 0)
+    const isLast = i === slices.length - 1
+    const visiblePct = isLast ? Math.max(rawPct - gapPct, 0) : rawPct
     return { ...s, rawPct, startPct, visiblePct }
   })
 
@@ -125,7 +126,7 @@ export function AttributionChart({
                   fill="none"
                   stroke={`var(${SERIES_VARS[i % SERIES_VARS.length]})`}
                   strokeWidth={strokeWidth}
-                  strokeLinecap="round"
+                  strokeLinecap="butt"
                   pathLength={100}
                   strokeDasharray={grown ? `${g.visiblePct} ${100 - g.visiblePct}` : '0 100'}
                   strokeDashoffset={-g.startPct}
