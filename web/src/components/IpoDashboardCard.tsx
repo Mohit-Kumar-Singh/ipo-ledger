@@ -104,15 +104,45 @@ export function IpoDashboardCard({
         ]}
       />
 
-      {/* Pie chart, progress ring, and (once expanded) the "accounts yet to
-          apply" list all sit in this one row — the list used to live in a
-          separate block below, full-width; now it opens up right beside
-          the ring instead, same row as the pie chart. */}
+      {/* Phone: stacked, full width, top to bottom — pie chart, then (once
+          expanded) the accounts list as its own full-width scrollable
+          block, then the progress ring. Desktop/tablet (sm:+): unchanged
+          side-by-side row with the accounts list opening as a narrow
+          sidebar next to the ring. Two separate accounts-list renders
+          below (mobile-only / desktop-only via sm:hidden / hidden sm:block)
+          rather than one that tries to serve both layouts — their sizing
+          models are genuinely different (mobile: bounded height that
+          scrolls, appended below; desktop: fixed constant height so
+          expanding never changes the row's own height). */}
       <div
-        className="mt-3 flex flex-wrap items-center justify-center gap-4 border-t pt-3"
+        className="mt-3 flex flex-col items-center gap-4 border-t pt-3 sm:flex-row sm:flex-wrap sm:justify-center"
         style={{ borderColor: 'var(--border)' }}
       >
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
+
+        {canExpand && expanded && (
+          <div
+            className="w-full border-t pt-3 sm:hidden"
+            style={{ borderColor: 'var(--border)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
+              Accounts yet to apply ({remainingHolderNames.length})
+            </p>
+            <ul className="max-h-48 overflow-y-auto">
+              {remainingHolderNames.map((name) => (
+                <li
+                  key={name}
+                  className="truncate border-b py-1.5 text-xs last:border-b-0"
+                  style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
+                >
+                  {name}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         <IpoProgressGauge
           applied={applied}
           total={totalActive}
@@ -134,7 +164,7 @@ export function IpoDashboardCard({
             centered against it whether the panel is showing or not. */}
         {canExpand && (
           <div
-            className="overflow-hidden"
+            className="hidden overflow-hidden sm:block"
             style={{
               maxWidth: expanded ? 210 : 0,
               height: 168,
