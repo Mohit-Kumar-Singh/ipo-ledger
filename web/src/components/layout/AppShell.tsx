@@ -45,6 +45,17 @@ const links = [
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
 ]
 
+// Phone/tablet bottom tab bar (Instagram/iOS style) — the four most-used
+// destinations always one thumb-tap away, with a fifth "More" tab opening
+// the full sidebar (the rest of the links + Profile, theme, sign-out). Short
+// labels so five fit across a 375px screen. Desktop (lg+) keeps the sidebar.
+const BOTTOM_TABS = [
+  { to: '/', label: 'Home', icon: HomeIcon },
+  { to: '/ipos', label: 'IPOs', icon: GraphIcon },
+  { to: '/applications', label: 'Apps', icon: FileIcon },
+  { to: '/notifications', label: 'Alerts', icon: BellIcon },
+]
+
 export function AppShell() {
   const { profile, signOut } = useAuth()
   const { theme, toggleTheme } = useTheme()
@@ -149,7 +160,7 @@ export function AppShell() {
   // paint over the z-index:-1 blobs below (negative z-index only escapes
   // sibling content, not its own containing block's background).
   return (
-    <div className="relative min-h-screen md:flex">
+    <div className="relative min-h-screen lg:flex">
       {/* Ambient background blobs (Dashboard.dc.html reference) — fixed to
           the viewport (see .bg-blob), so no overflow-hidden wrapper is
           needed here — that was clipping .bg-blob's overflow when it was
@@ -175,57 +186,22 @@ export function AppShell() {
       <ToastHost />
       <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
-      {/* Mobile-only slim top bar — the sidebar below is off-canvas until opened */}
-      <div
-        className="sticky top-0 z-30 flex items-center gap-3 border-b md:hidden"
-        style={{
-          background: 'var(--header-bg)',
-          borderColor: 'var(--border)',
-          // viewport-fit=cover (added for the PWA) lets content sit under the
-          // iPhone status bar/notch, so without these safe-area insets the
-          // hamburger was hidden behind the clock. Pad the bar down by the
-          // status-bar height and keep the 3.5rem (h-14) tap area below it.
-          height: 'calc(3.5rem + env(safe-area-inset-top))',
-          paddingTop: 'env(safe-area-inset-top)',
-          paddingLeft: 'max(1rem, env(safe-area-inset-left))',
-          paddingRight: 'max(1rem, env(safe-area-inset-right))',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setNavOpen(true)}
-          aria-label="Open menu"
-          className="flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
-          style={{ color: 'var(--header-fg-muted)' }}
-        >
-          <ThreeBarsIcon size={16} />
-        </button>
-        {/* Current page name next to the hamburger — the mobile top bar used
-            to be just the icon with nothing telling you what page you were
-            actually on until the page's own (differently-styled, not
-            always present) h1 scrolled into view. */}
-        <span className="truncate text-sm font-semibold" style={{ color: 'var(--header-fg)' }}>
-          {links.find((l) => (l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)))?.label ??
-            // /profile has no nav link of its own (the identity card links
-            // there directly) — named explicitly rather than falling all
-            // the way through to a generic app-name label.
-            (location.pathname.startsWith('/profile') ? 'Profile' : 'IPO Ledger')}
-        </span>
-      </div>
-
-      {/* Backdrop for mobile drawer */}
+      {/* Backdrop for the "More" drawer (opened from the bottom tab bar).
+          The old mobile top bar (hamburger + page title) is gone: navigation
+          now lives in the bottom tab bar, and each page renders its own <h1>,
+          so a top-bar title only duplicated it. */}
       {navOpen && (
         <div
           onClick={() => !tourActive && setNavOpen(false)}
-          className="fixed inset-0 z-40 animate-page-in md:hidden"
+          className="fixed inset-0 z-40 animate-page-in lg:hidden"
           style={{ background: 'rgba(0,0,0,0.5)' }}
         />
       )}
 
       <aside
-        className={`glass-header fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] md:sticky md:top-0 md:z-auto md:h-screen md:translate-x-0 ${
+        className={`glass-header fixed inset-y-0 left-0 z-50 flex w-72 shrink-0 flex-col transition-[transform,width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] lg:sticky lg:top-0 lg:z-auto lg:h-screen lg:translate-x-0 ${
           navOpen ? 'translate-x-0' : '-translate-x-full'
-        } ${collapsed ? 'md:w-16' : 'md:w-64'}`}
+        } ${collapsed ? 'lg:w-16' : 'lg:w-64'}`}
         style={{
           borderRight: '1px solid var(--border)',
           // Same viewport-fit=cover safe-area handling as the top bar: keep the
@@ -255,7 +231,7 @@ export function AppShell() {
               onClick={() => setCollapsed((c) => !c)}
               aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md md:flex"
+              className="hidden h-6 w-6 shrink-0 items-center justify-center rounded-md lg:flex"
               style={{ color: 'var(--header-fg-muted)' }}
             >
               {collapsed ? <SidebarExpandIcon size={14} /> : <SidebarCollapseIcon size={14} />}
@@ -475,12 +451,68 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 flex-1 overflow-x-hidden">
-        <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
+        <main
+          className="mx-auto max-w-6xl px-4 pt-6 sm:px-6 md:px-8 md:pt-8 lg:pb-8"
+          // Extra bottom padding on phone/tablet so the fixed bottom tab bar
+          // (~4rem + home-indicator inset) never covers the last of the page.
+          // Removed at lg where the tab bar is hidden (lg:pb-8 above).
+          style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+        >
           <div key={location.pathname} className="animate-page-in">
             <Outlet />
           </div>
         </main>
       </div>
+
+      {/* Bottom tab bar — phone + tablet primary navigation (hidden at lg,
+          where the sidebar takes over). Fixed to the viewport bottom, padded
+          up by the iPhone home-indicator inset. "More" opens the full sidebar
+          drawer with everything else. */}
+      <nav
+        className="fixed inset-x-0 bottom-0 z-30 flex items-stretch border-t lg:hidden"
+        style={{
+          background: 'var(--header-bg)',
+          borderColor: 'var(--border)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        {BOTTOM_TABS.map((t) => {
+          const Icon = t.icon
+          const isActive = t.to === '/' ? location.pathname === '/' : location.pathname.startsWith(t.to)
+          // Dashboard carries the pending-link-request dot, same as the sidebar.
+          const count = t.to === '/' ? pendingCount : 0
+          return (
+            <NavLink
+              key={t.to}
+              to={t.to}
+              onClick={() => setNavOpen(false)}
+              aria-current={isActive ? 'page' : undefined}
+              className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium"
+              style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.25rem' }}
+            >
+              <Icon size={20} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
+              <span>{t.label}</span>
+              {count > 0 && (
+                <span
+                  aria-label={`${count} pending`}
+                  className="absolute top-1 right-[26%] h-2 w-2 rounded-full"
+                  style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                />
+              )}
+            </NavLink>
+          )
+        })}
+        <button
+          type="button"
+          onClick={() => setNavOpen(true)}
+          aria-label="More"
+          className="flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium"
+          style={{ color: navOpen ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.25rem' }}
+        >
+          <ThreeBarsIcon size={20} fill={navOpen ? 'var(--accent)' : 'var(--header-fg-muted)'} />
+          <span>More</span>
+        </button>
+      </nav>
     </div>
   )
 }
