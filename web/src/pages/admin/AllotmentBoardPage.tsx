@@ -16,6 +16,7 @@ import type {
   RegistrarLink,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { InfoTooltip } from '../../components/HoverCard'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
@@ -280,13 +281,10 @@ export function AllotmentBoardPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Allotment board
+          <InfoTooltip text="Open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out are listed below." />
         </h1>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Open the registrar, mark results — one row at a time. Only IPOs whose allotment is already out are
-          listed below.
-        </p>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -546,8 +544,8 @@ function SoldPayoutsSection({
 }) {
   // Moved above the main applied-list table and made collapsible — sold/
   // payout status is the thing actually worth acting on once allotment's
-  // out, but still collapsed by default like every other list on this page.
-  const [open, setOpen] = useState(false)
+  // out, so unlike the plain account list below it, this one starts open.
+  const [open, setOpen] = useState(true)
   return (
     <div className="space-y-3">
       <button
@@ -592,6 +590,15 @@ function SoldPayoutsSection({
                     <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                       {row.lots} lot(s)
                       {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
+                    </p>
+                    {/* Compact summary line — funder, IPO, listing date, GMP —
+                        so this card is self-contained without having to
+                        cross-reference the dropdown above or another page. */}
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {row.company_name}
+                      {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
+                      {row.listing_date && ` · listing ${row.listing_date}`}
+                      {row.gmp_notes && ` · GMP ${row.gmp_notes}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">

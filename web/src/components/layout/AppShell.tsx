@@ -189,6 +189,17 @@ export function AppShell() {
         >
           <ThreeBarsIcon size={16} />
         </button>
+        {/* Current page name next to the hamburger — the mobile top bar used
+            to be just the icon with nothing telling you what page you were
+            actually on until the page's own (differently-styled, not
+            always present) h1 scrolled into view. */}
+        <span className="truncate text-sm font-semibold" style={{ color: 'var(--header-fg)' }}>
+          {links.find((l) => (l.to === '/' ? location.pathname === '/' : location.pathname.startsWith(l.to)))?.label ??
+            // /profile has no nav link of its own (the identity card links
+            // there directly) — named explicitly rather than falling all
+            // the way through to a generic app-name label.
+            (location.pathname.startsWith('/profile') ? 'Profile' : 'IPO Ledger')}
+        </span>
       </div>
 
       {/* Backdrop for mobile drawer */}

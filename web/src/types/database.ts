@@ -184,6 +184,9 @@ export interface AllotmentBoardRow {
   // result came in, rather than leaving it visible until the IPO's
   // listing date. See migration 0072.
   status_changed_at: string
+  // The IPO's own GMP notes — shown alongside the account on the Sold
+  // status & payouts cards. See migration 0073.
+  gmp_notes: string | null
 }
 
 export interface RegistrarLink {

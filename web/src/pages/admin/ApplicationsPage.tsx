@@ -638,9 +638,17 @@ export function ApplicationsPage() {
           (cancelled-mandate review, ipoji-audit, duplicate detection) a
           funder has no reason to act on. */}
       {isAdmin && !showForm && visibleApplications.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 text-sm" style={{ color: 'var(--ink-muted)' }}>
-          <span>Sort within each IPO by</span>
-          <div className="segmented">
+        // Phone-only fix: this used to be one flex-wrap row that, once the
+        // 6 pills couldn't fit the phone's width, either got clipped by
+        // .segmented's own overflow-hidden (cutting pill text off mid-word,
+        // "Duplicat"/"applicati") or wrapped the pills into a ragged
+        // multi-row block. Stacked (label above, pills below) and the pill
+        // row scrolls horizontally on its own instead of wrapping or
+        // clipping — sm: reverts to the original single-row layout
+        // unchanged for tablet/desktop.
+        <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
+          <span className="shrink-0">Sort within each IPO by</span>
+          <div className="segmented max-w-full overflow-x-auto">
             {(
               [
                 ['recent', 'Recent'],
@@ -661,7 +669,7 @@ export function ApplicationsPage() {
                 key={mode}
                 type="button"
                 onClick={() => setSortMode(mode)}
-                className={`segmented-item ${sortMode === mode ? 'segmented-item-active' : ''}`}
+                className={`segmented-item shrink-0 whitespace-nowrap ${sortMode === mode ? 'segmented-item-active' : ''}`}
               >
                 {label}
               </button>
