@@ -9,7 +9,6 @@ import {
   ArchiveIcon,
   SignOutIcon,
   DeviceMobileIcon,
-  PaintbrushIcon,
   PeopleIcon,
   SearchIcon,
   ShieldCheckIcon,
@@ -1004,8 +1003,10 @@ export function ProfilePage() {
       </div>
 
       <AccountsSection />
-      {isAdmin && <SellInstructionPdfsSection />}
       {isAdmin && <PanAccessLogSection />}
+      {/* Sell-instruction PDFs sit last — a rarely-touched admin library,
+          collapsed by default (see the section itself). */}
+      {isAdmin && <SellInstructionPdfsSection />}
     </div>
   )
 }
@@ -1051,11 +1052,7 @@ function AccountsSection() {
 function AppearanceCard() {
   const { theme } = useTheme()
   return (
-    <div className="card animate-page-in space-y-3 p-4">
-      <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-        <PaintbrushIcon size={15} fill="var(--accent)" />
-        Appearance
-      </h2>
+    <div className="card animate-page-in p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>

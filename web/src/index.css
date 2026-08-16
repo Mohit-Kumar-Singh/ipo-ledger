@@ -863,19 +863,34 @@ table {
   }
 }
 
-/* Touch-device tap-target floor. The controls are deliberately GitHub-compact
-   (py-2 + text-sm ≈ 36px) on desktop, which is right for a mouse but below
-   the ~44px comfortable-tap size on phones. Gated on `pointer: coarse` so it
-   only affects touchscreens — desktop density is untouched. Covers the
-   primary controls + the searchable Combobox trigger; small inline text
-   links (Undo/PDF/etc.) still rely on their surrounding row height. */
+/* Touch-device control sizing — iOS-glass flavour. On phones/tablets the
+   GitHub-compact desktop controls read as either too small to tap or (once
+   given a 44px floor) too chunky and wrappy. This lands them in between:
+   ~40px tall, tighter padding, 13px text, and a softer pill radius so they
+   feel like iOS controls rather than dense web buttons. Gated on
+   `pointer: coarse`, so the desktop density is completely untouched. */
 @media (pointer: coarse) {
   .btn-primary,
   .btn-secondary,
   .btn-warning,
-  .btn-danger,
+  .btn-danger {
+    min-height: 40px;
+    padding: 0.4rem 0.85rem;
+    font-size: 13px;
+    border-radius: 0.75rem;
+  }
   .input,
   select.input {
-    min-height: 44px;
+    min-height: 40px;
+    border-radius: 0.7rem;
+  }
+  /* Secondary buttons pick up the same translucent-glass material as the tab
+     bar — a frosted fill instead of the flat grey, matching the app's glass
+     surfaces on touch. */
+  .btn-secondary {
+    background: color-mix(in srgb, var(--hover-surface) 55%, transparent);
+    backdrop-filter: blur(10px) saturate(1.5);
+    -webkit-backdrop-filter: blur(10px) saturate(1.5);
+    border-color: var(--glass-border);
   }
 }

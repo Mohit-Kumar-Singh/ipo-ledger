@@ -16,6 +16,9 @@ export function SellInstructionPdfsSection() {
   const [rows, setRows] = useState<Record<string, PdfRow>>({})
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<DematPlatform | null>(null)
+  // Collapsed by default — a rarely-touched library that sits at the very
+  // bottom of Profile, so it shouldn't take up room until opened.
+  const [open, setOpen] = useState(false)
 
   async function load() {
     const { data, error } = await supabase.from('sell_instruction_pdfs').select('platform, storage_path, updated_at')
@@ -93,36 +96,49 @@ export function SellInstructionPdfsSection() {
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const uploadedCount = Object.keys(rows).length
+
   return (
-    <section className="card animate-page-in space-y-3 p-4">
-      <div>
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Sell-instruction PDFs
-        </h2>
-        <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          One how-to-verify-with-T-PIN + how-to-sell PDF per platform, auto-attached to listing-day sell
-          reminders based on each holder's saved platform. A platform with no PDF still gets a text-only reminder.
-        </p>
-      </div>
-      {loading ? (
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Loading…
-        </p>
-      ) : (
-        <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-          {PDF_PLATFORMS.map((platform) => (
-            <PdfRowUI
-              key={platform}
-              platform={platform}
-              row={rows[platform]}
-              busy={busy === platform}
-              onUpload={handleUpload}
-              onRemove={handleRemove}
-              onOpen={handleOpen}
-            />
-          ))}
+    <section className="card animate-page-in overflow-hidden p-4">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+        aria-expanded={open}
+      >
+        <div>
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            <span style={{ color: 'var(--ink-muted)' }}>{open ? '▾' : '▸'}</span>
+            Sell-instruction PDFs
+          </h2>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            How-to-sell guides per platform, auto-attached to listing-day sell reminders.
+          </p>
         </div>
-      )}
+        {!loading && (
+          <span className="badge badge-neutral shrink-0">{uploadedCount}/{PDF_PLATFORMS.length}</span>
+        )}
+      </button>
+      {open &&
+        (loading ? (
+          <p className="mt-3 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Loading…
+          </p>
+        ) : (
+          <div className="mt-3 divide-y" style={{ borderColor: 'var(--border)' }}>
+            {PDF_PLATFORMS.map((platform) => (
+              <PdfRowUI
+                key={platform}
+                platform={platform}
+                row={rows[platform]}
+                busy={busy === platform}
+                onUpload={handleUpload}
+                onRemove={handleRemove}
+                onOpen={handleOpen}
+              />
+            ))}
+          </div>
+        ))}
     </section>
   )
 }
