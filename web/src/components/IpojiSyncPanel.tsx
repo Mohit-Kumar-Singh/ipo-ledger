@@ -75,7 +75,20 @@ const SYNC_SCRIPT = `(async () => {
         const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
         target.click();
         let sheet = null;
-        for (let t = 0; t < 15 && !sheet; t++) { await sleep(120); sheet = doc.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]'); }
+        // 15x120ms (1.8s) was tuned against a desktop's wired connection —
+        // on a phone (mobile data/slower CPU) ipoji's async call to populate
+        // this panel can take longer than that, so every row silently fell
+        // through to the no-PAN/no-UPI fallback there while the card-list
+        // fields (no round trip needed) still came through fine. Widened to
+        // 40x150ms (6s) and re-clicks the target once at the halfway point,
+        // in case the very first click landed before ipoji's own listener
+        // had attached (observed as a total, not partial, phone failure —
+        // consistent with a listener-not-ready race, not a wrong selector).
+        for (let t = 0; t < 40 && !sheet; t++) {
+          await sleep(150);
+          if (t === 20) target.click();
+          sheet = doc.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]');
+        }
         if (sheet) {
           const body = sheet.querySelector('#orderDetailBody') || sheet;
           let prevText = null, stableReads = 0, text = '';
