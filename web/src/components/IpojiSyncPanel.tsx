@@ -92,10 +92,18 @@ const SYNC_SCRIPT = `(async () => {
         if (sheet) {
           const body = sheet.querySelector('#orderDetailBody') || sheet;
           let prevText = null, stableReads = 0, text = '';
-          for (let t = 0; t < 12 && stableReads < 2; t++) {
+          // Real phone diagnostic (_debug field) showed the sheet DOES open
+          // promptly on mobile — it's this loop that was the bug: two
+          // consecutive empty reads ('' === '') counted as "stable" and
+          // exited after ~300ms, before ipoji's own async call had actually
+          // populated the sheet on a slower connection. Requiring non-empty
+          // text before counting toward stability (plus a longer 30x150ms=
+          // 4.5s cap, up from 12x150ms=1.8s) fixes the real race instead of
+          // the sheet-opening timing guessed at in the previous attempt.
+          for (let t = 0; t < 30 && stableReads < 2; t++) {
             await sleep(150);
             text = body.innerText || '';
-            stableReads = text === prevText ? stableReads + 1 : 0;
+            stableReads = (text && text === prevText) ? stableReads + 1 : 0;
             prevText = text;
           }
           const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
