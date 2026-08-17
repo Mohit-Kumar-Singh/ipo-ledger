@@ -597,7 +597,7 @@ export function ApplicationsPage() {
                   aria-label="Search applications"
                   aria-expanded={searchOpen}
                   title="Search"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
                   style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
                 >
                   <SearchIcon size={16} />
@@ -610,8 +610,8 @@ export function ApplicationsPage() {
                 onClick={() => openForm()}
                 aria-label="New application"
                 title="New application"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white transition-colors"
-                style={{ background: 'var(--accent)' }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                style={{ color: 'var(--accent)' }}
               >
                 <Plus size={16} />
               </button>
@@ -629,10 +629,10 @@ export function ApplicationsPage() {
                   }}
                   aria-label={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
                   title={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: 'var(--ink-secondary)' }}
                 >
-                  {ipojiSyncOpen ? <X size={16} /> : <img src="/ipoji-logo.png" alt="ipoji" width={16} height={16} />}
+                  {ipojiSyncOpen ? <X size={16} /> : <img src="/ipoji-logo.png" alt="ipoji" width={22} height={22} />}
                 </button>
               )}
             </>

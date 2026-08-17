@@ -21,6 +21,10 @@ export type ProfitProjectionRow = {
     lot_size: number
     gmp_notes: string | null
     is_archived?: boolean
+    // Optional — only the Dashboard's profit query selects it (to key a live
+    // price lookup once listed); NotificationsPage's funder cards still work
+    // fine without it, just always falling back to the GMP-based estimate.
+    symbol?: string | null
   } | null
   // Credential/platform fields are optional — only NotificationsPage's
   // sell-reminder query selects them (to hand login details back to the
@@ -74,6 +78,9 @@ export interface FunderAllottedCard {
   priceHigh: number | null
   lotSize: number
   gmpPercent: number | null
+  // The IPO's own NSE ticker, once known/listed — lets expectedProfitBreakdown
+  // use a live market price instead of the static GMP-based estimate.
+  symbol: string | null
   // Each holder tagged with whether ANY of their applications in this card
   // were funded via a manual override (funder_override_id) — surfaced as
   // the same 🏷️ tag ApplicationsPage/the allotment board already show.
@@ -109,6 +116,7 @@ export function buildFunderAllottedCards(
         priceHigh: r.ipos.price_high,
         lotSize: r.ipos.lot_size,
         gmpPercent: parseGmpPercent(r.ipos.gmp_notes),
+        symbol: r.ipos.symbol ?? null,
         holderNames: [],
         totalLots: 0,
         cutPercent: 25,
@@ -135,20 +143,42 @@ export function buildFunderAllottedCards(
 }
 
 // Projected profit, computed PER LOT — that's the unit a funder actually
-// thinks in (one lot invested, one lot's worth of profit). gmp_notes stores
-// a plain percentage, so the expected sold price is the per-lot invested
-// amount grossed up by that percentage.
-export function expectedProfitBreakdown(card: FunderAllottedCard) {
+// thinks in (one lot invested, one lot's worth of profit). Two ways to
+// arrive at the "expected sold price":
+//  - livePricePerShare given (the IPO's own symbol resolved a live NSE
+//    quote via fetch-stock-price, e.g. once actually listed): soldPrice is
+//    that live price × lot size — a real, moving number for an allotment
+//    that hasn't been marked SOLD yet, not a value frozen at whatever GMP
+//    read when the IPO was still pre-listing.
+//  - otherwise: the original static estimate, gmp_notes' percentage grossing
+//    up the per-lot invested amount (issue price × lot size).
+export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerShare?: number | null) {
   const lotAmount = (card.priceHigh ?? 0) * card.lotSize
   const gmpPercent = card.gmpPercent ?? 0
-  const soldPrice = Math.round(lotAmount * (1 + gmpPercent / 100))
+  const priceSource: 'live' | 'gmp' = livePricePerShare != null ? 'live' : 'gmp'
+  const soldPrice =
+    priceSource === 'live'
+      ? Math.round(livePricePerShare! * card.lotSize)
+      : Math.round(lotAmount * (1 + gmpPercent / 100))
   const profitPerLot = soldPrice - lotAmount
   const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
   const yourProfitPerLot = Math.round(netProfitPerLot / 2)
   const netYourProfit = yourProfitPerLot * card.totalLots
   const investedTotal = lotAmount * card.totalLots
   const amountToReturn = investedTotal + netYourProfit
-  return { lotAmount, gmpPercent, soldPrice, profitPerLot, netProfitPerLot, yourProfitPerLot, netYourProfit, investedTotal, amountToReturn }
+  return {
+    lotAmount,
+    gmpPercent,
+    soldPrice,
+    profitPerLot,
+    netProfitPerLot,
+    yourProfitPerLot,
+    netYourProfit,
+    investedTotal,
+    amountToReturn,
+    priceSource,
+    livePricePerShare: livePricePerShare ?? null,
+  }
 }
 
 export function rupees(n: number): string {

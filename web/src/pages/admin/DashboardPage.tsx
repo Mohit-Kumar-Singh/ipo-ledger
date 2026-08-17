@@ -86,6 +86,12 @@ interface ExpectedProfitFunderLine {
 interface ExpectedProfitIpoBlock {
   ipoName: string
   funders: ExpectedProfitFunderLine[]
+  // Whether this block's numbers are keyed off a live NSE quote (once the
+  // IPO's symbol is set and resolvable) or the static GMP-based estimate —
+  // surfaced in ExpectedProfitPanel so it's visible which basis produced
+  // the figures, not silently swapped underneath the same-looking number.
+  priceSource: 'live' | 'gmp'
+  livePricePerShare: number | null
 }
 
 interface DashboardData {
@@ -157,11 +163,22 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
 // had MORE than one funder card, so a single-funder IPO's funder name
 // (e.g. Dhoot funded by Avinash) silently vanished from the panel while a
 // two-funder IPO right next to it showed both names fine.
-function buildExpectedProfitByIpo(cards: FunderAllottedCard[]): ExpectedProfitIpoBlock[] {
+function buildExpectedProfitByIpo(
+  cards: FunderAllottedCard[],
+  livePriceBySymbol: Record<string, number | null>,
+): ExpectedProfitIpoBlock[] {
   const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
-    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, { ipoName: c.ipoName, funders: [] })
-    const b = expectedProfitBreakdown(c)
+    const livePrice = c.symbol ? (livePriceBySymbol[c.symbol] ?? null) : null
+    if (!byIpo.has(c.ipoName)) {
+      byIpo.set(c.ipoName, {
+        ipoName: c.ipoName,
+        funders: [],
+        priceSource: livePrice != null ? 'live' : 'gmp',
+        livePricePerShare: livePrice,
+      })
+    }
+    const b = expectedProfitBreakdown(c, livePrice)
     byIpo.get(c.ipoName)!.funders.push({
       funderName: c.funderName,
       holderNames: c.holderNames.map((h) => h.name).join(', '),
@@ -254,7 +271,7 @@ export function DashboardPage() {
               .from('applications')
               .select(
                 'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
-                  'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
+                  'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
                   'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
                   'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
                   'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
@@ -465,11 +482,27 @@ export function DashboardPage() {
         ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter((r) => !r.ipos?.is_archived),
         sameIdentity,
       ).filter((c) => c.priceHigh)
+
+      // Once an IPO actually lists, its GMP-based profit estimate is frozen
+      // at whatever the grey-market premium read pre-listing — a real share
+      // price that keeps moving daily until someone marks the application
+      // SOLD. Resolving each card's own symbol against the same live-quote
+      // mechanism the parent-company badge uses keeps "Expected profit"
+      // tracking that movement instead of showing a stale number.
+      const profitSymbols = Array.from(new Set(profitCards.map((c) => c.symbol).filter((s): s is string => !!s)))
+      const livePriceBySymbol: Record<string, number | null> = {}
+      if (profitSymbols.length > 0) {
+        const { data: priceData } = await supabase.functions.invoke<{
+          prices?: Record<string, { price: number | null; stale: boolean }>
+        }>('fetch-stock-price', { body: { symbols: profitSymbols } })
+        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
+      }
+
       const expectedProfitTotal = profitCards.reduce(
-        (sum, c) => sum + expectedProfitBreakdown(c).netYourProfit,
+        (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
         0,
       )
-      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards)
+      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol)
 
       // Real mandate_status (0047/0048), not the previous proxy of "every
       // still-APPLIED application" — that counted plenty of applications
@@ -957,6 +990,11 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
         <div key={b.ipoName}>
           <p className="mb-1 truncate font-semibold" style={{ color: 'var(--ink-primary)' }}>
             {b.ipoName}
+            {b.priceSource === 'live' && b.livePricePerShare != null && (
+              <span className="ml-2 text-[10px] font-normal" style={{ color: 'var(--accent)' }}>
+                live @ ₹{b.livePricePerShare}/share
+              </span>
+            )}
           </p>
           <div className="space-y-1">
             {b.funders.map((f, i) => (

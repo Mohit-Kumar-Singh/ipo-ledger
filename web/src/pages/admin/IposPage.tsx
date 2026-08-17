@@ -500,14 +500,13 @@ export function IposPage() {
               disabled={quickSyncing}
               aria-label="Sync current IPOs from ipoji.com"
               title="Sync current IPOs from ipoji.com"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
-              style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
             >
               <img
                 src="/ipoji-logo.png"
                 alt="ipoji"
-                width={16}
-                height={16}
+                width={22}
+                height={22}
                 className={quickSyncing ? 'animate-spin' : undefined}
               />
             </button>
@@ -519,8 +518,8 @@ export function IposPage() {
               }}
               aria-label={showAddForm ? 'Cancel' : 'Add IPO'}
               title={showAddForm ? 'Cancel' : 'Add IPO'}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white transition-colors"
-              style={{ background: 'var(--accent)' }}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+              style={{ color: 'var(--accent)' }}
             >
               {showAddForm ? <X size={16} /> : <Plus size={16} />}
             </button>
