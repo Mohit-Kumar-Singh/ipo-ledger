@@ -3,7 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- user-scalable=no matches how the home-screen PWA is meant to feel —
+         a native app, not a webpage users can pinch-zoom. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <!-- iOS home-screen PWA: these aren't covered by the web manifest (which
          Android/Chrome reads) — Safari needs its own meta tags to launch
          full-screen with the right status bar and app icon. The manifest
