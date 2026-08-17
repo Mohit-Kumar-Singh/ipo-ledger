@@ -103,31 +103,42 @@ Deno.serve(async (req) => {
 
     const { data: closingIpos } = await admin.from('ipos').select('id, company_name').eq('close_date', todayIso)
     let queued = 0
+    const ipoIds = (closingIpos ?? []).map((ipo) => ipo.id)
+
+    // Single batched fetch across all of today's closing IPOs instead of one
+    // query per IPO inside the loop below — grouped by ipo_id in memory.
+    // bank_accounts embedded twice (bank_account_id + funder_override_id,
+    // migration 0063) — needs the FK named explicitly on both or
+    // PostgREST can't tell which relationship a bare bank_accounts(...)
+    // means and errors instead of returning rows. Same fix as
+    // send-whatsapp's queueForApplication; this function had the same gap.
+    const { data: allRows, error: allRowsError } = ipoIds.length
+      ? await admin
+          .from('applications')
+          .select(
+            'id, demat_id, created_at, ipo_id, ipos(company_name), demat_accounts(holder_name, phone_e164), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164)',
+          )
+          .in('ipo_id', ipoIds)
+      : { data: [], error: null }
+    if (allRowsError) {
+      console.error('ipo-close-rollup-notify — failed to load applications', allRowsError)
+    }
+    const rowsByIpoId = new Map<string, AppRow[]>()
+    for (const r of (allRows ?? []) as unknown as AppRow[]) {
+      if (!rowsByIpoId.has(r.ipo_id)) rowsByIpoId.set(r.ipo_id, [])
+      rowsByIpoId.get(r.ipo_id)!.push(r)
+    }
 
     for (const ipo of closingIpos ?? []) {
-      // bank_accounts embedded twice (bank_account_id + funder_override_id,
-      // migration 0063) — needs the FK named explicitly on both or
-      // PostgREST can't tell which relationship a bare bank_accounts(...)
-      // means and errors instead of returning rows. Same fix as
-      // send-whatsapp's queueForApplication; this function had the same gap.
-      const { data: rows, error: rowsError } = await admin
-        .from('applications')
-        .select(
-          'id, demat_id, created_at, ipo_id, ipos(company_name), demat_accounts(holder_name, phone_e164), ' +
-            'bank_accounts!bank_account_id(account_holder_name, phone_e164), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164)',
-        )
-        .eq('ipo_id', ipo.id)
-      if (rowsError) {
-        console.error('ipo-close-rollup-notify — failed to load applications for', ipo.company_name, rowsError)
-        continue
-      }
+      const rows = rowsByIpoId.get(ipo.id)
       if (!rows || rows.length === 0) continue
 
       // Group applications by funder identity (phone), each funder's own
       // holdersByDate map keyed by the application's created_at date.
       const byFunderPhone = new Map<string, { name: string; holdersByDate: Map<string, string[]> }>()
-      for (const r of rows as unknown as AppRow[]) {
+      for (const r of rows) {
         const holderName = r.demat_accounts.holder_name
         const holderPhone = r.demat_accounts.phone_e164
         const funder = resolveFunder(holderName, holderPhone, r.funder_override ?? r.bank_accounts)

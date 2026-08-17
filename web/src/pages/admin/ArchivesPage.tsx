@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArchiveRestore } from 'lucide-react'
+import { UndoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -134,7 +134,7 @@ export function ArchivesPage() {
                         className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--accent)' }}
                       >
-                        <ArchiveRestore size={13} />
+                        <UndoIcon size={13} />
                         {unarchiving === ipo.id ? 'Restoring…' : 'Unarchive'}
                       </button>
                     )}

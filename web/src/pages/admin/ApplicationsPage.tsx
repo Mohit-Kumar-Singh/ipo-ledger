@@ -221,17 +221,6 @@ export function ApplicationsPage() {
     const unresolvedIds = Array.from(
       new Set(rows.filter((r) => r.demat_accounts == null).map((r) => r.demat_id)),
     )
-    if (unresolvedIds.length > 0) {
-      const { data: resolved } = await supabase.rpc('resolve_demat_holder_names', { p_ids: unresolvedIds })
-      const map = new Map<string, { holder_name: string; pan_masked: string | null }>()
-      for (const r of (resolved ?? []) as { id: string; holder_name: string; pan_masked: string | null }[]) {
-        map.set(r.id, { holder_name: r.holder_name, pan_masked: r.pan_masked })
-      }
-      setResolvedDematInfo(map)
-    } else {
-      setResolvedDematInfo(new Map())
-    }
-
     const unresolvedBankIds = Array.from(
       new Set([
         ...rows.filter((r) => r.bank_accounts == null && r.bank_account_id != null).map((r) => r.bank_account_id as string),
@@ -241,10 +230,35 @@ export function ApplicationsPage() {
         ...rows.filter((r) => r.funder_override == null && r.funder_override_id != null).map((r) => r.funder_override_id as string),
       ]),
     )
+    const markerIds = Array.from(new Set(rows.map((r) => r.mandate_marked_by).filter((id): id is string => id != null)))
+
+    // These three RPCs are independent of each other (each only depends on
+    // `rows`) — batching them removes 2 sequential round trips per load.
+    const [dematResult, bankResult, markerResult] = await Promise.all([
+      unresolvedIds.length > 0
+        ? supabase.rpc('resolve_demat_holder_names', { p_ids: unresolvedIds })
+        : Promise.resolve({ data: null }),
+      unresolvedBankIds.length > 0
+        ? supabase.rpc('resolve_bank_holder_names', { p_ids: unresolvedBankIds })
+        : Promise.resolve({ data: null }),
+      markerIds.length > 0
+        ? supabase.rpc('resolve_profile_names', { p_ids: markerIds })
+        : Promise.resolve({ data: null }),
+    ])
+
+    if (unresolvedIds.length > 0) {
+      const map = new Map<string, { holder_name: string; pan_masked: string | null }>()
+      for (const r of (dematResult.data ?? []) as { id: string; holder_name: string; pan_masked: string | null }[]) {
+        map.set(r.id, { holder_name: r.holder_name, pan_masked: r.pan_masked })
+      }
+      setResolvedDematInfo(map)
+    } else {
+      setResolvedDematInfo(new Map())
+    }
+
     if (unresolvedBankIds.length > 0) {
-      const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: unresolvedBankIds })
       const bankMap = new Map<string, string>()
-      for (const r of (resolvedBanks ?? []) as { id: string; account_holder_name: string | null }[]) {
+      for (const r of (bankResult.data ?? []) as { id: string; account_holder_name: string | null }[]) {
         if (r.account_holder_name) bankMap.set(r.id, r.account_holder_name)
       }
       setResolvedBankInfo(bankMap)
@@ -252,18 +266,16 @@ export function ApplicationsPage() {
       setResolvedBankInfo(new Map())
     }
 
-    setApplications(rows)
-    setLoading(false)
-
-    const markerIds = Array.from(new Set(rows.map((r) => r.mandate_marked_by).filter((id): id is string => id != null)))
     if (markerIds.length > 0) {
-      const { data: names } = await supabase.rpc('resolve_profile_names', { p_ids: markerIds })
       const map = new Map<string, string>()
-      for (const n of (names ?? []) as { id: string; full_name: string }[]) map.set(n.id, n.full_name)
+      for (const n of (markerResult.data ?? []) as { id: string; full_name: string }[]) map.set(n.id, n.full_name)
       setMandateMarkerNames(map)
     } else {
       setMandateMarkerNames(new Map())
     }
+
+    setApplications(rows)
+    setLoading(false)
   }
 
   // IPOs + demat accounts + bank/UPI accounts are only needed to populate the
