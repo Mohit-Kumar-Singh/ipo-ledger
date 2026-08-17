@@ -5,7 +5,7 @@ import {
   ChevronRightIcon,
   CreditCardIcon,
   LawIcon,
-  ChecklistIcon,
+  GraphIcon,
   ArchiveIcon,
   SignOutIcon,
   DeviceMobileIcon,
@@ -22,6 +22,7 @@ import { InfoTooltip } from '../components/HoverCard'
 import { useTheme } from '../contexts/ThemeContext'
 import { AccountsPage } from './admin/AccountsPage'
 import { SellInstructionPdfsSection } from './admin/SellInstructionPdfs'
+import { ArchivedApplicationsCard } from './admin/ArchivedApplicationsCard'
 import type {
   BankAccount,
   BankLinkRequest,
@@ -463,8 +464,8 @@ export function ProfilePage() {
       <div className="card animate-page-in overflow-hidden p-1.5 lg:hidden">
         <nav className="flex flex-col">
           {[
+            { to: '/ipos', label: 'IPOs', icon: GraphIcon, show: true },
             { to: '/bank-accounts', label: 'Bank / UPI accounts', icon: LawIcon, show: true },
-            { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon, show: true },
             { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, show: isAdmin },
             { to: '/archives', label: 'Archives', icon: ArchiveIcon, show: true },
           ]
@@ -1006,9 +1007,11 @@ export function ProfilePage() {
 
       <AccountsSection />
       {isAdmin && <PanAccessLogSection />}
-      {/* Sell-instruction PDFs sit last — a rarely-touched admin library,
-          collapsed by default (see the section itself). */}
+      {/* Sell-instruction PDFs + archived applications sit last — rarely-
+          touched references, collapsed by default. Archived is self-fetching
+          and renders nothing when there's no archived history. */}
       {isAdmin && <SellInstructionPdfsSection />}
+      <ArchivedApplicationsCard />
     </div>
   )
 }

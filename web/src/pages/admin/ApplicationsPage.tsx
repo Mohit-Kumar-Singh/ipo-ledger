@@ -404,9 +404,6 @@ export function ApplicationsPage() {
   // groups nobody needs to look at anymore; they're still fully visible on
   // the Archives page.
   const visibleApplications = useMemo(() => applications.filter((a) => !a.ipos?.is_archived), [applications])
-  // Applications on settled/archived IPOs — kept out of the main list, but
-  // surfaced in a collapsed card at the bottom of the page for reference.
-  const archivedApplications = useMemo(() => applications.filter((a) => a.ipos?.is_archived), [applications])
   const notOnIpojiCount = useMemo(
     () => visibleApplications.filter((a) => !a.imported_from_ipoji).length,
     [visibleApplications],
@@ -578,21 +575,6 @@ export function ApplicationsPage() {
             </button>
           ) : (
             <>
-              {/* Search collapsed to a single icon in the title row; tapping it
-                  reveals the search field below. */}
-              {visibleApplications.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSearchOpen((v) => !v)}
-                  aria-label="Search applications"
-                  aria-expanded={searchOpen}
-                  title="Search"
-                  className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
-                >
-                  <SearchIcon size={16} />
-                </button>
-              )}
               {/* Admin-only — this bulk-imports from ipoji against every
                   account in the portal, not just whatever a funder-only
                   viewer is allowed to see; showing it to them would just be
@@ -614,6 +596,21 @@ export function ApplicationsPage() {
               <button onClick={() => openForm()} className="btn-secondary">
                 + New application
               </button>
+              {/* Search collapsed to a single icon at the end of the title
+                  row; tapping it reveals the search field below. */}
+              {visibleApplications.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSearchOpen((v) => !v)}
+                  aria-label="Search applications"
+                  aria-expanded={searchOpen}
+                  title="Search"
+                  className="flex h-9 w-9 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
+                >
+                  <SearchIcon size={16} />
+                </button>
+              )}
             </>
           )}
         </div>
@@ -1171,65 +1168,7 @@ export function ApplicationsPage() {
           })}
         </div>
       )}
-
-      {!showForm && archivedApplications.length > 0 && (
-        <ArchivedApplicationsCard rows={archivedApplications} />
-      )}
     </div>
-  )
-}
-
-// Collapsed-by-default card at the bottom of the page (same pattern as the
-// Profile PAN-access-log card) listing applications whose IPO has been
-// archived — a read-only reference, grouped by IPO.
-function ArchivedApplicationsCard({ rows }: { rows: ApplicationRow[] }) {
-  const [open, setOpen] = useState(false)
-  const byIpo = useMemo(() => {
-    const map = new Map<string, ApplicationRow[]>()
-    for (const a of rows) {
-      const name = a.ipos?.company_name ?? 'Unknown IPO'
-      if (!map.has(name)) map.set(name, [])
-      map.get(name)!.push(a)
-    }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [rows])
-
-  return (
-    <section className="card animate-page-in overflow-hidden p-4">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-3 text-left"
-        aria-expanded={open}
-      >
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          <span style={{ color: 'var(--ink-muted)' }}>{open ? '▾' : '▸'}</span>
-          Archived applications
-        </h2>
-        <span className="badge badge-neutral shrink-0">{rows.length}</span>
-      </button>
-      {open && (
-        <div className="mt-3 space-y-4">
-          {byIpo.map(([ipoName, items]) => (
-            <div key={ipoName}>
-              <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-                {ipoName} <span style={{ color: 'var(--ink-muted)' }}>({items.length})</span>
-              </p>
-              <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
-                {items.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                    <span className="truncate" style={{ color: 'var(--ink-primary)' }}>
-                      {a.demat_accounts?.holder_name ?? 'Unknown'}
-                    </span>
-                    <StatusBadge status={a.status} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   )
 }
 

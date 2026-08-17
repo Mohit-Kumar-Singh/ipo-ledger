@@ -550,11 +550,11 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
             Dashboard
           </h1>
-          {/* Quick jump to the full IPO list from the overview. */}
+          {/* Quick jump to the full IPO list — sits at the far end of the row. */}
           <Link
             to="/ipos"
             aria-label="Go to IPOs"

@@ -50,7 +50,7 @@ const links = [
 // labels so five fit across a 375px screen. Desktop (lg+) keeps the sidebar.
 const BOTTOM_TABS = [
   { to: '/', label: 'Home', icon: HomeIcon },
-  { to: '/ipos', label: 'IPOs', icon: GraphIcon },
+  { to: '/allotment', label: 'Allotment', icon: ChecklistIcon },
   { to: '/applications', label: 'Apps', icon: FileIcon },
   { to: '/notifications', label: 'Alerts', icon: BellIcon },
 ]
