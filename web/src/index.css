@@ -893,4 +893,55 @@ table {
     -webkit-backdrop-filter: blur(10px) saturate(1.5);
     border-color: var(--glass-border);
   }
+
+  /* Light-mode glass material, touch-only — light mode's --glass-* tokens
+     are a deliberate no-op on desktop (see :root's comment: falls back to a
+     flat, solid --surface card, same recipe .card already uses everywhere).
+     That's still true at any desktop width; this block only fires under
+     `pointer: coarse` (phones/tablets), so desktop light mode is completely
+     unaffected. Values chosen to sit on the light --page/--surface pair the
+     way the dark-theme glass tokens already sit on --page/#04060c: a soft
+     white translucency + light blur, not the dark theme's near-black glass. */
+  :root:not([data-theme='dark']) {
+    --glass-bg: rgba(255, 255, 255, 0.6);
+    --glass-border: rgba(255, 255, 255, 0.7);
+    --glass-blur: blur(18px) saturate(1.6);
+    --glass-shadow: 0 4px 16px rgba(31, 35, 40, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    --glass-shadow-hover: 0 10px 28px rgba(31, 35, 40, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+    /* Same three ambient blobs the dark theme already floats behind the
+       shell (AppShell's .bg-blob divs) — transparent by default in light
+       mode (see :root above) so they render as nothing on desktop; these
+       touch-only values give phone/tablet light mode the same soft ambient
+       glow dark mode already has, at a much lower alpha so it stays quiet
+       behind white content. */
+    --blob-1: oklch(0.75 0.09 230 / 0.16);
+    --blob-2: oklch(0.8 0.1 155 / 0.14);
+    --blob-3: oklch(0.82 0.09 80 / 0.12);
+  }
+
+  /* Baseline .card (every list/detail page site-wide, not just Dashboard's
+     own .glass-card) picks up the same glass material + larger iOS-style
+     radius on touch, in both themes — dark mode already had real --glass-*
+     values; light mode gets them from the block above. Desktop keeps the
+     flat 6px .card untouched (this block is pointer:coarse-gated). */
+  .card {
+    border-radius: 1.25rem;
+    background: var(--glass-bg);
+    border-color: var(--glass-border);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow: var(--glass-shadow);
+  }
+  .card:hover {
+    box-shadow: var(--glass-shadow-hover);
+  }
+
+  /* Inputs get a light frosted fill on touch too, matching .btn-secondary
+     above — flat --surface still used on desktop. */
+  .input,
+  select.input {
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+    backdrop-filter: blur(8px) saturate(1.4);
+    -webkit-backdrop-filter: blur(8px) saturate(1.4);
+  }
 }
