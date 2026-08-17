@@ -57,7 +57,97 @@ const SYNC_SCRIPT = `(async () => {
     }
   }
 
+  // Reading the rendered detail sheet (innerText) turned out to be
+  // fundamentally fragile on phone — three real-device debug rounds (see
+  // git history) never pinned down why the panel's text stayed empty there.
+  // This sidesteps that entirely: ipoji's own page still has to fetch the
+  // PAN/UPI data from its API to render that sheet at all, on any device —
+  // so capture the raw network responses instead of the DOM they get
+  // rendered into, and pull the fields out of the actual JSON. Patched once
+  // per fresh iframe window (a full-page nav creates a new window object,
+  // so this re-runs each page but no-ops if already patched on this one).
+  function patchNetworkCapture(win) {
+    if (win.__ipojiPatched) return;
+    win.__ipojiPatched = true;
+    win.__ipojiNet = [];
+    const origFetch = win.fetch;
+    if (origFetch) {
+      win.fetch = function (...args) {
+        return origFetch.apply(this, args).then((res) => {
+          try {
+            res
+              .clone()
+              .text()
+              .then((body) => { win.__ipojiNet.push({ url: String(args[0]), body }); })
+              .catch(() => {});
+          } catch {}
+          return res;
+        });
+      };
+    }
+    const OrigXHR = win.XMLHttpRequest;
+    if (OrigXHR) {
+      const origOpen = OrigXHR.prototype.open;
+      const origSend = OrigXHR.prototype.send;
+      OrigXHR.prototype.open = function (method, url) {
+        this.__ipojiUrl = url;
+        return origOpen.apply(this, arguments);
+      };
+      OrigXHR.prototype.send = function (...args) {
+        this.addEventListener('loadend', () => {
+          try { win.__ipojiNet.push({ url: this.__ipojiUrl, body: this.responseText }); } catch {}
+        });
+        return origSend.apply(this, args);
+      };
+    }
+  }
+
+  // Depth-limited recursive walk for any key whose NAME (not value) mentions
+  // pan/upi — far more reliable than a blind text regex over the whole
+  // response, since it can't accidentally grab an unrelated PAN-shaped
+  // string or someone's login email from a sibling field.
+  function walkForKeys(obj, panOut, upiOut, depth) {
+    if (depth > 6 || obj == null || typeof obj !== 'object') return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      const kl = k.toLowerCase();
+      if (typeof v === 'string' && v.trim()) {
+        if (!panOut.value && kl.includes('pan')) panOut.value = v.trim();
+        if (!upiOut.value && kl.includes('upi')) upiOut.value = v.trim();
+      } else if (v && typeof v === 'object') {
+        walkForKeys(v, panOut, upiOut, depth + 1);
+      }
+    }
+  }
+
+  function extractFromNetwork(entries, appNumber) {
+    const panOut = { value: '' }, upiOut = { value: '' };
+    const relevant = entries.filter((e) => e.body && (!appNumber || e.body.includes(appNumber)));
+    for (const e of relevant) {
+      let parsed = null;
+      try { parsed = JSON.parse(e.body); } catch {}
+      if (parsed) walkForKeys(parsed, panOut, upiOut, 0);
+      if (panOut.value && upiOut.value) break;
+    }
+    // Regex fallback (strict PAN format / UPI's @handle shape) in case the
+    // response wasn't parseable JSON (e.g. server-rendered HTML fragment).
+    if (!panOut.value || !upiOut.value) {
+      for (const e of relevant) {
+        if (!panOut.value) {
+          const m = e.body.match(/\\b[A-Z]{5}[0-9]{4}[A-Z]\\b/);
+          if (m) panOut.value = m[0];
+        }
+        if (!upiOut.value) {
+          const m = e.body.match(/[a-zA-Z0-9.\\-_]{2,}@[a-zA-Z]{2,}\\b/);
+          if (m) upiOut.value = m[0];
+        }
+      }
+    }
+    return { pan: panOut.value, upi: upiOut.value };
+  }
+
   async function scrapeDoc(win, doc, shouldStop) {
+    patchNetworkCapture(win);
     const cards = [...doc.querySelectorAll('.order-card-v2')];
     const rows = []; const errors = [];
     for (let i = 0; i < cards.length; i++) {
@@ -73,6 +163,7 @@ const SYNC_SCRIPT = `(async () => {
         const icons = [...card.querySelectorAll('svg')];
         const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
         const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
+        const netStart = (win.__ipojiNet || []).length;
         target.click();
         let sheet = null;
         // 15x120ms (1.8s) was tuned against a desktop's wired connection —
@@ -148,6 +239,22 @@ const SYNC_SCRIPT = `(async () => {
             visible: el.classList.contains('show') || el.getAttribute('aria-modal') === 'true',
           }));
           row._debug = 'detail-sheet-not-found, candidates: ' + JSON.stringify(candidates);
+        }
+        // Enrichment pass, not a replacement — only fills gaps the DOM read
+        // above left empty, using whatever ipoji's own page actually fetched
+        // from its API while that detail sheet was opening (see
+        // patchNetworkCapture). Works regardless of how/whether the sheet
+        // rendered, which is the whole point: the render step is what kept
+        // failing on phone across three prior fix attempts, the underlying
+        // data fetch never needed to be in question.
+        if (!row.panNumber || !row.upiId) {
+          const netEntries = (win.__ipojiNet || []).slice(netStart);
+          const net = extractFromNetwork(netEntries, row.appNumber);
+          const recovered = (!row.panNumber && net.pan) || (!row.upiId && net.upi);
+          if (!row.panNumber && net.pan) row.panNumber = net.pan;
+          if (!row.upiId && net.upi) row.upiId = net.upi;
+          if (recovered) row._debug = (row._debug ? row._debug + ' | ' : '') + 'recovered-via-network';
+          else if (!row.panNumber && !row.upiId) row._debug = (row._debug ? row._debug + ' | ' : '') + 'network-capture-empty (' + netEntries.length + ' response(s) seen)';
         }
       } catch (e) {
         errors.push({ card: i, stage: 'click', error: String(e) });
