@@ -57,6 +57,33 @@ const SYNC_SCRIPT = `(async () => {
     }
   }
 
+  // A real phone's _debug dump (sheet.innerHTML) showed the detail panel
+  // WAS fully rendered — real markup, "Bid Details For..." title, the
+  // detail-status-section div — while innerText on that same element read
+  // back completely empty. That combination (HTML present, innerText
+  // empty) means the browser considers the content not-visible (e.g. a
+  // Bootstrap offcanvas mid-transition, still visibility:hidden) —
+  // innerText respects CSS visibility, innerHTML doesn't. Almost certainly
+  // caused by this running inside a genuinely hidden (opacity:0, 1x1px)
+  // iframe on phone specifically. Fix: stop depending on layout/visibility
+  // at all — walk the DOM text nodes directly and reinsert innerText's
+  // usual line breaks at block-element boundaries by hand.
+  const BLOCK_TAGS = new Set(['DIV','P','H1','H2','H3','H4','H5','H6','TR','LI','SECTION','HEADER','FOOTER','TABLE','UL','OL','BR','SPAN']);
+  function textFromNode(node) {
+    let out = '';
+    (function walk(n) {
+      if (n.nodeType === 3) { out += n.nodeValue; return; }
+      if (n.nodeType !== 1) return;
+      const tag = n.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE') return;
+      const isBlock = BLOCK_TAGS.has(tag);
+      if (isBlock) out += '\\n';
+      for (const child of n.childNodes) walk(child);
+      if (isBlock) out += '\\n';
+    })(node);
+    return out;
+  }
+
   // Reading the rendered detail sheet (innerText) turned out to be
   // fundamentally fragile on phone — three real-device debug rounds (see
   // git history) never pinned down why the panel's text stayed empty there.
@@ -193,8 +220,12 @@ const SYNC_SCRIPT = `(async () => {
           // the sheet-opening timing guessed at in the previous attempt.
           for (let t = 0; t < 30 && stableReads < 2; t++) {
             await sleep(150);
-            text = body.innerText || '';
-            stableReads = (text && text === prevText) ? stableReads + 1 : 0;
+            // textFromNode, not body.innerText — see its comment above: a
+            // real phone confirmed innerText reads empty on a fully-
+            // rendered-but-visibility-suppressed panel, which textFromNode
+            // doesn't depend on.
+            text = textFromNode(body);
+            stableReads = (text.trim() && text === prevText) ? stableReads + 1 : 0;
             prevText = text;
           }
           const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
@@ -288,7 +319,17 @@ const SYNC_SCRIPT = `(async () => {
 
   const iframe = document.createElement('iframe');
   iframe.id = '__ipojiAutoIframe';
-  iframe.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;bottom:0;right:0;';
+  // A 1x1px iframe (the previous size) makes the browser lay out the whole
+  // page at a near-zero viewport width, and Bootstrap (which ipoji's own
+  // markup uses) hides content behind responsive d-*-none / breakpoint
+  // classes at narrow widths — so PAN/UPI markup can be genuinely present in
+  // the DOM (confirmed via sheet.innerHTML dumps: real "detail-status-section"
+  // markup shows up even on rows logged as empty) while innerText, which
+  // reflects rendered layout, reads as empty. Three earlier rounds chased
+  // this as a timing bug because that's what the _debug text implied; a
+  // real mobile-width viewport (so nothing collapses under a breakpoint),
+  // pushed off-screen instead of shrunk to 1px, is the actual fix.
+  iframe.style.cssText = 'position:fixed;width:390px;height:844px;opacity:0;pointer-events:none;left:-9999px;top:0;';
   document.body.appendChild(iframe);
 
   let pageNum = 1;
