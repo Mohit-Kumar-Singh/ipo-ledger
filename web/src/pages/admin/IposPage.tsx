@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckIcon, SyncIcon } from '@primer/octicons-react'
-import { Archive, Pencil, Trash2 } from 'lucide-react'
+import { CheckIcon } from '@primer/octicons-react'
+import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -503,7 +503,13 @@ export function IposPage() {
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
               style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
             >
-              <SyncIcon size={16} className={quickSyncing ? 'animate-spin' : undefined} />
+              <img
+                src="/ipoji-logo.png"
+                alt="ipoji"
+                width={16}
+                height={16}
+                className={quickSyncing ? 'animate-spin' : undefined}
+              />
             </button>
             <button
               onClick={() => {
@@ -511,9 +517,12 @@ export function IposPage() {
                 setShowImport(false)
                 setEditingIpo(null)
               }}
-              className="btn-primary"
+              aria-label={showAddForm ? 'Cancel' : 'Add IPO'}
+              title={showAddForm ? 'Cancel' : 'Add IPO'}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white transition-colors"
+              style={{ background: 'var(--accent)' }}
             >
-              {showAddForm ? 'Cancel' : '+ Add IPO'}
+              {showAddForm ? <X size={16} /> : <Plus size={16} />}
             </button>
           </div>
         )}

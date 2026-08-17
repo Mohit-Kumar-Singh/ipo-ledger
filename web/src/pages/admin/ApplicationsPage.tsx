@@ -2,7 +2,8 @@ import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent,
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, SyncIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
+import { Plus, X } from 'lucide-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -587,29 +588,8 @@ export function ApplicationsPage() {
             </button>
           ) : (
             <>
-              {/* Admin-only — this bulk-imports from ipoji against every
-                  account in the portal, not just whatever a funder-only
-                  viewer is allowed to see; showing it to them would just be
-                  a button that does nothing useful. */}
-              {isAdmin && (
-                <button
-                  onClick={() => {
-                    setIpojiSyncOpen((v) => !v)
-                    if (!ipojiSyncOpen) loadFormData()
-                  }}
-                  className="btn-secondary"
-                >
-                  {ipojiSyncOpen ? 'Close' : 'from ipoji'}
-                </button>
-              )}
-              {/* One entry point now — the form auto-detects a backdated
-                  application from the selected IPO's date and badges it, so
-                  the separate "+ Backdated application" button is gone. */}
-              <button onClick={() => openForm()} className="btn-secondary">
-                + New application
-              </button>
-              {/* Search collapsed to a single icon at the end of the title
-                  row; tapping it reveals the search field below. */}
+              {/* Search, New, ipoji sync — in that order, all icon-only so
+                  the row stays compact next to the title. */}
               {visibleApplications.length > 0 && (
                 <button
                   type="button"
@@ -621,6 +601,38 @@ export function ApplicationsPage() {
                   style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
                 >
                   <SearchIcon size={16} />
+                </button>
+              )}
+              {/* One entry point now — the form auto-detects a backdated
+                  application from the selected IPO's date and badges it, so
+                  the separate "+ Backdated application" button is gone. */}
+              <button
+                onClick={() => openForm()}
+                aria-label="New application"
+                title="New application"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-white transition-colors"
+                style={{ background: 'var(--accent)' }}
+              >
+                <Plus size={16} />
+              </button>
+              {/* Admin-only — this bulk-imports from ipoji against every
+                  account in the portal, not just whatever a funder-only
+                  viewer is allowed to see; showing it to them would just be
+                  a button that does nothing useful. Icon-only (ipoji's own
+                  logo, transparent-bg PNG in /public) — no text label,
+                  matching IposPage's sync button. */}
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    setIpojiSyncOpen((v) => !v)
+                    if (!ipojiSyncOpen) loadFormData()
+                  }}
+                  aria-label={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
+                  title={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ border: '1px solid var(--border-strong)', color: 'var(--ink-secondary)' }}
+                >
+                  {ipojiSyncOpen ? <X size={16} /> : <img src="/ipoji-logo.png" alt="ipoji" width={16} height={16} />}
                 </button>
               )}
             </>
@@ -941,7 +953,7 @@ export function ApplicationsPage() {
                           )}
                           {a.imported_from_ipoji ? (
                             <span className="shrink-0" title="Imported from ipoji via the sync panel.">
-                              <SyncIcon size={13} fill="var(--accent)" aria-label="Synced from ipoji" />
+                              <img src="/ipoji-logo.png" alt="Synced from ipoji" width={13} height={13} />
                             </span>
                           ) : (
                             <span className="shrink-0" title="Added manually, not synced from ipoji.">

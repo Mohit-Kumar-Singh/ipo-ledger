@@ -642,9 +642,8 @@ export function DashboardPage() {
             value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
             tone="good"
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
-            // Where the money's owed actually gets marked paid — Applications
-            // has no payout UI at all, that's Allotment board's job.
-            to="/allotment"
+            // Where the money's owed actually gets marked paid.
+            to="/payouts"
             panel={<PendingPayoutsPanel payouts={data.pendingPayouts} />}
           />
         )}
