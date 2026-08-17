@@ -494,9 +494,6 @@ export function ProfilePage() {
             <span className="flex-1 text-left">Sign out</span>
           </button>
         </nav>
-        <p className="px-3 pt-1 pb-1 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-          v{__APP_VERSION__}
-        </p>
       </div>
 
       {/* Identity/PAN card beside the link-request workflows — the pie
@@ -525,6 +522,11 @@ export function ProfilePage() {
               </p>
               <span className="badge badge-info shrink-0" style={{ textTransform: 'capitalize' }}>
                 {profile?.role ?? 'member'}
+              </span>
+              {/* App version, phone/tablet only (desktop shows it in the
+                  sidebar) — sits right after the name + role. */}
+              <span className="shrink-0 text-[11px] lg:hidden" style={{ color: 'var(--ink-muted)' }}>
+                v{__APP_VERSION__}
               </span>
             </div>
             <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>

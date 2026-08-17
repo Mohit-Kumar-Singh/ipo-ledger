@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { FileIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
+import { InfoTooltip } from '../../components/HoverCard'
 import { PDF_PLATFORMS, PLATFORM_LABELS, type DematPlatform } from '../../lib/platforms'
 
 const BUCKET = 'sell-instructions'
@@ -98,47 +100,53 @@ export function SellInstructionPdfsSection() {
 
   const uploadedCount = Object.keys(rows).length
 
+  // Same collapsible-card shape as the PAN access-log card: icon + title +
+  // (i) tooltip in the header, a rotating chevron, and the body in a
+  // border-top section. overflow-visible so the tooltip popup isn't clipped.
   return (
-    <section className="card animate-page-in overflow-hidden p-4">
+    <section className="card animate-page-in overflow-visible">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-3 text-left"
+        className="flex w-full items-center justify-between gap-2 p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
         aria-expanded={open}
       >
-        <div>
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            <span style={{ color: 'var(--ink-muted)' }}>{open ? '▾' : '▸'}</span>
-            Sell-instruction PDFs
-          </h2>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            How-to-sell guides per platform, auto-attached to listing-day sell reminders.
-          </p>
-        </div>
-        {!loading && (
-          <span className="badge badge-neutral shrink-0">{uploadedCount}/{PDF_PLATFORMS.length}</span>
-        )}
+        <span className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <FileIcon size={16} fill="var(--accent)" />
+          Sell-instruction PDFs
+          <InfoTooltip text="One how-to-verify-with-T-PIN + how-to-sell PDF per platform, auto-attached to listing-day sell reminders based on each holder's saved platform. A platform with no PDF still gets a text-only reminder." />
+          {!loading && <span className="badge badge-neutral">{uploadedCount}/{PDF_PLATFORMS.length}</span>}
+        </span>
+        <span
+          className="inline-flex transition-transform duration-200"
+          style={{ color: 'var(--ink-muted)', transform: open ? 'rotate(180deg)' : undefined }}
+        >
+          <ChevronDownIcon size={16} />
+        </span>
       </button>
-      {open &&
-        (loading ? (
-          <p className="mt-3 text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Loading…
-          </p>
-        ) : (
-          <div className="mt-3 divide-y" style={{ borderColor: 'var(--border)' }}>
-            {PDF_PLATFORMS.map((platform) => (
-              <PdfRowUI
-                key={platform}
-                platform={platform}
-                row={rows[platform]}
-                busy={busy === platform}
-                onUpload={handleUpload}
-                onRemove={handleRemove}
-                onOpen={handleOpen}
-              />
-            ))}
-          </div>
-        ))}
+      {open && (
+        <div className="border-t p-4" style={{ borderColor: 'var(--border)' }}>
+          {loading ? (
+            <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+              Loading…
+            </p>
+          ) : (
+            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+              {PDF_PLATFORMS.map((platform) => (
+                <PdfRowUI
+                  key={platform}
+                  platform={platform}
+                  row={rows[platform]}
+                  busy={busy === platform}
+                  onUpload={handleUpload}
+                  onRemove={handleRemove}
+                  onOpen={handleOpen}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </section>
   )
 }
