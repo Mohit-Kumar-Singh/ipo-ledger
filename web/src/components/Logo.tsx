@@ -52,10 +52,14 @@ export function LogoMark({
         {/* "L" — vertical stroke + foot */}
         <rect x="31" y="17" width="8" height="30" rx="4" fill="url(#ilMark)" />
         <rect x="31" y="39" width="17" height="8" rx="4" fill="url(#ilMark)" />
-        {/* Signature accent — a data point arriving, not an arrowhead */}
+        {/* Signature accent — a data point arriving, not an arrowhead. The
+            dot always blinks (a slow opacity pulse, .logo-dot-blink), on
+            every instance of the mark everywhere it's used, independent of
+            `animated` — which only adds the extra ping-ring + whole-mark
+            pulse layered on top for the loading state specifically. */}
         <path d="M45 13 L53 21" stroke="#7db2ff" strokeWidth="3" strokeLinecap="round" />
         {animated && <circle cx="45" cy="13" r="2.4" fill="none" stroke="#7db2ff" strokeWidth="1.5" className="logo-ping-circle" />}
-        <circle cx="45" cy="13" r="2.4" fill="#7db2ff" />
+        <circle cx="45" cy="13" r="2.4" fill="#7db2ff" className="logo-dot-blink" />
       </g>
     </svg>
   )

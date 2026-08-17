@@ -17,11 +17,27 @@
    edge-swipe back/forward navigation (Chrome/Safari mobile default) — felt
    like Instagram's story-swipe changing pages, but it was never this app's
    own gesture code (there isn't any); it's an unmitigated browser default.
-   overscroll-behavior-x: none on both html and body stops the browser from
-   treating a horizontal overscroll as a navigation gesture. */
+   overscroll-behavior-x: none alone (previous attempt) only stops the
+   RUBBER-BAND overscroll case, not Safari's/Chrome's actual edge-swipe-back
+   gesture, which fires on the initial horizontal drag before any overscroll
+   happens — still reproducible after that fix. touch-action: pan-y tells
+   the browser this page only handles VERTICAL panning itself, so it never
+   hands a horizontal drag off to its own back/forward gesture at all,
+   which is the actual fix; overscroll-behavior-x stays as defense-in-depth
+   for the rubber-band case on browsers that honor both. */
 html,
 body {
   overscroll-behavior-x: none;
+  touch-action: pan-y;
+}
+/* touch-action doesn't stop at the element it's set on — it also governs
+   descendants unless THEY set their own — so the blanket pan-y above would
+   otherwise also kill horizontal scrolling inside this app's own
+   overflow-x-auto tables (AllotmentBoardPage/ArchivesPage/ApplicationsPage).
+   Restoring full pan-x+pan-y on those specific containers opts them back
+   in without reopening the edge-swipe-back gesture anywhere else. */
+.overflow-x-auto {
+  touch-action: pan-x pan-y;
 }
 
 :root {
@@ -311,6 +327,22 @@ table {
 .logo-ping-circle {
   transform-origin: 45px 13px;
   animation: logo-ping-ring 1.8s ease-out infinite;
+}
+/* The corner accent dot always blinks, on every instance of the mark
+   everywhere it's used — not tied to the loading `animated` prop, which
+   only adds .logo-ping-circle + .logo-pulse on top of this for the
+   spinner-specific case. */
+@keyframes logo-dot-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.logo-dot-blink {
+  animation: logo-dot-blink 2s ease-in-out infinite;
 }
 /* Same breathing-pulse treatment as .logo-pulse, generalized for a plain
    square <img> icon (e.g. the ipoji logo on IposPage's sync button) —

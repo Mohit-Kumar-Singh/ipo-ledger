@@ -523,7 +523,7 @@ export function IposPage() {
               aria-label={showAddForm ? 'Cancel' : 'Add IPO'}
               title={showAddForm ? 'Cancel' : 'Add IPO'}
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-              style={{ color: 'var(--accent)' }}
+              style={{ color: 'var(--ink-secondary)' }}
             >
               {showAddForm ? <X size={16} /> : <Plus size={16} />}
             </button>

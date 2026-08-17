@@ -774,7 +774,7 @@ export function DashboardPage() {
               width per card gives the pie chart and progress ring room to
               sit adjacent to each other without competing with a neighbor
               column for space. */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {data.ipoProgress.map((p) => (
               <IpoDashboardCard
                 key={p.ipoId}

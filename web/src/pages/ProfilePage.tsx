@@ -548,12 +548,7 @@ export function ProfilePage() {
           toggle sits in this same row instead of its own dedicated card
           further down. */}
       <div className="flex items-center justify-between gap-2">
-        <div>
-          <Logo size={26} />
-          <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Your display name signs off the WhatsApp messages you send.
-          </p>
-        </div>
+        <Logo size={38} />
         <ThemeToggle iconOnly />
       </div>
 

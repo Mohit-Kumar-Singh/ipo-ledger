@@ -601,7 +601,7 @@ export function ApplicationsPage() {
                   aria-expanded={searchOpen}
                   title="Search"
                   className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ color: searchOpen ? 'var(--accent)' : 'var(--ink-muted)' }}
+                  style={{ color: searchOpen ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
                 >
                   <SearchIcon size={16} />
                 </button>
@@ -614,7 +614,7 @@ export function ApplicationsPage() {
                 aria-label="New application"
                 title="New application"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-                style={{ color: 'var(--accent)' }}
+                style={{ color: 'var(--ink-secondary)' }}
               >
                 <Plus size={16} />
               </button>

@@ -62,12 +62,12 @@ export function IpoDashboardCard({
   const canExpand = accountsLeft > 0
 
   return (
-    <div className="glass-card stagger-item p-3">
+    <div className="glass-card stagger-item space-y-2.5 p-4">
       {/* "N left" used to sit here as its own badge — moved down into
           IpoProgressGauge itself, directly under the applied/total ratio
           it's derived from, since it's a reading of the ring, not a
           separate header-level fact. */}
-      <div className="mb-2 flex items-center gap-2">
+      <div className="flex items-center gap-2">
         <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           {companyName}
         </h3>
@@ -89,7 +89,7 @@ export function IpoDashboardCard({
           both are short, and stacking them was one more row of height this
           card didn't need. */}
       {(gmpNotes || subscriptionRate) && (
-        <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {gmpNotes && (
             <p
               className="font-mono-ipo inline-block truncate rounded-full px-2.5 py-0.5 text-xs"
@@ -107,7 +107,7 @@ export function IpoDashboardCard({
       )}
 
       {parentCompanyName && (
-        <p className="font-mono-ipo mb-2 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+        <p className="font-mono-ipo truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
           Parent: {parentCompanyName}
           {parentPrice?.price != null && ` · ₹${parentPrice.price}`}
           {parentPrice?.stale && ' (stale)'}
@@ -132,7 +132,7 @@ export function IpoDashboardCard({
           undefined) since there's nothing left for it to reveal. Desktop/
           tablet (sm:+, hidden on phone): unchanged single row with the
           accounts list opening as a narrow sidebar next to the ring. */}
-      <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-3 border-t pt-3 sm:hidden" style={{ borderColor: 'var(--border)' }}>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-4 border-t pt-4 sm:hidden" style={{ borderColor: 'var(--border)' }}>
         <div className="flex min-w-0 items-center justify-center">
           {attribution && <AttributionChart attribution={attribution} hideHeader hideLegend compact />}
         </div>
@@ -168,7 +168,7 @@ export function IpoDashboardCard({
         </div>
       </div>
 
-      <div className="mt-3 hidden items-center justify-center gap-4 border-t pt-3 sm:flex sm:flex-wrap" style={{ borderColor: 'var(--border)' }}>
+      <div className="hidden items-center justify-center gap-5 border-t pt-4 sm:flex sm:flex-wrap" style={{ borderColor: 'var(--border)' }}>
         {attribution && <AttributionChart attribution={attribution} hideHeader />}
         <IpoProgressGauge
           applied={applied}
