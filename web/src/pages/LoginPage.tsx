@@ -10,6 +10,10 @@ type EmailMode = 'signin' | 'register'
 export function LoginPage() {
   const { session } = useAuth()
   const [emailMode, setEmailMode] = useState<EmailMode>('signin')
+  // Google is the primary path now — email/password is still here (some
+  // existing accounts only have a password, not a linked Google identity),
+  // just tucked behind this toggle instead of always-visible tabs up top.
+  const [showEmail, setShowEmail] = useState(false)
 
   if (session) return <Navigate to="/" replace />
 
@@ -25,7 +29,10 @@ export function LoginPage() {
       className="relative flex min-h-screen items-center justify-center px-4 py-8"
       style={{ background: 'var(--page)' }}
     >
-      <div className="absolute top-4 right-4">
+      {/* env(safe-area-inset-top) keeps this below the phone's status bar
+          (battery/clock) on notch/Dynamic Island devices — AppShell's own
+          drawer already does the same thing for its top controls. */}
+      <div className="absolute top-4 right-4" style={{ top: 'calc(env(safe-area-inset-top) + 1rem)' }}>
         <ThemeToggle />
       </div>
 
@@ -41,39 +48,56 @@ export function LoginPage() {
           <Logo size={30} />
         </div>
 
-        <div className="mb-5 flex gap-4 text-sm font-medium">
-          <button
-            onClick={() => setEmailMode('signin')}
-            className="pb-2"
-            style={{
-              color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
-              borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
-            }}
-          >
-            Sign in
-          </button>
-          <button
-            onClick={() => setEmailMode('register')}
-            className="pb-2"
-            style={{
-              color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
-              borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
-            }}
-          >
-            Create account
-          </button>
-        </div>
-        {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
-
-        <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-          or
-          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-        </div>
-
-        <button type="button" onClick={handleGoogle} className="btn-secondary w-full">
+        {/* Google first and prominent — email/password still exists (some
+            accounts only ever set a password, no linked Google identity)
+            but tucked behind the toggle below instead of always-visible
+            tabs, since it's the fallback now, not the default path. */}
+        <button type="button" onClick={handleGoogle} className="btn-primary w-full py-2.5">
           Continue with Google
         </button>
+
+        {!showEmail ? (
+          <button
+            type="button"
+            onClick={() => setShowEmail(true)}
+            className="mt-4 w-full text-center text-sm font-medium"
+            style={{ color: 'var(--ink-muted)' }}
+          >
+            or sign in with email
+          </button>
+        ) : (
+          <>
+            <div className="my-5 flex items-center gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+              or
+              <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
+            </div>
+
+            <div className="mb-5 flex gap-4 text-sm font-medium">
+              <button
+                onClick={() => setEmailMode('signin')}
+                className="pb-2"
+                style={{
+                  color: emailMode === 'signin' ? 'var(--accent)' : 'var(--ink-muted)',
+                  borderBottom: emailMode === 'signin' ? '2px solid var(--accent)' : '2px solid transparent',
+                }}
+              >
+                Sign in
+              </button>
+              <button
+                onClick={() => setEmailMode('register')}
+                className="pb-2"
+                style={{
+                  color: emailMode === 'register' ? 'var(--accent)' : 'var(--ink-muted)',
+                  borderBottom: emailMode === 'register' ? '2px solid var(--accent)' : '2px solid transparent',
+                }}
+              >
+                Create account
+              </button>
+            </div>
+            {emailMode === 'signin' ? <EmailSignInForm /> : <EmailRegisterForm />}
+          </>
+        )}
 
         <p className="mt-6 text-xs" style={{ color: 'var(--ink-muted)' }}>
           Creating an account gives you your own portal — add your demat/PAN and bank/UPI accounts and start
