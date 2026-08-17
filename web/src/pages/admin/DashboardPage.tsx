@@ -92,6 +92,12 @@ interface ExpectedProfitIpoBlock {
   // the figures, not silently swapped underneath the same-looking number.
   priceSource: 'live' | 'gmp'
   livePricePerShare: number | null
+  // True when this IPO has already listed but has no symbol on file — the
+  // GMP estimate it's stuck showing is a pre-listing number that stopped
+  // updating the day trading opened, but the panel has no way to know a
+  // more accurate live price is possible until an admin fills in the
+  // symbol field (ipoji never scrapes one; it's manual, see IposPage).
+  needsSymbolForLivePrice: boolean
 }
 
 interface DashboardData {
@@ -166,6 +172,7 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
 function buildExpectedProfitByIpo(
   cards: FunderAllottedCard[],
   livePriceBySymbol: Record<string, number | null>,
+  todayStr: string,
 ): ExpectedProfitIpoBlock[] {
   const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
@@ -176,6 +183,7 @@ function buildExpectedProfitByIpo(
         funders: [],
         priceSource: livePrice != null ? 'live' : 'gmp',
         livePricePerShare: livePrice,
+        needsSymbolForLivePrice: livePrice == null && !!c.listingDate && todayStr >= c.listingDate && !c.symbol,
       })
     }
     const b = expectedProfitBreakdown(c, livePrice)
@@ -476,10 +484,20 @@ export function DashboardPage() {
       }
 
       // Skip archived IPOs (fully settled — not worth projecting profit on
-      // anymore) and cards with no price band on file (same guard the
-      // WhatsApp message itself uses — nothing sane to project without one).
+      // anymore), cards with no price band on file (same guard the WhatsApp
+      // message itself uses — nothing sane to project without one), AND —
+      // this is the fix, not the original behavior — anything already
+      // SOLD. This tile is "Expected" (still-projected) profit; once an
+      // application is marked SOLD its real profit is knowable from the
+      // actual sell_price entered, which "Payouts pending" already tracks
+      // (buildPendingPayouts, above). Previously SOLD rows stayed mixed
+      // into these cards and kept being priced off the GMP/live estimate
+      // forever, so marking something sold never visibly changed this
+      // number — it looked frozen/wrong exactly like it was.
       const profitCards = buildFunderAllottedCards(
-        ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter((r) => !r.ipos?.is_archived),
+        ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
+          (r) => !r.ipos?.is_archived && r.status === 'ALLOTTED',
+        ),
         sameIdentity,
       ).filter((c) => c.priceHigh)
 
@@ -502,7 +520,7 @@ export function DashboardPage() {
         (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
         0,
       )
-      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol)
+      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr)
 
       // Real mandate_status (0047/0048), not the previous proxy of "every
       // still-APPLIED application" — that counted plenty of applications
@@ -994,6 +1012,11 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
               <span className="ml-2 text-[10px] font-normal" style={{ color: 'var(--accent)' }}>
                 live @ ₹{b.livePricePerShare}/share
               </span>
+            )}
+            {b.needsSymbolForLivePrice && (
+              <Link to="/ipos" className="link-accent ml-2 text-[10px] font-normal">
+                already listed — add its symbol for a live price →
+              </Link>
             )}
           </p>
           <div className="space-y-1">
