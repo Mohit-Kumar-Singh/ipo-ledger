@@ -101,20 +101,42 @@ const SYNC_SCRIPT = `(async () => {
           const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
           if (!dLines.some(l => l.includes(row.appNumber))) {
             errors.push({ card: i, stage: 'stale-sheet-content' });
+            // Phones have no DevTools console to read console.log output —
+            // stash a snapshot of what the sheet actually showed directly on
+            // the row itself, so it round-trips through the copy/paste flow
+            // into this app where it can actually be read.
+            row._debug = 'stale-sheet-content: ' + dLines.slice(0, 8).join(' | ').slice(0, 200);
           } else {
             const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
             if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
             const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
             if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
+            if (!row.upiId && !row.panNumber) {
+              row._debug = 'sheet-found-but-no-upi/pan-lines: ' + dLines.slice(0, 10).join(' | ').slice(0, 200);
+            }
           }
           if (win.bootstrap?.Offcanvas) win.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
           else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
           await sleep(200);
         } else {
           errors.push({ card: i, stage: 'detail-sheet-not-found' });
+          // Same reasoning as above — since the expected #orderDetailSheet
+          // selector never matched, look for anything modal/offcanvas-like
+          // that DID appear, so a mismatch between this selector and
+          // ipoji's actual mobile markup shows up in the pasted data
+          // instead of needing phone DevTools to see it.
+          const candidates = [...doc.querySelectorAll(
+            '[id*="offcanvas" i],[id*="modal" i],[class*="offcanvas" i],[class*="modal" i],[role="dialog"]'
+          )].slice(0, 6).map(el => ({
+            id: el.id || null,
+            cls: (el.className || '').toString().slice(0, 60),
+            visible: el.classList.contains('show') || el.getAttribute('aria-modal') === 'true',
+          }));
+          row._debug = 'detail-sheet-not-found, candidates: ' + JSON.stringify(candidates);
         }
       } catch (e) {
         errors.push({ card: i, stage: 'click', error: String(e) });
+        row._debug = 'click-error: ' + String(e);
       }
       rows.push(row);
     }
@@ -297,6 +319,11 @@ interface ScrapedRow {
   status: string
   upiId?: string
   panNumber?: string
+  // Diagnostic only, set by the scrape script when it couldn't open/read the
+  // UPI/PAN detail sheet for a row — surfaces what actually happened on a
+  // phone (no DevTools console there) so it round-trips into this app
+  // instead of being invisible. Never written back to the database.
+  _debug?: string
 }
 
 interface MatchedRow extends ScrapedRow {
@@ -1048,7 +1075,16 @@ export function IpojiSyncPanel({
                         </td>
                         <td className="p-1.5">
                           {!r.upiId ? (
-                            <span style={{ color: 'var(--ink-muted)' }}>—</span>
+                            // _debug (scrape-side diagnostic — see ScrapedRow)
+                            // surfaces via title/hover instead of a visible
+                            // column: it only ever has a value when the
+                            // detail-sheet fetch failed, which is the
+                            // uncommon case, and it's meant for
+                            // troubleshooting phone runs (no DevTools
+                            // console there), not routine review.
+                            <span style={{ color: 'var(--ink-muted)' }} title={r._debug}>
+                              —{r._debug ? ' ⓘ' : ''}
+                            </span>
                           ) : r.matchedBank ? (
                             r.matchedBank.account_holder_name ?? r.upiId
                           ) : (
