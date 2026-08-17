@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { Logo } from '../components/Logo'
 
 type EmailMode = 'signin' | 'register'
 
@@ -36,19 +37,8 @@ export function LoginPage() {
           boxShadow: 'var(--shadow-md)',
         }}
       >
-        {/* Same blue "I" badge as the app shell's own logo (AppShell.tsx) —
-            this was a leftover GitHub mark from the Primer redesign, styled
-            like GitHub but branding an unrelated app. */}
-        <div className="mb-6 flex items-center gap-2">
-          <div
-            className="flex h-7 w-7 items-center justify-center rounded-md text-sm font-bold"
-            style={{ background: 'var(--accent)', color: '#ffffff' }}
-          >
-            I
-          </div>
-          <span className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            IPO Ledger
-          </span>
+        <div className="mb-6">
+          <Logo size={30} />
         </div>
 
         <div className="mb-5 flex gap-4 text-sm font-medium">

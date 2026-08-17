@@ -22,6 +22,7 @@ import { useTheme } from '../../contexts/ThemeContext'
 import { supabase } from '../../lib/supabase'
 import { ToastHost } from '../ToastHost'
 import { OnboardingTour } from '../OnboardingTour'
+import { Logo, LogoMark } from '../Logo'
 
 // No /profile entry — the identity card above this nav (see below) links
 // there directly now, so a second nav item to the same place was redundant.
@@ -263,6 +264,17 @@ export function AppShell() {
 
           return (
             <>
+              {/* Brand mark — the sidebar had no logo at all before this;
+                  collapsed rail shows just the icon, expanded shows the
+                  full wordmark too. */}
+              <Link
+                to="/"
+                onClick={() => setNavOpen(false)}
+                className={`mt-3 flex items-center ${collapsed ? 'mx-1.5 justify-center px-1.5' : 'mx-3 px-2'}`}
+              >
+                {collapsed ? <LogoMark size={26} /> : <Logo size={26} />}
+              </Link>
+
               {/* Identity block — a Link to /profile wrapping just the
                   avatar+name/role now, not the whole row: when expanded, the
                   three toggle buttons sit in this same row, after the name,

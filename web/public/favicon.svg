@@ -1,36 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
   <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#0d1117"/>
-      <stop offset="100%" stop-color="#161b22"/>
+    <linearGradient id="ilBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#16213a"/>
     </linearGradient>
-    <radialGradient id="glow" cx="50%" cy="38%" r="65%">
-      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.35"/>
-      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"/>
-    </radialGradient>
-    <linearGradient id="ring" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="ilMark" x1="0%" y1="100%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#22d3ee"/>
       <stop offset="100%" stop-color="#34d399"/>
     </linearGradient>
   </defs>
 
-  <!-- rounded-square backdrop -->
-  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
-  <rect width="64" height="64" rx="14" fill="url(#glow)"/>
+  <rect width="64" height="64" rx="14" fill="url(#ilBg)"/>
 
-  <!-- progress ring, ~75% swept -->
-  <circle cx="32" cy="33" r="18" fill="none" stroke="#232a35" stroke-width="5.5"/>
-  <circle
-    cx="32" cy="33" r="18" fill="none"
-    stroke="url(#ring)" stroke-width="5.5" stroke-linecap="round"
-    stroke-dasharray="85 113"
-    transform="rotate(-90 32 33)"
-  />
-  <!-- marker dot at the ring's leading edge -->
-  <circle cx="47.7" cy="20.2" r="3.1" fill="#34d399"/>
+  <!-- "I" -->
+  <rect x="17" y="17" width="8" height="30" rx="4" fill="#eef2ff"/>
+  <!-- "L" -- vertical stroke + foot -->
+  <rect x="31" y="17" width="8" height="30" rx="4" fill="url(#ilMark)"/>
+  <rect x="31" y="39" width="17" height="8" rx="4" fill="url(#ilMark)"/>
 
-  <!-- ascending bars inside the ring, reads as a ledger/growth glyph -->
-  <rect x="24" y="34" width="4" height="10" rx="1.4" fill="#8b98a8"/>
-  <rect x="30" y="29" width="4" height="15" rx="1.4" fill="#c3cbd6"/>
-  <rect x="36" y="23" width="4" height="21" rx="1.4" fill="#f0f4f8"/>
+  <!-- signature accent: a data point arriving, not an arrowhead -->
+  <path d="M45 13 L53 21" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="45" cy="13" r="2.4" fill="#67e8f9"/>
 </svg>

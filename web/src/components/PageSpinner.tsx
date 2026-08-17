@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { LogoSpinner } from './Logo'
 
 // Hand-rolled spinner (a spinning ring via Tailwind's animate-spin), not
 // @primer/react's <Spinner> — that pulled in the whole primer/react +
@@ -34,7 +35,7 @@ export function PageSpinner() {
   const slow = useIsTakingAWhile()
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-4" style={{ background: 'var(--page)' }}>
-      <Spinner size={32} />
+      <LogoSpinner size={52} />
       {slow && (
         <p className="max-w-xs text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           Still loading — if this app has been idle a few days, the free-tier database takes up to 30s to

@@ -264,6 +264,41 @@ table {
   animation: page-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* Logo loading state — LogoMark's `animated` prop (see Logo.tsx). A slow
+   breathing pulse on the whole mark, plus the corner accent dot "pinging"
+   outward like Tailwind's animate-ping, so the brand mark itself reads as
+   "working" instead of a spinner sitting next to a static logo. */
+@keyframes logo-pulse-scale {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.92;
+  }
+}
+.logo-pulse {
+  transform-origin: 32px 32px;
+  animation: logo-pulse-scale 1.8s ease-in-out infinite;
+}
+@keyframes logo-ping-ring {
+  0% {
+    r: 2.4;
+    opacity: 0.9;
+  }
+  80%,
+  100% {
+    r: 9;
+    opacity: 0;
+  }
+}
+.logo-ping-circle {
+  transform-origin: 45px 13px;
+  animation: logo-ping-ring 1.8s ease-out infinite;
+}
+
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
