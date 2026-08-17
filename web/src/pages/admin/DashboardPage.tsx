@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon } from '@primer/octicons-react'
+import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -13,9 +13,11 @@ import { computeProfitSplit } from '../../lib/profitSplit'
 import { computeIpoAttribution, sameIdentity, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
 import {
+  buildBookedProfitLines,
   buildFunderAllottedCards,
   expectedProfitBreakdown,
   rupees,
+  type BookedProfitLine,
   type FunderAllottedCard,
   type ProfitProjectionRow,
 } from '../../lib/expectedProfit'
@@ -80,8 +82,14 @@ interface ExpectedProfitFunderLine {
   profit: number
   // Invested + profit — the total figure to actually hand back to this
   // funder once it's sold, not just the profit slice. Shown as a smaller
-  // secondary line under the profit amount.
-  amountToReturn: number
+  // secondary line under the profit amount. Absent for booked lines — once
+  // it's actually sold there's nothing projected left to return-on-sale.
+  amountToReturn?: number
+  // True for a line built from an actual sell_price (buildBookedProfitLines)
+  // rather than the GMP/live estimate — same person/IPO can have both a
+  // booked line (lots already sold) and a projected one (lots still held)
+  // side by side within one block.
+  booked?: boolean
 }
 interface ExpectedProfitIpoBlock {
   ipoName: string
@@ -173,6 +181,7 @@ function buildExpectedProfitByIpo(
   cards: FunderAllottedCard[],
   livePriceBySymbol: Record<string, number | null>,
   todayStr: string,
+  bookedLines: BookedProfitLine[],
 ): ExpectedProfitIpoBlock[] {
   const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
@@ -192,6 +201,37 @@ function buildExpectedProfitByIpo(
       holderNames: c.holderNames.map((h) => h.name).join(', '),
       profit: b.netYourProfit,
       amountToReturn: b.amountToReturn,
+    })
+  }
+  // Booked (realized) lines merge into the same per-IPO block, grouped by
+  // funder — an IPO can have both still-projected lots (above) and already-
+  // sold ones for the same funder, and a fully-sold IPO with no ALLOTTED
+  // lots left at all needs its own block created here, since the loop above
+  // never saw it (no FunderAllottedCard exists for it).
+  const bookedByIpoFunder = new Map<string, { holderNames: Set<string>; profit: number }>()
+  for (const l of bookedLines) {
+    const key = `${l.ipoName}::${l.funderName}`
+    const entry = bookedByIpoFunder.get(key) ?? { holderNames: new Set<string>(), profit: 0 }
+    entry.holderNames.add(l.holderName)
+    entry.profit += l.profit
+    bookedByIpoFunder.set(key, entry)
+  }
+  for (const [key, entry] of bookedByIpoFunder) {
+    const [ipoName, funderName] = key.split('::')
+    if (!byIpo.has(ipoName)) {
+      byIpo.set(ipoName, {
+        ipoName,
+        funders: [],
+        priceSource: 'gmp',
+        livePricePerShare: null,
+        needsSymbolForLivePrice: false,
+      })
+    }
+    byIpo.get(ipoName)!.funders.push({
+      funderName,
+      holderNames: Array.from(entry.holderNames).join(', '),
+      profit: entry.profit,
+      booked: true,
     })
   }
   return Array.from(byIpo.values())
@@ -278,7 +318,7 @@ export function DashboardPage() {
           ? supabase
               .from('applications')
               .select(
-                'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
+                'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
                   'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
                   'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
                   'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -485,21 +525,20 @@ export function DashboardPage() {
 
       // Skip archived IPOs (fully settled — not worth projecting profit on
       // anymore), cards with no price band on file (same guard the WhatsApp
-      // message itself uses — nothing sane to project without one), AND —
-      // this is the fix, not the original behavior — anything already
-      // SOLD. This tile is "Expected" (still-projected) profit; once an
-      // application is marked SOLD its real profit is knowable from the
-      // actual sell_price entered, which "Payouts pending" already tracks
-      // (buildPendingPayouts, above). Previously SOLD rows stayed mixed
-      // into these cards and kept being priced off the GMP/live estimate
-      // forever, so marking something sold never visibly changed this
-      // number — it looked frozen/wrong exactly like it was.
+      // message itself uses — nothing sane to project without one), AND
+      // anything already SOLD — those are priced separately below via
+      // buildBookedProfitLines (the REAL sell_price, not a GMP/live
+      // estimate), then merged back into the same total/panel tagged
+      // "booked" so they still show and still count, just off the correct
+      // number instead of a frozen pre-sale guess.
+      const profitRowsBase = ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
+        (r) => !r.ipos?.is_archived,
+      )
       const profitCards = buildFunderAllottedCards(
-        ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
-          (r) => !r.ipos?.is_archived && r.status === 'ALLOTTED',
-        ),
+        profitRowsBase.filter((r) => r.status === 'ALLOTTED'),
         sameIdentity,
       ).filter((c) => c.priceHigh)
+      const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '')
 
       // Once an IPO actually lists, its GMP-based profit estimate is frozen
       // at whatever the grey-market premium read pre-listing — a real share
@@ -516,11 +555,12 @@ export function DashboardPage() {
         for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
       }
 
-      const expectedProfitTotal = profitCards.reduce(
-        (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
-        0,
-      )
-      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr)
+      const expectedProfitTotal =
+        profitCards.reduce(
+          (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
+          0,
+        ) + bookedProfitLines.reduce((sum, l) => sum + l.profit, 0)
+      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines)
 
       // Real mandate_status (0047/0048), not the previous proxy of "every
       // still-APPLIED application" — that counted plenty of applications
@@ -573,9 +613,20 @@ export function DashboardPage() {
       })
       .subscribe()
 
+    // The realtime subscription above only fires on a DB write — it has no
+    // way to know a live share price moved on its own, so "Expected
+    // profit"/"Parent: ..." would otherwise only ever update on the next
+    // manual page load. A 5-minute poll keeps those numbers actually live
+    // while the tab's open, without hammering the underlying quote API
+    // (fetch-stock-price's own 15-minute cache absorbs the rest).
+    const priceRefreshInterval = setInterval(() => {
+      if (!cancelled) load()
+    }, 5 * 60 * 1000)
+
     return () => {
       cancelled = true
       supabase.removeChannel(channel)
+      clearInterval(priceRefreshInterval)
     }
     // isAdmin is captured by load() for pendingPayouts — now that
     // ProtectedRoute no longer blocks rendering until the profile row has
@@ -1014,8 +1065,13 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
               </span>
             )}
             {b.needsSymbolForLivePrice && (
-              <Link to="/ipos" className="link-accent ml-2 text-[10px] font-normal">
-                already listed — add its symbol for a live price →
+              <Link
+                to="/ipos"
+                title="Already listed with no symbol on file — add one for a live price"
+                aria-label="Add this IPO's symbol for a live price"
+                className="link-accent ml-1.5 inline-flex align-middle"
+              >
+                <LinkIcon size={11} />
               </Link>
             )}
           </p>
@@ -1024,16 +1080,24 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
               <div key={i} className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate" style={{ color: 'var(--ink-secondary)' }}>
                   <span style={{ color: 'var(--ink-muted)' }}>{f.funderName}:</span> {f.holderNames}
+                  {f.booked && (
+                    <span className="ml-1.5 text-[10px] font-medium" style={{ color: 'var(--ink-muted)' }}>
+                      (booked)
+                    </span>
+                  )}
                 </span>
                 <span className="shrink-0 text-right">
                   <span className="block font-medium" style={{ color: 'var(--good)' }}>
                     {rupees(f.profit)}
                   </span>
                   {/* Invested + profit — the actual figure to hand back,
-                      not just the profit slice above it. */}
-                  <span className="block text-[10px]" style={{ color: 'var(--ink-muted)' }}>
-                    return {rupees(f.amountToReturn)}
-                  </span>
+                      not just the profit slice above it. Booked lines have
+                      nothing left to project-and-return — the sale's done. */}
+                  {f.amountToReturn != null && (
+                    <span className="block text-[10px]" style={{ color: 'var(--ink-muted)' }}>
+                      return {rupees(f.amountToReturn)}
+                    </span>
+                  )}
                 </span>
               </div>
             ))}

@@ -4,6 +4,7 @@
 // payout is computed. Everything here operates on the SAME row shape
 // (ProfitProjectionRow) NotificationsPage's admin query already fetches.
 import { parseGmpPercent } from './ipoGmp'
+import { computeProfitSplit } from './profitSplit'
 
 export type ProfitProjectionRow = {
   ipo_id: string
@@ -12,6 +13,13 @@ export type ProfitProjectionRow = {
   status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipoji_status_text: string | null
+  // Optional — only the Dashboard's profit query selects these (needed to
+  // compute REALIZED profit for already-SOLD rows via computeProfitSplit,
+  // same actual-sell-price math "Payouts pending" uses); NotificationsPage's
+  // funder cards don't need them and leave this undefined.
+  bid_amount?: number | null
+  sell_price?: number | null
+  split_profit_with_funder?: boolean | null
   ipos: {
     company_name: string
     open_date: string
@@ -183,4 +191,50 @@ export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerSh
 
 export function rupees(n: number): string {
   return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
+
+// REALIZED profit for applications already marked SOLD — computed from the
+// actual sell_price entered (via the same computeProfitSplit math "Payouts
+// pending" uses), not the GMP/live estimate expectedProfitBreakdown produces
+// for still-held allotments. Kept separate from FunderAllottedCard/
+// expectedProfitBreakdown's per-card aggregation because each SOLD row has
+// its own real sell_price — there's nothing to project or aggregate once
+// it's known.
+export interface BookedProfitLine {
+  ipoName: string
+  ipoId: string
+  funderName: string
+  holderName: string
+  profit: number
+  soldAmount: number
+}
+
+export function buildBookedProfitLines(rows: ProfitProjectionRow[], profitPersonName: string): BookedProfitLine[] {
+  const lines: BookedProfitLine[] = []
+  for (const r of rows) {
+    if (r.status !== 'SOLD' || !r.ipos || r.ipos.is_archived) continue
+    if (r.sell_price == null || r.bid_amount == null) continue
+    const funder = effectiveFunder(r)
+    const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
+    const result = computeProfitSplit({
+      sellPricePerShare: r.sell_price,
+      lotSize: r.ipos.lot_size,
+      lots: r.lots,
+      bidAmount: r.bid_amount,
+      cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
+      dematHolderName: holderName,
+      funderName: funder?.account_holder_name ?? null,
+      profitPersonName,
+      splitWithFunder: r.split_profit_with_funder ?? false,
+    })
+    lines.push({
+      ipoName: r.ipos.company_name,
+      ipoId: r.ipo_id,
+      funderName: funder?.account_holder_name ?? holderName,
+      holderName,
+      profit: result.profitPersonShare,
+      soldAmount: result.totalSoldAmount,
+    })
+  }
+  return lines
 }
