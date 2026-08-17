@@ -507,7 +507,7 @@ export function IposPage() {
                 alt="ipoji"
                 width={22}
                 height={22}
-                className={quickSyncing ? 'animate-spin' : undefined}
+                className={quickSyncing ? 'icon-pulse' : undefined}
               />
             </button>
             <button

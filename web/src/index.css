@@ -298,6 +298,16 @@ table {
   transform-origin: 45px 13px;
   animation: logo-ping-ring 1.8s ease-out infinite;
 }
+/* Same breathing-pulse treatment as .logo-pulse, generalized for a plain
+   square <img> icon (e.g. the ipoji logo on IposPage's sync button) —
+   center is the right transform-origin for any square icon, so this
+   doesn't need the SVG-mark-specific 32px/32px .logo-pulse uses. Replaces
+   a literal animate-spin on that icon, which read as broken/wired rather
+   than "working" — spinning a static logo mark doesn't read as sync
+   progress the way it does on an actual loading ring. */
+.icon-pulse {
+  animation: logo-pulse-scale 1.5s ease-in-out infinite;
+}
 
 @keyframes shimmer {
   0% {
