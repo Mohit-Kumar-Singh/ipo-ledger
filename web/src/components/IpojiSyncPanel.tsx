@@ -109,11 +109,18 @@ const SYNC_SCRIPT = `(async () => {
           const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
           if (!dLines.some(l => l.includes(row.appNumber))) {
             errors.push({ card: i, stage: 'stale-sheet-content' });
-            // Phones have no DevTools console to read console.log output —
-            // stash a snapshot of what the sheet actually showed directly on
-            // the row itself, so it round-trips through the copy/paste flow
-            // into this app where it can actually be read.
-            row._debug = 'stale-sheet-content: ' + dLines.slice(0, 8).join(' | ').slice(0, 200);
+            // v1.143.3's fix (require non-empty text before counting
+            // "stable") still came back permanently empty on a real phone
+            // re-test even after a 4.5s cap — ruling out timing entirely.
+            // innerText can read as empty even when real markup exists
+            // (elements with visibility:hidden/display:none, or content
+            // that only lives in an attribute/nested structure) — dumping
+            // raw innerHTML here (not innerText) distinguishes "genuinely
+            // no content rendered" from "content's there, just not the way
+            // innerText can see it," which decides the fix.
+            row._debug = !text
+              ? 'empty-after-full-wait, sheet.innerHTML: ' + (sheet.innerHTML || '').replace(/\\s+/g, ' ').slice(0, 300)
+              : 'stale-sheet-content: ' + dLines.slice(0, 8).join(' | ').slice(0, 200);
           } else {
             const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
             if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
