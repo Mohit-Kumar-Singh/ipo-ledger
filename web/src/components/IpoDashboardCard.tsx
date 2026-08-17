@@ -28,6 +28,9 @@ export function IpoDashboardCard({
   onToggleExpanded,
   allottedCount,
   ipoId,
+  shareholderIssueSize,
+  parentCompanyName,
+  parentPrice,
 }: {
   companyName: string
   openDate: string
@@ -47,6 +50,13 @@ export function IpoDashboardCard({
   // before anyone's marked anything yet.
   allottedCount: number
   ipoId: string
+  // Shareholder-quota badge trigger + parent company display (e.g. CMPDI's
+  // quota for existing Coal India shareholders) — see IposPage's IpoCard for
+  // the admin-side equivalent. parentPrice is looked up by the page (one
+  // batched fetch-stock-price call per load), not fetched per card.
+  shareholderIssueSize?: string | null
+  parentCompanyName?: string | null
+  parentPrice?: { price: number | null; stale: boolean }
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const canExpand = accountsLeft > 0
@@ -61,6 +71,7 @@ export function IpoDashboardCard({
         <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           {companyName}
         </h3>
+        {shareholderIssueSize && <span className="badge badge-info shrink-0 text-xs">Shareholder quota</span>}
         {allottedCount > 0 && (
           <Link
             to={`/allotment?ipo=${ipoId}`}
@@ -93,6 +104,14 @@ export function IpoDashboardCard({
             </p>
           )}
         </div>
+      )}
+
+      {parentCompanyName && (
+        <p className="font-mono-ipo mb-2 truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+          Parent: {parentCompanyName}
+          {parentPrice?.price != null && ` · ₹${parentPrice.price}`}
+          {parentPrice?.stale && ' (stale)'}
+        </p>
       )}
 
       <IpoTimeline

@@ -199,6 +199,7 @@ export function IposPage() {
   const [quickSyncing, setQuickSyncing] = useState(false)
 
   const [selectedIpos, setSelectedIpos] = useState<Set<string>>(new Set())
+  const [parentPrices, setParentPrices] = useState<Record<string, { price: number | null; stale: boolean }>>({})
 
   async function load() {
     setLoading(true)
@@ -215,6 +216,22 @@ export function IposPage() {
   useEffect(() => {
     load()
   }, [])
+
+  // One batched call for every distinct parent-company symbol currently in
+  // view, not one call per card — several IPOs can share the same parent
+  // (e.g. multiple Coal India subsidiaries), and this avoids duplicate
+  // upstream fetches for that case.
+  useEffect(() => {
+    const symbols = Array.from(new Set(ipos.map((i) => i.parent_company_symbol).filter((s): s is string => !!s)))
+    if (symbols.length === 0) return
+    supabase.functions
+      .invoke<{ prices?: Record<string, { price: number | null; stale: boolean }> }>('fetch-stock-price', {
+        body: { symbols },
+      })
+      .then(({ data }) => {
+        if (data?.prices) setParentPrices((prev) => ({ ...prev, ...data.prices }))
+      })
+  }, [ipos])
 
   // Raw fetch only — no component state touched — so quickImportAndSave
   // below can read the result directly instead of racing React's state
@@ -655,6 +672,7 @@ export function IposPage() {
                             }}
                             onDelete={() => deleteIpo(ipo)}
                             onArchive={() => setArchived(ipo, true)}
+                            parentPrice={ipo.parent_company_symbol ? parentPrices[ipo.parent_company_symbol] : undefined}
                           />
                         ))}
                       </div>
@@ -677,6 +695,7 @@ function IpoCard({
   onEdit,
   onDelete,
   onArchive,
+  parentPrice,
 }: {
   ipo: Ipo
   isAdmin: boolean
@@ -685,6 +704,10 @@ function IpoCard({
   onEdit: () => void
   onDelete: () => void
   onArchive?: () => void
+  // Looked up (by ipo.parent_company_symbol) and passed down by the page —
+  // fetched once per page load for every distinct symbol in view, not once
+  // per card. See the fetch-stock-price effect in IposPage.
+  parentPrice?: { price: number | null; stale: boolean }
 }) {
   const status = deriveStatus(ipo)
   // Hot-GMP hype ring — a rotating conic-gradient glow around the card,
@@ -726,7 +749,10 @@ function IpoCard({
             </p>
           </div>
         </div>
-        <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {ipo.shareholder_issue_size && <span className="badge badge-info shrink-0">Shareholder quota</span>}
+          <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
+        </div>
       </div>
 
       {(ipo.gmp_notes || isAdmin) && (
@@ -779,6 +805,14 @@ function IpoCard({
           <Stat label="Retail issue size" value={ipo.retail_issue_size ?? '—'} />
           {ipo.shareholder_issue_size && <Stat label="Shareholder quota" value={ipo.shareholder_issue_size} />}
         </div>
+      )}
+
+      {ipo.parent_company_name && (
+        <p className="font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
+          Parent: {ipo.parent_company_name}
+          {parentPrice?.price != null && ` · ₹${parentPrice.price}`}
+          {parentPrice?.stale && ' (stale)'}
+        </p>
       )}
 
       {ipo.retail_subscription_rate && (
@@ -901,6 +935,8 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
   const [issueSize, setIssueSize] = useState(existing?.issue_size ?? '')
   const [retailIssueSize, setRetailIssueSize] = useState(existing?.retail_issue_size ?? '')
   const [shareholderIssueSize, setShareholderIssueSize] = useState(existing?.shareholder_issue_size ?? '')
+  const [parentCompanyName, setParentCompanyName] = useState(existing?.parent_company_name ?? '')
+  const [parentCompanySymbol, setParentCompanySymbol] = useState(existing?.parent_company_symbol ?? '')
   const [retailSubscriptionRate, setRetailSubscriptionRate] = useState(existing?.retail_subscription_rate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
   const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
@@ -934,6 +970,8 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       issue_size: issueSize || null,
       retail_issue_size: retailIssueSize || null,
       shareholder_issue_size: shareholderIssueSize || null,
+      parent_company_name: parentCompanyName || null,
+      parent_company_symbol: parentCompanySymbol || null,
       retail_subscription_rate: retailSubscriptionRate || null,
       allotment_out: allotmentOut === 'unknown' ? null : allotmentOut === 'out',
     }
@@ -1034,6 +1072,22 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
           value={shareholderIssueSize}
           onChange={(e) => setShareholderIssueSize(e.target.value)}
           placeholder="e.g. ₹50 Cr"
+          className="input"
+        />
+      </Field>
+      <Field label="Parent company name (optional, for shareholder quota)">
+        <input
+          value={parentCompanyName}
+          onChange={(e) => setParentCompanyName(e.target.value)}
+          placeholder="e.g. Coal India"
+          className="input"
+        />
+      </Field>
+      <Field label="Parent company NSE symbol">
+        <input
+          value={parentCompanySymbol}
+          onChange={(e) => setParentCompanySymbol(e.target.value.toUpperCase())}
+          placeholder="e.g. COALINDIA"
           className="input"
         />
       </Field>

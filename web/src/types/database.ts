@@ -85,6 +85,10 @@ export interface Ipo {
   retail_issue_size: string | null
   shareholder_issue_size: string | null
   retail_subscription_rate: string | null
+  // Manual/admin-entered, same reasoning as shareholder_issue_size — ipoji
+  // never records which listed company a shareholder quota refers to.
+  parent_company_name: string | null
+  parent_company_symbol: string | null
   created_at: string
   is_archived: boolean
   // null = unknown (neither "Allotment Out" nor "Allotment Awaited" seen on

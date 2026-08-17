@@ -54,6 +54,9 @@ interface IpoProgress {
   subscriptionRate: string | null
   remainingHolderNames: string[]
   allottedCount: number
+  shareholderIssueSize: string | null
+  parentCompanyName: string | null
+  parentCompanySymbol: string | null
 }
 
 const HIGH_GMP_THRESHOLD = 15
@@ -180,6 +183,7 @@ export function DashboardPage() {
   // once, independent of each other, not a single shared panel that only
   // one card at a time can claim.
   const [expandedIpoIds, setExpandedIpoIds] = useState<Set<string>>(new Set())
+  const [parentPrices, setParentPrices] = useState<Record<string, { price: number | null; stale: boolean }>>({})
   function toggleExpanded(ipoId: string) {
     setExpandedIpoIds((s) => {
       const next = new Set(s)
@@ -349,6 +353,9 @@ export function DashboardPage() {
             subscriptionRate: ipo.retail_subscription_rate,
             remainingHolderNames,
             allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
+            shareholderIssueSize: ipo.shareholder_issue_size,
+            parentCompanyName: ipo.parent_company_name,
+            parentCompanySymbol: ipo.parent_company_symbol,
           }
         })
         // No point showing a progress tile for an IPO nobody has applied to
@@ -527,6 +534,22 @@ export function DashboardPage() {
     // getting stuck empty until a manual refresh.
   }, [isAdmin])
 
+  // One batched call for every distinct parent-company symbol currently in
+  // view, not one call per card — mirrors IposPage's admin-side equivalent.
+  useEffect(() => {
+    const symbols = Array.from(
+      new Set((data?.ipoProgress ?? []).map((p) => p.parentCompanySymbol).filter((s): s is string => !!s)),
+    )
+    if (symbols.length === 0) return
+    supabase.functions
+      .invoke<{ prices?: Record<string, { price: number | null; stale: boolean }> }>('fetch-stock-price', {
+        body: { symbols },
+      })
+      .then(({ data: priceData }) => {
+        if (priceData?.prices) setParentPrices((prev) => ({ ...prev, ...priceData.prices }))
+      })
+  }, [data?.ipoProgress])
+
   if (loading || !data) return <DashboardSkeleton />
 
   // Attribution is computed from a separately-scoped set of rows (top-8
@@ -669,6 +692,9 @@ export function DashboardPage() {
                 onToggleExpanded={() => toggleExpanded(p.ipoId)}
                 allottedCount={p.allottedCount}
                 ipoId={p.ipoId}
+                shareholderIssueSize={p.shareholderIssueSize}
+                parentCompanyName={p.parentCompanyName}
+                parentPrice={p.parentCompanySymbol ? parentPrices[p.parentCompanySymbol] : undefined}
               />
             ))}
           </div>
