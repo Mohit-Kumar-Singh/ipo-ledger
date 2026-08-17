@@ -112,6 +112,16 @@ export function ProfilePage() {
   const [loadingBankRequests, setLoadingBankRequests] = useState(true)
   const [cancellingBankId, setCancellingBankId] = useState<string | null>(null)
 
+  // Which "Your details" row (if any) is inline-editable right now — name
+  // and phone used to share one always-open form; each field is now its
+  // own independent edit/save/cancel, matching PAN's existing pattern below.
+  const [editingField, setEditingField] = useState<'name' | 'phone' | null>(null)
+  // The "+ Link an account" bottom sheet — Demat/Bank tabs inside it reuse
+  // the exact same search/request state and handlers as before, just
+  // re-hosted in a modal instead of two always-visible stacked forms.
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [sheetTab, setSheetTab] = useState<'demat' | 'bank'>('demat')
+
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
     setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
@@ -256,36 +266,6 @@ export function ProfilePage() {
   }, [isAdmin])
 
   const phoneValid = phoneDigits.length === 0 || PHONE_RE.test(phoneDigits)
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setError(null)
-    setJustSaved(false)
-
-    const trimmed = fullName.trim()
-    if (!trimmed) {
-      setError('Name cannot be empty.')
-      return
-    }
-    if (!phoneValid) {
-      setError('Phone number must be exactly 10 digits, or left blank.')
-      return
-    }
-
-    setSubmitting(true)
-    const { error } = await supabase.rpc('update_own_profile', {
-      p_full_name: trimmed,
-      p_phone_e164: phoneDigits ? `+91${phoneDigits}` : null,
-    })
-    setSubmitting(false)
-    if (error) {
-      setError(error.message)
-      return
-    }
-    await refreshProfile()
-    setJustSaved(true)
-    setTimeout(() => setJustSaved(false), 2000)
-  }
 
   async function handleSavePan(e: FormEvent) {
     e.preventDefault()
@@ -446,8 +426,121 @@ export function ProfilePage() {
     loadMyBankRequests()
   }
 
+  // Shared by saveName/savePhone below — same update_own_profile RPC the
+  // old combined form used (line ~276 originally), just called from two
+  // independent save actions instead of one. Whichever field ISN'T being
+  // saved right now is passed through unchanged (fullName/phoneDigits both
+  // already mirror the persisted profile value except while their own row
+  // is actively being edited — see the sync effect above and
+  // cancelFieldEdit below, which resets both on cancel).
+  async function updateProfile(nextName: string, nextPhoneDigits: string) {
+    setSubmitting(true)
+    const { error } = await supabase.rpc('update_own_profile', {
+      p_full_name: nextName,
+      p_phone_e164: nextPhoneDigits ? `+91${nextPhoneDigits}` : null,
+    })
+    setSubmitting(false)
+    if (error) {
+      setError(error.message)
+      return false
+    }
+    await refreshProfile()
+    return true
+  }
+
+  function startEditName() {
+    setFullName(profile?.full_name ?? '')
+    setError(null)
+    setEditingField('name')
+  }
+  function startEditPhone() {
+    setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
+    setError(null)
+    setEditingField('phone')
+  }
+  function cancelFieldEdit() {
+    setFullName(profile?.full_name ?? '')
+    setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
+    setError(null)
+    setEditingField(null)
+  }
+  async function saveName() {
+    const trimmed = fullName.trim()
+    if (!trimmed) {
+      setError('Name cannot be empty.')
+      return
+    }
+    const ok = await updateProfile(trimmed, profile?.phone_e164?.replace(/^\+91/, '') ?? '')
+    if (ok) {
+      setEditingField(null)
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 2000)
+    }
+  }
+  async function savePhone() {
+    if (!phoneValid) {
+      setError('Phone number must be exactly 10 digits, or left blank.')
+      return
+    }
+    const ok = await updateProfile(profile?.full_name ?? fullName, phoneDigits)
+    if (ok) {
+      setEditingField(null)
+      setJustSaved(true)
+      setTimeout(() => setJustSaved(false), 2000)
+    }
+  }
+
+  function openSheet() {
+    setSheetOpen(true)
+    setSheetTab('demat')
+    setRequestResult(null)
+    setBankRequestResult(null)
+  }
+  function closeSheet() {
+    setSheetOpen(false)
+  }
+
+  // Merges demat + bank into one list each — same unification pattern
+  // loadPendingReview already uses for the admin-side equivalent.
+  const combinedLinked = [
+    ...linkedDemat.map((d) => ({
+      id: d.id,
+      kind: 'demat' as const,
+      name: d.holder_name,
+      onUnlink: () => unlinkDemat(d.id),
+      unlinking: unlinkingDematId === d.id,
+    })),
+    ...linkedBank.map((b) => ({
+      id: b.id,
+      kind: 'bank' as const,
+      name: b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account',
+      onUnlink: () => unlinkBank(b.id),
+      unlinking: unlinkingBankId === b.id,
+    })),
+  ]
+  const combinedRequests = [
+    ...myRequests.map((r) => ({
+      id: r.id,
+      kind: 'demat' as const,
+      targetName: r.demat_accounts?.holder_name ?? '—',
+      requestedAt: r.requested_at,
+      status: r.status,
+      onCancel: () => cancelRequest(r.id),
+      cancelling: cancellingId === r.id,
+    })),
+    ...myBankRequests.map((r) => ({
+      id: r.id,
+      kind: 'bank' as const,
+      targetName: r.bank_accounts?.account_holder_name ?? '—',
+      requestedAt: r.requested_at,
+      status: r.status,
+      onCancel: () => cancelBankRequest(r.id),
+      cancelling: cancellingBankId === r.id,
+    })),
+  ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+
   return (
-    <div className="space-y-4">
+    <div className="mx-auto max-w-md space-y-4 lg:max-w-2xl">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Profile
@@ -457,17 +550,21 @@ export function ProfilePage() {
         </p>
       </div>
 
-      {/* Phone/tablet navigation hub — the destinations NOT on the bottom tab
-          bar (Dashboard/IPOs/Applications/Alerts/Profile) live here so
-          everything is still reachable without the desktop sidebar. Hidden at
-          lg, where the sidebar covers all of these. */}
-      <div className="card animate-page-in overflow-hidden p-1.5 lg:hidden">
-        <nav className="flex flex-col">
+      {/* Quick nav ("Explore") — destinations not on the bottom tab bar
+          (Dashboard/IPOs/Applications/Alerts/Profile). Hidden at lg, where
+          the sidebar already covers all of these. Sign out used to live in
+          this list too — moved to its own full-width button at the very
+          bottom of the page instead, matching the new mockup. */}
+      <div className="card animate-page-in overflow-hidden lg:hidden">
+        <p className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+          Explore
+        </p>
+        <nav className="flex flex-col p-1.5 pt-0.5">
           {[
-            { to: '/ipos', label: 'IPOs', icon: GraphIcon, show: true },
-            { to: '/bank-accounts', label: 'Bank / UPI accounts', icon: LawIcon, show: true },
-            { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, show: isAdmin },
-            { to: '/archives', label: 'Archives', icon: ArchiveIcon, show: true },
+            { to: '/ipos', label: 'IPOs', desc: 'Open & upcoming issues', icon: GraphIcon, tone: 'info', show: true },
+            { to: '/bank-accounts', label: 'Bank / UPI accounts', desc: 'Manage funding sources', icon: LawIcon, tone: 'good', show: true },
+            { to: '/payouts', label: 'Payouts', desc: 'Funding & payout ledger', icon: CreditCardIcon, tone: 'violet', show: isAdmin },
+            { to: '/archives', label: 'Archives', desc: 'Closed IPO history', icon: ArchiveIcon, tone: 'neutral', show: true },
           ]
             .filter((l) => l.show)
             .map((l) => {
@@ -476,40 +573,36 @@ export function ProfilePage() {
                 <Link
                   key={l.to}
                   to={l.to}
-                  className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
-                  style={{ color: 'var(--ink-primary)' }}
+                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--hover-surface)]"
                 >
-                  <Icon size={16} fill="var(--ink-muted)" />
-                  <span className="flex-1">{l.label}</span>
+                  <span className={`icon-badge icon-badge-${l.tone} shrink-0`} style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.6rem' }}>
+                    <Icon size={16} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {l.label}
+                    </span>
+                    <span className="block truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {l.desc}
+                    </span>
+                  </span>
                   <ChevronRightIcon size={16} fill="var(--ink-muted)" />
                 </Link>
               )
             })}
-          <button
-            type="button"
-            onClick={signOut}
-            className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
-            style={{ color: 'var(--critical-text)' }}
-          >
-            <SignOutIcon size={16} fill="var(--critical-text)" />
-            <span className="flex-1 text-left">Sign out</span>
-          </button>
         </nav>
       </div>
 
-      {/* Identity/PAN card beside the link-request workflows — the pie
-          chart that used to fill this blank space (Recent IPOs) is gone
-          entirely now, and the request sections moved up from further down
-          the page to actually use the room instead of leaving it empty. */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="xl:col-span-1">
-      <div className="card animate-page-in space-y-4 p-4">
+      {/* Identity card — avatar/name/role/email unchanged, then three
+          independently inline-editable rows (name, phone, PAN) instead of
+          one combined name+phone form plus a separate PAN block. */}
+      <div className="card animate-page-in p-4">
         <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
           <div
-            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-base font-semibold"
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold"
             style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
           >
-            {(fullName || '?')
+            {(profile?.full_name || '?')
               .split(' ')
               .map((p) => p[0])
               .slice(0, 2)
@@ -519,107 +612,163 @@ export function ProfilePage() {
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                {fullName || 'Your name'}
+                {profile?.full_name || 'Your name'}
               </p>
               <span className="badge badge-info shrink-0" style={{ textTransform: 'capitalize' }}>
                 {profile?.role ?? 'member'}
-              </span>
-              {/* App version, phone/tablet only (desktop shows it in the
-                  sidebar) — sits right after the name + role. */}
-              <span className="shrink-0 text-[11px] lg:hidden" style={{ color: 'var(--ink-muted)' }}>
-                v{__APP_VERSION__}
               </span>
             </div>
             <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
               {session?.user.email ?? session?.user.phone ?? '—'}
             </p>
+            <p className="text-[10px] lg:hidden" style={{ color: 'var(--ink-muted)' }}>
+              v{__APP_VERSION__}
+            </p>
           </div>
         </div>
 
-        {/* Name + phone + PAN, merged into this one card instead of two
-            separate ones — still two independent submits underneath (PAN is
-            a distinct, self-attested action with its own consequences), but
-            visually one "your details" block. Every explanatory paragraph
-            that used to sit as permanent text under a field is now an (i)
-            tooltip on hover instead, next to that field's label. */}
-        <form id="profile-details-form" onSubmit={handleSubmit} className="space-y-4">
-          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-            <span className="flex items-center gap-1.5">
-              Full name
-              <InfoTooltip
-                text={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`}
-              />
-            </span>
-            <div className="mt-1 flex items-center gap-2">
-              <PersonIcon size={15} fill="var(--ink-muted)" />
-              <input required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
-            </div>
-          </label>
+        {justSaved && (
+          <p className="pt-2 text-xs font-medium" style={{ color: 'var(--good)' }}>
+            Saved ✓
+          </p>
+        )}
 
-          <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-            <span className="flex items-center gap-1.5">
-              Phone number
-              <InfoTooltip text="Optional, 10 digits." />
-            </span>
-            <div className="mt-1 flex items-center gap-2">
-              <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
-              <span
-                className="rounded-md border px-3 py-2 text-sm"
-                style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
-              >
-                +91
-              </span>
-              <input
-                inputMode="numeric"
-                maxLength={10}
-                value={phoneDigits}
-                onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
-                className="input"
-                placeholder="9876543210"
-              />
-            </div>
-            {!phoneValid && (
-              <p className="mt-1 text-xs" style={{ color: 'var(--critical)' }}>
-                Must be exactly 10 digits.
-              </p>
-            )}
-          </label>
-
-          {error && <p className="badge badge-critical w-fit">{error}</p>}
-        </form>
-
-        <form onSubmit={handleSavePan} className="space-y-4 border-t pt-4" style={{ borderColor: 'var(--border)' }}>
-          {editingPan || !profile?.self_pan_masked ? (
-            <>
-              <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-                <span className="flex items-center gap-1.5">
-                  Your PAN
-                  <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link." />
-                </span>
-                <div className="mt-1 flex items-center gap-2">
-                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                  <input
-                    value={pan}
-                    onChange={(e) => setPan(e.target.value.toUpperCase())}
-                    maxLength={10}
-                    placeholder="ABCPD1234E"
-                    className="input font-mono uppercase"
-                  />
-                </div>
+        {/* Full name row */}
+        <div className="border-b" style={{ borderColor: 'var(--border)' }}>
+          {editingField === 'name' ? (
+            <div className="space-y-2 py-3">
+              <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                Full name
+                <InfoTooltip text={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`} />
               </label>
+              <div className="flex items-center gap-2">
+                <PersonIcon size={15} fill="var(--ink-muted)" />
+                <input autoFocus required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
+              </div>
+              {error && (
+                <p className="text-xs" style={{ color: 'var(--critical)' }}>
+                  {error}
+                </p>
+              )}
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={cancelFieldEdit} className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveName}
+                  disabled={submitting}
+                  className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
+                >
+                  {submitting ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={startEditName} className="flex w-full items-center gap-3 py-2.5 text-left">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  Full name
+                </p>
+                <p className="truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {fullName || '—'}
+                </p>
+              </div>
+              <ChevronRightIcon size={16} fill="var(--ink-muted)" />
+            </button>
+          )}
+        </div>
 
+        {/* Phone row */}
+        <div className="border-b" style={{ borderColor: 'var(--border)' }}>
+          {editingField === 'phone' ? (
+            <div className="space-y-2 py-3">
+              <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                Phone number
+                <InfoTooltip text="Optional, 10 digits." />
+              </label>
+              <div className="flex items-center gap-2">
+                <DeviceMobileIcon size={15} fill="var(--ink-muted)" />
+                <span
+                  className="rounded-md border px-3 py-2 text-sm"
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--ink-muted)' }}
+                >
+                  +91
+                </span>
+                <input
+                  autoFocus
+                  inputMode="numeric"
+                  maxLength={10}
+                  value={phoneDigits}
+                  onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+                  className="input"
+                  placeholder="9876543210"
+                />
+              </div>
+              {!phoneValid && (
+                <p className="text-xs" style={{ color: 'var(--critical)' }}>
+                  Must be exactly 10 digits.
+                </p>
+              )}
+              {error && (
+                <p className="text-xs" style={{ color: 'var(--critical)' }}>
+                  {error}
+                </p>
+              )}
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={cancelFieldEdit} className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={savePhone}
+                  disabled={submitting}
+                  className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
+                >
+                  {submitting ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" onClick={startEditPhone} className="flex w-full items-center gap-3 py-2.5 text-left">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  Phone number
+                </p>
+                <p className="font-mono-ipo truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {phoneDigits ? `+91 ${phoneDigits}` : 'Not set'}
+                </p>
+              </div>
+              <ChevronRightIcon size={16} fill="var(--ink-muted)" />
+            </button>
+          )}
+        </div>
+
+        {/* PAN row — already independently editable, just restyled to match */}
+        <form onSubmit={handleSavePan}>
+          {editingPan || !profile?.self_pan_masked ? (
+            <div className="space-y-2 py-3">
+              <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+                Your PAN
+                <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account. Self-attested — the admin still approves each link." />
+              </label>
+              <div className="flex items-center gap-2">
+                <CreditCardIcon size={15} fill="var(--ink-muted)" />
+                <input
+                  value={pan}
+                  onChange={(e) => setPan(e.target.value.toUpperCase())}
+                  maxLength={10}
+                  placeholder="ABCPD1234E"
+                  className="input font-mono-ipo uppercase"
+                />
+              </div>
               {profile?.self_pan_hash && !profile?.self_pan_masked && (
                 <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                   A PAN is already on file from before this showed a preview — save it again to see it below.
                 </p>
               )}
-
               {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
-
-              <div className="flex gap-2">
-                <button type="submit" disabled={panSubmitting || !pan} className="btn-secondary disabled:opacity-50">
-                  {panSubmitting ? 'Saving…' : 'Save PAN'}
-                </button>
+              <div className="flex justify-end gap-3">
                 {profile?.self_pan_masked && (
                   <button
                     type="button"
@@ -634,136 +783,115 @@ export function ProfilePage() {
                     Cancel
                   </button>
                 )}
+                <button type="submit" disabled={panSubmitting || !pan} className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50">
+                  {panSubmitting ? 'Saving…' : 'Save'}
+                </button>
               </div>
-            </>
+            </div>
           ) : (
             <>
-              <div className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-                <span className="flex items-center gap-1.5">
-                  Your PAN
-                  <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account below. Self-attested — the admin still approves each link." />
-                </span>
-                <div
-                  className="mt-1 flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-                  style={{ borderColor: 'var(--border-strong)' }}
-                >
-                  <span className="flex items-center gap-2 text-sm font-mono" style={{ color: 'var(--ink-primary)' }}>
-                    <CreditCardIcon size={15} fill="var(--ink-muted)" />
+              <button type="button" onClick={() => setEditingPan(true)} className="flex w-full items-center gap-3 py-2.5 text-left">
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    Your PAN
+                    <InfoTooltip text="Save your PAN so it can be matched when you request to link a demat account. Self-attested — the admin still approves each link." />
+                  </p>
+                  <p className="font-mono-ipo truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
                     {profile.self_pan_masked}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setEditingPan(true)}
-                    className="link-accent shrink-0 text-xs font-medium"
-                  >
-                    Change
-                  </button>
+                  </p>
                 </div>
-              </div>
+                <ChevronRightIcon size={16} fill="var(--ink-muted)" />
+              </button>
               {panResult && <p className={`badge w-fit badge-${panResult.tone}`}>{panResult.message}</p>}
             </>
           )}
         </form>
+      </div>
 
-        {/* Submits the name/phone form above (id="profile-details-form"),
-            not this one — placed here instead so it reads as "save
-            everything on this card" from the bottom, below PAN, rather than
-            splitting the card's one save action in the middle of it. */}
+      {/* Linked accounts */}
+      <div className="card animate-page-in overflow-hidden">
+        <h2 className="px-4 pt-3 pb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          Linked accounts
+        </h2>
+        {combinedLinked.length === 0 ? (
+          <p className="px-4 pb-3 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            No linked accounts yet.
+          </p>
+        ) : (
+          combinedLinked.map((a) => (
+            <div
+              key={`${a.kind}-${a.id}`}
+              className="flex items-center gap-3 border-t px-4 py-2.5"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <span
+                className={`icon-badge icon-badge-${a.kind === 'demat' ? 'info' : 'good'} shrink-0 text-xs font-bold`}
+                style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem' }}
+              >
+                {a.kind === 'demat' ? 'D' : 'B'}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {a.name}
+                </p>
+                <p className="text-xs capitalize" style={{ color: 'var(--ink-muted)' }}>
+                  {a.kind === 'demat' ? 'demat' : 'bank / UPI'}
+                </p>
+              </div>
+              <button
+                onClick={a.onUnlink}
+                disabled={a.unlinking}
+                className="shrink-0 text-xs font-medium hover:underline disabled:opacity-50"
+                style={{ color: 'var(--critical)' }}
+              >
+                {a.unlinking ? 'Unlinking…' : 'Unlink'}
+              </button>
+            </div>
+          ))
+        )}
         <button
-          type="submit"
-          form="profile-details-form"
-          disabled={submitting}
-          className="btn-primary w-full py-2"
+          type="button"
+          onClick={openSheet}
+          className="flex w-full items-center justify-center gap-1.5 border-t py-3 text-sm font-medium transition-colors hover:bg-[var(--hover-surface)]"
+          style={{ borderColor: 'var(--border)', color: 'var(--accent)' }}
         >
-          {submitting ? 'Saving…' : justSaved ? 'Saved ✓' : 'Save changes'}
+          <span className="text-base leading-none">+</span> Link an account
         </button>
       </div>
-        </div>
 
-        <div className="xl:col-span-2 space-y-4">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <div className="space-y-4">
-      <form onSubmit={handleSearch} className="card animate-page-in space-y-3 p-4">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Request to link a demat account
-          <InfoTooltip text="Search by holder name or the last 4 digits of the phone on the account. Only unlinked accounts show up here, and only the name and a masked phone number." />
-        </h2>
-        <div className="flex items-center gap-2">
-          <SearchIcon size={15} fill="var(--ink-muted)" />
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Name or last 4 digits"
-            className="input"
-          />
-          <button type="submit" disabled={searching || !searchQuery.trim()} className="btn-secondary shrink-0 disabled:opacity-50">
-            {searching ? 'Searching…' : 'Search'}
-          </button>
-        </div>
-
-        {requestResult && <p className={`badge w-fit badge-${requestResult.tone}`}>{requestResult.message}</p>}
-
-        {searchedOnce && searchResults.length === 0 && (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No matching unlinked accounts.
-          </p>
-        )}
-
-        {searchResults.length > 0 && (
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {searchResults.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.holder_name}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    {r.phone_masked}
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleRequestLink(r.id)}
-                  disabled={requestingId === r.id}
-                  className="link-accent shrink-0 text-xs font-medium disabled:opacity-50"
-                >
-                  {requestingId === r.id ? 'Requesting…' : 'Request link'}
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </form>
-
+      {/* Your requests — demat + bank merged into one list, same
+          unification pattern loadPendingReview already uses below. */}
       <div className="card animate-page-in space-y-3 p-4">
         <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           Your requests
         </h2>
-        {loadingRequests ? (
+        {loadingRequests || loadingBankRequests ? (
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             Loading…
           </p>
-        ) : myRequests.length === 0 ? (
+        ) : combinedRequests.length === 0 ? (
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
             No link requests yet.
           </p>
         ) : (
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {myRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.demat_accounts?.holder_name ?? '—'}
+            {combinedRequests.map((r) => (
+              <div key={`${r.kind}-${r.id}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.targetName}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    Requested {new Date(r.requested_at).toLocaleDateString()}
+                    {r.kind === 'demat' ? 'Demat account' : 'Bank / UPI account'} · Requested{' '}
+                    {new Date(r.requestedAt).toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className={`badge ${requestStatusBadge[r.status]}`}>{r.status}</span>
                   {r.status === 'PENDING' && (
                     <button
-                      onClick={() => cancelRequest(r.id)}
-                      disabled={cancellingId === r.id}
+                      onClick={r.onCancel}
+                      disabled={r.cancelling}
                       aria-label="Cancel request"
                       className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
                       style={{ color: 'var(--critical)' }}
@@ -778,22 +906,22 @@ export function ProfilePage() {
         )}
       </div>
 
-      {/* Same small-card shape as the other five now, not a wide full-page
-          banner — moved down here (below "Your requests") and stacked
-          single-column like every other card's list, instead of a
-          sm:grid-cols-2 sub-grid that only made sense at full width. */}
+      {/* Pending approvals (admin) — unchanged loadPendingReview/decideLinkRequest, restyled heading only. */}
       {isAdmin && (
         <div className="card animate-page-in space-y-3 p-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Pending link requests
-          </h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              Pending approvals
+            </h2>
+            {pendingReview.length > 0 && <span className="badge badge-warning">{pendingReview.length}</span>}
+          </div>
           {loadingReview ? (
             <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
               Loading…
             </p>
           ) : pendingReview.length === 0 ? (
             <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-              None pending.
+              Nothing pending.
             </p>
           ) : (
             <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
@@ -830,188 +958,283 @@ export function ProfilePage() {
           )}
         </div>
       )}
+
+      {/* More — groups the secondary/occasional sections under one heading
+          instead of four separate top-level cards; each keeps its own
+          internal open/close state exactly as before. */}
+      <div className="space-y-2">
+        <p className="px-1 text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+          More
+        </p>
+        <div className="space-y-2">
+          <AccountsSection />
+          {isAdmin && <PanAccessLogSection />}
+          {/* Sell-instruction PDFs + archived applications sit last — rarely-
+              touched references, collapsed by default. Archived is self-fetching
+              and renders nothing when there's no archived history. */}
+          {isAdmin && <SellInstructionPdfsSection />}
+          <ArchivedApplicationsCard />
         </div>
+      </div>
 
-        <div className="space-y-4">
+      <AppearanceCard />
 
-      <form onSubmit={handleSearchBank} className="card animate-page-in space-y-3 p-4">
-        <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Request to link a bank/UPI account
-          <InfoTooltip text="For a bank/UPI account someone else (e.g. the admin) already added — search by holder name or last 4 digits, then prove it's yours with the exact UPI ID or last 4 digits to send a request. Adding your own new bank/UPI account from scratch doesn't need this — use the Bank/UPI accounts page for that instead." />
-        </h2>
-        <div className="flex items-center gap-2">
-          <SearchIcon size={15} fill="var(--ink-muted)" />
-          <input
-            value={bankSearchQuery}
-            onChange={(e) => setBankSearchQuery(e.target.value)}
-            placeholder="Name or last 4 digits"
-            className="input"
-          />
+      <button
+        type="button"
+        onClick={signOut}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold"
+        style={{ borderColor: 'var(--critical-tint)', background: 'var(--critical-tint)', color: 'var(--critical-text)' }}
+      >
+        <SignOutIcon size={16} fill="var(--critical-text)" />
+        Sign out
+      </button>
+
+      {sheetOpen && (
+        <LinkAccountSheet
+          onClose={closeSheet}
+          tab={sheetTab}
+          setTab={setSheetTab}
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          searching={searching}
+          onSearch={handleSearch}
+          requestResult={requestResult}
+          searchedOnce={searchedOnce}
+          searchResults={searchResults}
+          requestingId={requestingId}
+          onRequestLink={handleRequestLink}
+          bankSearchQuery={bankSearchQuery}
+          setBankSearchQuery={setBankSearchQuery}
+          searchingBank={searchingBank}
+          onSearchBank={handleSearchBank}
+          bankRequestResult={bankRequestResult}
+          bankSearchedOnce={bankSearchedOnce}
+          bankSearchResults={bankSearchResults}
+          bankSecret={bankSecret}
+          setBankSecret={setBankSecret}
+          requestingBankId={requestingBankId}
+          onRequestBankLink={handleRequestBankLink}
+        />
+      )}
+    </div>
+  )
+}
+
+// Bottom sheet for "+ Link an account" — every piece of state/logic here is
+// passed in from ProfilePage (the demat search/request state and the
+// parallel bank search/request state both already existed as two
+// always-visible stacked forms; this just re-hosts them behind a Demat/Bank
+// tab toggle in a modal instead).
+function LinkAccountSheet({
+  onClose,
+  tab,
+  setTab,
+  searchQuery,
+  setSearchQuery,
+  searching,
+  onSearch,
+  requestResult,
+  searchedOnce,
+  searchResults,
+  requestingId,
+  onRequestLink,
+  bankSearchQuery,
+  setBankSearchQuery,
+  searchingBank,
+  onSearchBank,
+  bankRequestResult,
+  bankSearchedOnce,
+  bankSearchResults,
+  bankSecret,
+  setBankSecret,
+  requestingBankId,
+  onRequestBankLink,
+}: {
+  onClose: () => void
+  tab: 'demat' | 'bank'
+  setTab: (t: 'demat' | 'bank') => void
+  searchQuery: string
+  setSearchQuery: (v: string) => void
+  searching: boolean
+  onSearch: (e: FormEvent) => void
+  requestResult: { tone: 'good' | 'warning' | 'critical'; message: string } | null
+  searchedOnce: boolean
+  searchResults: SearchResult[]
+  requestingId: string | null
+  onRequestLink: (id: string) => void
+  bankSearchQuery: string
+  setBankSearchQuery: (v: string) => void
+  searchingBank: boolean
+  onSearchBank: (e: FormEvent) => void
+  bankRequestResult: { tone: 'good' | 'warning' | 'critical'; message: string } | null
+  bankSearchedOnce: boolean
+  bankSearchResults: BankSearchResult[]
+  bankSecret: string
+  setBankSecret: (v: string) => void
+  requestingBankId: string | null
+  onRequestBankLink: (id: string) => void
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose} />
+      <div
+        className="animate-page-in relative flex max-h-[80vh] w-full flex-col overflow-hidden rounded-t-3xl sm:max-w-md sm:rounded-3xl"
+        style={{ background: 'var(--surface)' }}
+      >
+        <div className="flex justify-center pt-2.5 pb-1 sm:hidden">
+          <div className="h-1 w-9 rounded-full" style={{ background: 'var(--border-strong)' }} />
+        </div>
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-3" style={{ borderColor: 'var(--border)' }}>
+          <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Link an account
+          </h2>
           <button
-            type="submit"
-            disabled={searchingBank || !bankSearchQuery.trim()}
-            className="btn-secondary shrink-0 disabled:opacity-50"
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ background: 'var(--hover-surface)' }}
           >
-            {searchingBank ? 'Searching…' : 'Search'}
+            <XIcon size={14} fill="var(--ink-secondary)" />
           </button>
         </div>
 
-        {bankRequestResult && <p className={`badge w-fit badge-${bankRequestResult.tone}`}>{bankRequestResult.message}</p>}
+        <div className="px-4 pt-3">
+          <div className="inline-flex rounded-full border p-1" style={{ borderColor: 'var(--border)', background: 'var(--page)' }}>
+            <button
+              type="button"
+              onClick={() => setTab('demat')}
+              className="rounded-full px-4 py-1.5 text-sm font-semibold transition-colors"
+              style={tab === 'demat' ? { background: 'var(--surface)', color: 'var(--ink-primary)' } : { color: 'var(--ink-muted)' }}
+            >
+              Demat
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab('bank')}
+              className="rounded-full px-4 py-1.5 text-sm font-semibold transition-colors"
+              style={tab === 'bank' ? { background: 'var(--surface)', color: 'var(--ink-primary)' } : { color: 'var(--ink-muted)' }}
+            >
+              Bank / UPI
+            </button>
+          </div>
+        </div>
 
-        {bankSearchedOnce && bankSearchResults.length === 0 && (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No matching unlinked bank/UPI accounts.
-          </p>
-        )}
-
-        {bankSearchResults.length > 0 && (
-          <>
-            <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
-              UPI ID or last 4 digits
-              <input
-                value={bankSecret}
-                onChange={(e) => setBankSecret(e.target.value)}
-                placeholder="name@bank or 1234"
-                className="input mt-1"
-              />
-            </label>
-            <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-              {bankSearchResults.map((r) => (
-                <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                  <div>
-                    <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {r.account_holder_name ?? 'Bank/UPI account'}
-                    </p>
-                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {[r.bank_name, r.last4_masked, r.upi_domain_masked].filter(Boolean).join(' · ')}
-                    </p>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          {tab === 'demat' ? (
+            <form onSubmit={onSearch} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <SearchIcon size={15} fill="var(--ink-muted)" />
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Name or last 4 digits"
+                  className="input"
+                />
+                <button type="submit" disabled={searching || !searchQuery.trim()} className="btn-secondary shrink-0 disabled:opacity-50">
+                  {searching ? 'Searching…' : 'Search'}
+                </button>
+              </div>
+              {requestResult && <p className={`badge w-fit badge-${requestResult.tone}`}>{requestResult.message}</p>}
+              {searchedOnce && searchResults.length === 0 && (
+                <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  No matching unlinked accounts.
+                </p>
+              )}
+              {searchResults.length > 0 && (
+                <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                  {searchResults.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                      <div>
+                        <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                          {r.holder_name}
+                        </p>
+                        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          {r.phone_masked}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => onRequestLink(r.id)}
+                        disabled={requestingId === r.id}
+                        className="badge badge-info shrink-0 disabled:opacity-50"
+                      >
+                        {requestingId === r.id ? 'Requesting…' : 'Request'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </form>
+          ) : (
+            <form onSubmit={onSearchBank} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <SearchIcon size={15} fill="var(--ink-muted)" />
+                <input
+                  value={bankSearchQuery}
+                  onChange={(e) => setBankSearchQuery(e.target.value)}
+                  placeholder="Name or last 4 digits"
+                  className="input"
+                />
+                <button
+                  type="submit"
+                  disabled={searchingBank || !bankSearchQuery.trim()}
+                  className="btn-secondary shrink-0 disabled:opacity-50"
+                >
+                  {searchingBank ? 'Searching…' : 'Search'}
+                </button>
+              </div>
+              {bankRequestResult && <p className={`badge w-fit badge-${bankRequestResult.tone}`}>{bankRequestResult.message}</p>}
+              {bankSearchedOnce && bankSearchResults.length === 0 && (
+                <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  No matching unlinked bank/UPI accounts.
+                </p>
+              )}
+              {bankSearchResults.length > 0 && (
+                <>
+                  <label className="block text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+                    UPI ID or last 4 digits
+                    <input
+                      value={bankSecret}
+                      onChange={(e) => setBankSecret(e.target.value)}
+                      placeholder="name@bank or 1234"
+                      className="input mt-1"
+                    />
+                  </label>
+                  <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+                    {bankSearchResults.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+                        <div>
+                          <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                            {r.account_holder_name ?? 'Bank/UPI account'}
+                          </p>
+                          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            {[r.bank_name, r.last4_masked, r.upi_domain_masked].filter(Boolean).join(' · ')}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => onRequestBankLink(r.id)}
+                          disabled={requestingBankId === r.id}
+                          className="badge badge-info shrink-0 disabled:opacity-50"
+                        >
+                          {requestingBankId === r.id ? 'Requesting…' : 'Request'}
+                        </button>
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    onClick={() => handleRequestBankLink(r.id)}
-                    disabled={requestingBankId === r.id}
-                    className="link-accent shrink-0 text-xs font-medium disabled:opacity-50"
-                  >
-                    {requestingBankId === r.id ? 'Requesting…' : 'Request link'}
-                  </button>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </form>
-
-      <div className="card animate-page-in space-y-3 p-4">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          Your bank/UPI link requests
-        </h2>
-        {loadingBankRequests ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Loading…
-          </p>
-        ) : myBankRequests.length === 0 ? (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            No link requests yet.
-          </p>
-        ) : (
-          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
-            {myBankRequests.map((r) => (
-              <div key={r.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                <div>
-                  <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.bank_accounts?.account_holder_name ?? '—'}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    Requested {new Date(r.requested_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className={`badge ${requestStatusBadge[r.status]}`}>{r.status}</span>
-                  {r.status === 'PENDING' && (
-                    <button
-                      onClick={() => cancelBankRequest(r.id)}
-                      disabled={cancellingBankId === r.id}
-                      aria-label="Cancel request"
-                      className="rounded-lg p-1 transition-colors hover:bg-[var(--critical-tint)] disabled:opacity-50"
-                      style={{ color: 'var(--critical)' }}
-                    >
-                      <XIcon size={14} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Sixth small card, matching the other five — appearance used to be
-          its own full-width section further down the page with a heading
-          floating above it; folded in here instead so all six sit in one
-          symmetric 2-column grid. */}
-      <AppearanceCard />
+                </>
+              )}
+            </form>
+          )}
         </div>
       </div>
-
-      {(linkedDemat.length > 0 || linkedBank.length > 0) && (
-        <div className="card animate-page-in space-y-3 p-4">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Your linked accounts
-          </h2>
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Unlinking is immediate and keeps all history — you can request to re-link later.
-          </p>
-          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-            {linkedDemat.map((d) => (
-              <div key={d.id} className="flex items-center justify-between gap-3 border-b py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center gap-2">
-                  <CreditCardIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {d.holder_name}
-                  </span>
-                  <span className="badge badge-info">demat</span>
-                </div>
-                <button
-                  onClick={() => unlinkDemat(d.id)}
-                  disabled={unlinkingDematId === d.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingDematId === d.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-            {linkedBank.map((b) => (
-              <div key={b.id} className="flex items-center justify-between gap-3 border-b py-2 text-sm" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center gap-2">
-                  <LawIcon size={15} fill="var(--ink-muted)" />
-                  <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
-                  </span>
-                  <span className="badge badge-good">bank/UPI</span>
-                </div>
-                <button
-                  onClick={() => unlinkBank(b.id)}
-                  disabled={unlinkingBankId === b.id}
-                  className="text-xs font-medium hover:underline disabled:opacity-50"
-                  style={{ color: 'var(--critical)' }}
-                >
-                  {unlinkingBankId === b.id ? 'Unlinking…' : 'Unlink'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-        </div>
-      </div>
-
-      <AccountsSection />
-      {isAdmin && <PanAccessLogSection />}
-      {/* Sell-instruction PDFs + archived applications sit last — rarely-
-          touched references, collapsed by default. Archived is self-fetching
-          and renders nothing when there's no archived history. */}
-      {isAdmin && <SellInstructionPdfsSection />}
-      <ArchivedApplicationsCard />
     </div>
   )
 }
