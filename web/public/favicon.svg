@@ -5,7 +5,7 @@
       <stop offset="100%" stop-color="#16213a"/>
     </linearGradient>
     <linearGradient id="ilMark" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="0%" stop-color="#4f8ff7"/>
       <stop offset="100%" stop-color="#34d399"/>
     </linearGradient>
   </defs>
@@ -19,6 +19,6 @@
   <rect x="31" y="39" width="17" height="8" rx="4" fill="url(#ilMark)"/>
 
   <!-- signature accent: a data point arriving, not an arrowhead -->
-  <path d="M45 13 L53 21" stroke="#67e8f9" stroke-width="3" stroke-linecap="round"/>
-  <circle cx="45" cy="13" r="2.4" fill="#67e8f9"/>
+  <path d="M45 13 L53 21" stroke="#7db2ff" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="45" cy="13" r="2.4" fill="#7db2ff"/>
 </svg>

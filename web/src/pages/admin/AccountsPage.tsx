@@ -12,6 +12,8 @@ import {
 } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirmDialog'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
 import { CopyButton } from '../../components/CopyButton'
 import { Combobox } from '../../components/Combobox'
@@ -112,7 +114,7 @@ export function AccountsPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: userId }).eq('id', dematId)
     setLinking(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()
@@ -123,7 +125,7 @@ export function AccountsPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: null }).eq('id', dematId)
     setLinking(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()
@@ -150,7 +152,7 @@ export function AccountsPage() {
     const pan = await fetchPan(a.id)
     setRevealing(null)
     if (!pan) {
-      alert("Couldn't reveal PAN — can't edit without it.")
+      showToast("Couldn't reveal PAN — can't edit without it.", 'critical')
       return
     }
     setShowAddForm(false)
@@ -174,14 +176,20 @@ export function AccountsPage() {
   }
 
   async function deleteAccount(id: string, name: string) {
-    if (!window.confirm(`Delete ${name}? This is only possible if they have no applications or messages on record.`))
+    if (
+      !(await confirmDialog(`Delete ${name}? This is only possible if they have no applications or messages on record.`, {
+        tone: 'critical',
+        confirmLabel: 'Delete',
+      }))
+    )
       return
     const { error } = await supabase.from('demat_accounts').delete().eq('id', id)
     if (error) {
-      alert(
+      showToast(
         error.code === '23503'
           ? `Can't delete ${name} — they have applications or messages on record. Delete those first.`
           : error.message,
+        'critical',
       )
       return
     }

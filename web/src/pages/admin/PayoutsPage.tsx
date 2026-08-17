@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { ChevronDownIcon, SearchIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
@@ -136,7 +137,7 @@ export function PayoutsPage() {
       .eq('id', line.applicationId)
     setMarkingPaid(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()

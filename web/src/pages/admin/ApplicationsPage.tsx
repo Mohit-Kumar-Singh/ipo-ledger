@@ -7,6 +7,8 @@ import { Plus, X } from 'lucide-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirmDialog'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
@@ -178,7 +180,7 @@ export function ApplicationsPage() {
     })
     setRevealingPan(null)
     if (error || !data) {
-      alert("Couldn't reveal PAN.")
+      showToast("Couldn't reveal PAN.", 'critical')
       return
     }
     setRevealedPans((r) => ({ ...r, [dematId]: data.pan }))
@@ -372,7 +374,7 @@ export function ApplicationsPage() {
     )
     setBulkMarking(false)
     const failed = results.filter((r) => r.error).length
-    if (failed > 0) alert(`${failed} of ${ids.length} couldn't be updated.`)
+    if (failed > 0) showToast(`${failed} of ${ids.length} couldn't be updated.`, 'critical')
     setSelectedForNotAllotted(new Set())
     await Promise.all(affectedIpoIds.map((id) => maybeAutoArchiveIpo(id)))
     loadApplications()
@@ -389,17 +391,18 @@ export function ApplicationsPage() {
     const { error } = await supabase.rpc('set_mandate_status', { p_application_id: id, p_status: status })
     setMandateSaving(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadApplications()
   }
 
   async function deleteApplication(id: string) {
-    if (!window.confirm('Delete this application? This cannot be undone.')) return
+    if (!(await confirmDialog('Delete this application? This cannot be undone.', { tone: 'critical', confirmLabel: 'Delete' })))
+      return
     const { error } = await supabase.from('applications').delete().eq('id', id)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadApplications()

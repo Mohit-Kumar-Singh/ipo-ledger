@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { UndoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo } from '../../types/database'
 
@@ -59,7 +60,7 @@ export function ArchivesPage() {
     const { error } = await supabase.from('ipos').update({ is_archived: false }).eq('id', ipo.id)
     setUnarchiving(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()

@@ -21,6 +21,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { useTheme } from '../../contexts/ThemeContext'
 import { supabase } from '../../lib/supabase'
 import { ToastHost } from '../ToastHost'
+import { ConfirmDialogHost } from '../ConfirmDialogHost'
 import { OnboardingTour } from '../OnboardingTour'
 import { Logo, LogoMark } from '../Logo'
 
@@ -184,6 +185,7 @@ export function AppShell() {
       />
 
       <ToastHost />
+      <ConfirmDialogHost />
       <OnboardingTour onRequireNavOpen={setNavOpen} onActiveChange={setTourActive} />
 
       {/* Backdrop for the "More" drawer (opened from the bottom tab bar).
@@ -502,13 +504,14 @@ export function AppShell() {
                 to={t.to}
                 onClick={() => setNavOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.25rem] py-1.5 text-[10px] font-medium transition-colors ${
+                aria-label={t.label}
+                title={t.label}
+                className={`relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2 transition-colors ${
                   isActive ? 'glass-tab-active' : ''
                 }`}
                 style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
               >
-                <Icon size={21} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
-                <span>{t.label}</span>
+                <Icon size={22} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
                 {count > 0 && (
                   <span
                     aria-label={`${count} pending`}
@@ -528,16 +531,17 @@ export function AppShell() {
                 onClick={() => setNavOpen(false)}
                 aria-current={isActive ? 'page' : undefined}
                 aria-label="Profile"
-                className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-[1.25rem] py-1.5 text-[10px] font-medium transition-colors ${
+                title="Profile"
+                className={`relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2 transition-colors ${
                   isActive ? 'glass-tab-active' : ''
                 }`}
                 style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
               >
                 <span
-                  className="flex items-center justify-center rounded-full text-[9px] font-bold"
+                  className="flex items-center justify-center rounded-full text-[10px] font-bold"
                   style={{
-                    height: 21,
-                    width: 21,
+                    height: 23,
+                    width: 23,
                     background: 'var(--accent)',
                     color: '#ffffff',
                     outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
@@ -546,7 +550,6 @@ export function AppShell() {
                 >
                   {initials}
                 </span>
-                <span>Profile</span>
                 {pendingCount > 0 && (
                   <span
                     aria-label={`${pendingCount} pending`}

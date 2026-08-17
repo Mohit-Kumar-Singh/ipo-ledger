@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { showToast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirmDialog'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -205,7 +206,7 @@ export function IposPage() {
     setLoading(true)
     const { data, error } = await supabase.from('ipos').select('*').order('open_date', { ascending: false })
     if (error) {
-      alert(`Couldn't load IPOs: ${error.message}`)
+      showToast(`Couldn't load IPOs: ${error.message}`, 'critical')
       setLoading(false)
       return
     }
@@ -391,13 +392,15 @@ export function IposPage() {
 
   async function bulkDeleteIpos() {
     if (selectedIpos.size === 0) return
-    if (!window.confirm(`Delete ${selectedIpos.size} IPO(s)? This cannot be undone.`)) return
+    if (!(await confirmDialog(`Delete ${selectedIpos.size} IPO(s)? This cannot be undone.`, { tone: 'critical', confirmLabel: 'Delete' })))
+      return
     const { error } = await supabase.from('ipos').delete().in('id', Array.from(selectedIpos))
     if (error) {
-      alert(
+      showToast(
         error.code === '23503'
           ? "Can't delete one or more of these — they still have applications on record. Delete those applications first, or delete IPOs one at a time to see which."
           : error.message,
+        'critical',
       )
       return
     }
@@ -406,13 +409,14 @@ export function IposPage() {
   }
 
   async function deleteIpo(ipo: Ipo) {
-    if (!window.confirm(`Delete ${ipo.company_name}? This cannot be undone.`)) return
+    if (!(await confirmDialog(`Delete ${ipo.company_name}? This cannot be undone.`, { tone: 'critical', confirmLabel: 'Delete' }))) return
     const { error } = await supabase.from('ipos').delete().eq('id', ipo.id)
     if (error) {
-      alert(
+      showToast(
         error.code === '23503'
           ? `Can't delete ${ipo.company_name} — it still has applications on record. Delete those applications first.`
           : error.message,
+        'critical',
       )
       return
     }
@@ -426,7 +430,7 @@ export function IposPage() {
   async function setArchived(ipo: Ipo, archived: boolean) {
     const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()

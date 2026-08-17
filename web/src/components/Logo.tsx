@@ -38,8 +38,10 @@ export function LogoMark({
           <stop offset="0%" stopColor="#0b1220" />
           <stop offset="100%" stopColor="#16213a" />
         </linearGradient>
+        {/* Was cyan (#22d3ee) → toned down to a calmer blue, matching the
+            same --accent shift in index.css — "too much cyan" feedback. */}
         <linearGradient id="ilMark" x1="0%" y1="100%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#22d3ee" />
+          <stop offset="0%" stopColor="#4f8ff7" />
           <stop offset="100%" stopColor="#34d399" />
         </linearGradient>
       </defs>
@@ -51,9 +53,9 @@ export function LogoMark({
         <rect x="31" y="17" width="8" height="30" rx="4" fill="url(#ilMark)" />
         <rect x="31" y="39" width="17" height="8" rx="4" fill="url(#ilMark)" />
         {/* Signature accent — a data point arriving, not an arrowhead */}
-        <path d="M45 13 L53 21" stroke="#67e8f9" strokeWidth="3" strokeLinecap="round" />
-        {animated && <circle cx="45" cy="13" r="2.4" fill="none" stroke="#67e8f9" strokeWidth="1.5" className="logo-ping-circle" />}
-        <circle cx="45" cy="13" r="2.4" fill="#67e8f9" />
+        <path d="M45 13 L53 21" stroke="#7db2ff" strokeWidth="3" strokeLinecap="round" />
+        {animated && <circle cx="45" cy="13" r="2.4" fill="none" stroke="#7db2ff" strokeWidth="1.5" className="logo-ping-circle" />}
+        <circle cx="45" cy="13" r="2.4" fill="#7db2ff" />
       </g>
     </svg>
   )

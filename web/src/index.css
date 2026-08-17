@@ -13,6 +13,17 @@
 @import "@fontsource/ibm-plex-mono/500.css";
 @import "@fontsource/ibm-plex-mono/600.css";
 
+/* A horizontal swipe anywhere on a phone was triggering the browser's own
+   edge-swipe back/forward navigation (Chrome/Safari mobile default) — felt
+   like Instagram's story-swipe changing pages, but it was never this app's
+   own gesture code (there isn't any); it's an unmitigated browser default.
+   overscroll-behavior-x: none on both html and body stops the browser from
+   treating a horizontal overscroll as a navigation gesture. */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 :root {
   color-scheme: light;
 
@@ -130,9 +141,12 @@
   --header-fg-muted: #64748b;
   --header-hover: rgba(148, 163, 184, 0.08);
 
-  --accent: #22d3ee;
-  --accent-hover: #67e8f9;
-  --accent-tint: rgba(34, 211, 238, 0.14);
+  /* Was #22d3ee (pure cyan) — read as "too much cyan" once it showed up on
+     every link/badge/icon-tile across a dark-theme page. Shifted to a
+     calmer blue with the same brightness/contrast, not a re-theme. */
+  --accent: #4f8ff7;
+  --accent-hover: #7db2ff;
+  --accent-tint: rgba(79, 143, 247, 0.14);
 
   --btn-primary-bg: #10b981;
   --btn-primary-hover: #34d399;

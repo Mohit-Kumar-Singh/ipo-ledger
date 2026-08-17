@@ -475,6 +475,16 @@ const SYNC_SCRIPT = `(async () => {
 // truth — always in lockstep with the console script above.
 const SYNC_BOOKMARKLET = 'javascript:' + encodeURIComponent(SYNC_SCRIPT)
 
+// Phones have no DevTools console (the computer flow can't run there) and
+// desktops have no bookmarklet-tap flow worth using when a real console is
+// one keypress away — so only ONE of the two copy buttons below is ever
+// actually usable on a given device. Showing both regardless just made
+// someone guess; a plain UA sniff is fine here since this only decides
+// which button to show, not any actual behavior.
+function isPhoneDevice(): boolean {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+}
+
 interface ScrapedRow {
   ipo: string
   applicant: string
@@ -805,6 +815,9 @@ export function IpojiSyncPanel({
 }) {
   const [scriptCopied, setScriptCopied] = useState(false)
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false)
+  // Computed once at mount, not on every render — the device type doesn't
+  // change mid-session.
+  const [isPhone] = useState(isPhoneDevice)
   const [pasteText, setPasteText] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
   const [rows, setRows] = useState<MatchedRow[] | null>(null)
@@ -1083,42 +1096,51 @@ export function IpojiSyncPanel({
               />
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(SYNC_SCRIPT)
-                  setScriptCopied(true)
-                  setTimeout(() => setScriptCopied(false), 1500)
-                }}
-                className="btn-secondary"
-              >
-                {scriptCopied ? 'Copied — paste it into ipoji\'s console' : 'Copy sync script (computer)'}
-              </button>
-              <button
-                onClick={async () => {
-                  await navigator.clipboard.writeText(SYNC_BOOKMARKLET)
-                  setBookmarkletCopied(true)
-                  setTimeout(() => setBookmarkletCopied(false), 1500)
-                }}
-                className="btn-secondary"
-              >
-                {bookmarkletCopied ? 'Copied — save it as a bookmark' : 'Copy phone bookmarklet'}
-              </button>
-              {/* Phones have no DevTools console, so the computer flow can't
-                  run there. A bookmarklet is the standard replacement — saved
-                  once, tapped on the ipoji page to run the exact same script. */}
+              {/* Only one of these two is ever actually usable on a given
+                  device — a phone has no DevTools console (the computer
+                  flow can't run there) and a desktop has a real console one
+                  keypress away, so showing both just made someone guess
+                  which one applies to them. */}
+              {isPhone ? (
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(SYNC_BOOKMARKLET)
+                    setBookmarkletCopied(true)
+                    setTimeout(() => setBookmarkletCopied(false), 1500)
+                  }}
+                  className="btn-secondary"
+                >
+                  {bookmarkletCopied ? 'Copied — save it as a bookmark' : 'Copy phone bookmarklet'}
+                </button>
+              ) : (
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(SYNC_SCRIPT)
+                    setScriptCopied(true)
+                    setTimeout(() => setScriptCopied(false), 1500)
+                  }}
+                  className="btn-secondary"
+                >
+                  {scriptCopied ? 'Copied — paste it into ipoji\'s console' : 'Copy sync script (computer)'}
+                </button>
+              )}
               <InfoTooltip
                 text={
-                  'On a phone (no console to paste into) — use the bookmarklet instead:\n\n' +
-                  'iPhone (Safari):\n' +
-                  '1. Tap "Copy phone bookmarklet" above.\n' +
-                  '2. In Safari, open any page, tap Share -> Add Bookmark -> Save.\n' +
-                  '3. Tap the book icon -> Edit -> open that bookmark, rename it "ipoji sync", clear its address, and paste (the javascript: text you copied). Done.\n' +
-                  '4. Go to ipoji.com/bids (logged in, Orders/Bids -> Current tab).\n' +
-                  '5. Open Bookmarks and tap "ipoji sync" — the script runs on the page, same as on a computer.\n' +
-                  '6. When the results box appears, long-press its text -> Select All -> Copy.\n' +
-                  '7. Come back here and paste into the box below, then press Enter.\n\n' +
-                  'Android (Chrome): same idea — copy the bookmarklet, add a bookmark, Edit it, paste the javascript: text as the URL, name it "ipoji sync". On ipoji, type "ipoji sync" in the address bar and pick it to run.\n\n' +
-                  'Your ipoji login still never touches this app — the bookmarklet only reads the page you are already logged into, exactly like the computer script.'
+                  isPhone
+                    ? 'On a phone (no console to paste into) — use the bookmarklet:\n\n' +
+                      'iPhone (Safari):\n' +
+                      '1. Tap "Copy phone bookmarklet" above.\n' +
+                      '2. In Safari, open any page, tap Share -> Add Bookmark -> Save.\n' +
+                      '3. Tap the book icon -> Edit -> open that bookmark, rename it "ipoji sync", clear its address, and paste (the javascript: text you copied). Done.\n' +
+                      '4. Go to ipoji.com/bids (logged in, Orders/Bids -> Current tab).\n' +
+                      '5. Open Bookmarks and tap "ipoji sync" — the script runs on the page, same as on a computer.\n' +
+                      '6. When the results box appears, long-press its text -> Select All -> Copy.\n' +
+                      '7. Come back here and paste into the box below, then press Enter.\n\n' +
+                      'Android (Chrome): same idea — copy the bookmarklet, add a bookmark, Edit it, paste the javascript: text as the URL, name it "ipoji sync". On ipoji, type "ipoji sync" in the address bar and pick it to run.\n\n' +
+                      'Your ipoji login still never touches this app — the bookmarklet only reads the page you are already logged into, exactly like the computer script.'
+                    : 'On the ipoji tab: open DevTools (F12), click Console, paste (Ctrl+V), press Enter. ' +
+                      'The script runs by itself from there and shows progress in the corner. ' +
+                      'Your ipoji login never touches this app — it only reads what is already on the page you are logged into.'
                 }
               />
             </div>

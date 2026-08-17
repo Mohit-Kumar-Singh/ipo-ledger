@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
@@ -132,7 +133,7 @@ export function AllotmentBoardPage() {
     setLoading(true)
     const { data, error } = await supabase.from('v_allotment_board').select('*').eq('ipo_id', ipoId)
     if (error) {
-      alert(`Couldn't load the allotment board: ${error.message}`)
+      showToast(`Couldn't load the allotment board: ${error.message}`, 'critical')
       setLoading(false)
       return
     }

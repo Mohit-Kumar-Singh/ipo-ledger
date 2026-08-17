@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { FileIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirmDialog'
 import { InfoTooltip } from '../../components/HoverCard'
 import { PDF_PLATFORMS, PLATFORM_LABELS, type DematPlatform } from '../../lib/platforms'
 
@@ -77,7 +78,8 @@ export function SellInstructionPdfsSection() {
   async function handleRemove(platform: DematPlatform) {
     const row = rows[platform]
     if (!row) return
-    if (!window.confirm(`Remove the ${PLATFORM_LABELS[platform]} sell-instruction PDF?`)) return
+    if (!(await confirmDialog(`Remove the ${PLATFORM_LABELS[platform]} sell-instruction PDF?`, { tone: 'critical', confirmLabel: 'Remove' })))
+      return
     setBusy(platform)
     await supabase.storage.from(BUCKET).remove([row.storage_path])
     const { error } = await supabase.from('sell_instruction_pdfs').delete().eq('platform', platform)

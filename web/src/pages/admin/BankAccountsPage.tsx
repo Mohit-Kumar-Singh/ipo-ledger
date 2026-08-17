@@ -2,6 +2,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { LawIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { showToast } from '../../lib/toast'
+import { confirmDialog } from '../../lib/confirmDialog'
 import type { BankAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -42,7 +44,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: userId }).eq('id', bankAccountId)
     setLinking(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()
@@ -53,7 +55,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: null }).eq('id', bankAccountId)
     setLinking(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()
@@ -88,10 +90,10 @@ export function BankAccountsPage() {
   }
 
   async function deleteBank(id: string) {
-    if (!window.confirm('Remove this bank/UPI account?')) return
+    if (!(await confirmDialog('Remove this bank/UPI account?', { tone: 'critical', confirmLabel: 'Remove' }))) return
     const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     load()
@@ -112,10 +114,10 @@ export function BankAccountsPage() {
 
   async function bulkDelete() {
     if (selected.size === 0) return
-    if (!window.confirm(`Remove ${selected.size} bank/UPI account(s)?`)) return
+    if (!(await confirmDialog(`Remove ${selected.size} bank/UPI account(s)?`, { tone: 'critical', confirmLabel: 'Remove' }))) return
     const { error } = await supabase.from('bank_accounts').delete().in('id', Array.from(selected))
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     setSelected(new Set())

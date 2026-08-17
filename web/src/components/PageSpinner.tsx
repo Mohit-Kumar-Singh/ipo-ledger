@@ -22,7 +22,7 @@ function Spinner({ size = 16 }: { size?: number }) {
 // Supabase free-tier project was idle and is waking up (documented ~7-day
 // auto-pause; first request after that can take 10-30s). Without this, that
 // wait just looks like the app is frozen.
-function useIsTakingAWhile(delayMs = 4000) {
+function useIsTakingAWhile(delayMs = 5000) {
   const [slow, setSlow] = useState(false)
   useEffect(() => {
     const t = setTimeout(() => setSlow(true), delayMs)
@@ -37,9 +37,8 @@ export function PageSpinner() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 px-4" style={{ background: 'var(--page)' }}>
       <LogoSpinner size={52} />
       {slow && (
-        <p className="max-w-xs text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Still loading — if this app has been idle a few days, the free-tier database takes up to 30s to
-          wake up. It'll be fast again after this.
+        <p className="max-w-xs text-center text-sm italic" style={{ color: 'var(--ink-muted)' }}>
+          If this takes more than 5 sec, it's your network's fault, not mine.
         </p>
       )}
     </div>

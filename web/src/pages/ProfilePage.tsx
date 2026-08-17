@@ -5,7 +5,6 @@ import {
   ChevronRightIcon,
   CreditCardIcon,
   LawIcon,
-  GraphIcon,
   ArchiveIcon,
   SignOutIcon,
   DeviceMobileIcon,
@@ -17,9 +16,11 @@ import {
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { showToast } from '../lib/toast'
+import { confirmDialog } from '../lib/confirmDialog'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { Logo } from '../components/Logo'
 import { InfoTooltip } from '../components/HoverCard'
-import { useTheme } from '../contexts/ThemeContext'
 import { AccountsPage } from './admin/AccountsPage'
 import { SellInstructionPdfsSection } from './admin/SellInstructionPdfs'
 import { ArchivedApplicationsCard } from './admin/ArchivedApplicationsCard'
@@ -138,7 +139,7 @@ export function ProfilePage() {
       .select('*')
       .order('requested_at', { ascending: false })
     if (error) {
-      alert(`Couldn't load your link requests: ${error.message}`)
+      showToast(`Couldn't load your link requests: ${error.message}`, 'critical')
       setLoadingRequests(false)
       return
     }
@@ -160,7 +161,7 @@ export function ProfilePage() {
       .select('*')
       .order('requested_at', { ascending: false })
     if (error) {
-      alert(`Couldn't load your bank link requests: ${error.message}`)
+      showToast(`Couldn't load your bank link requests: ${error.message}`, 'critical')
       setLoadingBankRequests(false)
       return
     }
@@ -234,7 +235,7 @@ export function ProfilePage() {
     const { error } = await supabase.rpc(rpcName, { p_request_id: id, p_approve: approve })
     setDecidingId(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     setPendingReview((rows) => rows.filter((r) => r.id !== id))
@@ -336,31 +337,31 @@ export function ProfilePage() {
     const { error } = await supabase.from('demat_link_requests').delete().eq('id', id)
     setCancellingId(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadMyRequests()
   }
 
   async function unlinkDemat(id: string) {
-    if (!window.confirm('Unlink this account? You can request to re-link it later.')) return
+    if (!(await confirmDialog('Unlink this account? You can request to re-link it later.'))) return
     setUnlinkingDematId(id)
     const { error } = await supabase.rpc('unlink_demat_account', { p_demat_id: id })
     setUnlinkingDematId(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadLinkedAccounts()
   }
 
   async function unlinkBank(id: string) {
-    if (!window.confirm('Unlink this bank/UPI account? You can request to re-link it later.')) return
+    if (!(await confirmDialog('Unlink this bank/UPI account? You can request to re-link it later.'))) return
     setUnlinkingBankId(id)
     const { error } = await supabase.rpc('unlink_bank_account', { p_bank_account_id: id })
     setUnlinkingBankId(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadLinkedAccounts()
@@ -420,7 +421,7 @@ export function ProfilePage() {
     const { error } = await supabase.from('bank_link_requests').delete().eq('id', id)
     setCancellingBankId(null)
     if (error) {
-      alert(error.message)
+      showToast(error.message, 'critical')
       return
     }
     loadMyBankRequests()
@@ -541,56 +542,19 @@ export function ProfilePage() {
 
   return (
     <div className="mx-auto max-w-md space-y-4 lg:max-w-2xl">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
-          Profile
-        </h1>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Your display name signs off the WhatsApp messages you send.
-        </p>
-      </div>
-
-      {/* Quick nav ("Explore") — destinations not on the bottom tab bar
-          (Dashboard/IPOs/Applications/Alerts/Profile). Hidden at lg, where
-          the sidebar already covers all of these. Sign out used to live in
-          this list too — moved to its own full-width button at the very
-          bottom of the page instead, matching the new mockup. */}
-      <div className="card animate-page-in overflow-hidden lg:hidden">
-        <p className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-          Explore
-        </p>
-        <nav className="flex flex-col p-1.5 pt-0.5">
-          {[
-            { to: '/ipos', label: 'IPOs', desc: 'Open & upcoming issues', icon: GraphIcon, tone: 'info', show: true },
-            { to: '/bank-accounts', label: 'Bank / UPI accounts', desc: 'Manage funding sources', icon: LawIcon, tone: 'good', show: true },
-            { to: '/payouts', label: 'Payouts', desc: 'Funding & payout ledger', icon: CreditCardIcon, tone: 'violet', show: isAdmin },
-            { to: '/archives', label: 'Archives', desc: 'Closed IPO history', icon: ArchiveIcon, tone: 'neutral', show: true },
-          ]
-            .filter((l) => l.show)
-            .map((l) => {
-              const Icon = l.icon
-              return (
-                <Link
-                  key={l.to}
-                  to={l.to}
-                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--hover-surface)]"
-                >
-                  <span className={`icon-badge icon-badge-${l.tone} shrink-0`} style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.6rem' }}>
-                    <Icon size={16} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {l.label}
-                    </span>
-                    <span className="block truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {l.desc}
-                    </span>
-                  </span>
-                  <ChevronRightIcon size={16} fill="var(--ink-muted)" />
-                </Link>
-              )
-            })}
-        </nav>
+      {/* Page header — the "Profile" title is replaced by the full logo
+          (icon+wordmark, sized for phone) since this is the one page that's
+          always the first thing tapped from the bottom tab bar; the theme
+          toggle sits in this same row instead of its own dedicated card
+          further down. */}
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <Logo size={26} />
+          <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Your display name signs off the WhatsApp messages you send.
+          </p>
+        </div>
+        <ThemeToggle iconOnly />
       </div>
 
       {/* Identity card — avatar/name/role/email unchanged, then three
@@ -808,6 +772,47 @@ export function ProfilePage() {
         </form>
       </div>
 
+      {/* Quick nav ("Explore") — destinations not on the bottom tab bar.
+          IPOs dropped from this list — it's one tap away from the
+          Dashboard already, no need to duplicate it here. Hidden at lg,
+          where the sidebar already covers all of these. */}
+      <div className="card animate-page-in overflow-hidden lg:hidden">
+        <p className="px-4 pt-3 pb-1 text-xs font-semibold tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+          Explore
+        </p>
+        <nav className="flex flex-col p-1.5 pt-0.5">
+          {[
+            { to: '/bank-accounts', label: 'Bank / UPI accounts', desc: 'Manage funding sources', icon: LawIcon, tone: 'good', show: true },
+            { to: '/payouts', label: 'Payouts', desc: 'Funding & payout ledger', icon: CreditCardIcon, tone: 'violet', show: isAdmin },
+            { to: '/archives', label: 'Archives', desc: 'Closed IPO history', icon: ArchiveIcon, tone: 'neutral', show: true },
+          ]
+            .filter((l) => l.show)
+            .map((l) => {
+              const Icon = l.icon
+              return (
+                <Link
+                  key={l.to}
+                  to={l.to}
+                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 transition-colors hover:bg-[var(--hover-surface)]"
+                >
+                  <span className={`icon-badge icon-badge-${l.tone} shrink-0`} style={{ width: '2.25rem', height: '2.25rem', borderRadius: '0.6rem' }}>
+                    <Icon size={16} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {l.label}
+                    </span>
+                    <span className="block truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {l.desc}
+                    </span>
+                  </span>
+                  <ChevronRightIcon size={16} fill="var(--ink-muted)" />
+                </Link>
+              )
+            })}
+        </nav>
+      </div>
+
       {/* Linked accounts */}
       <div className="card animate-page-in overflow-hidden">
         <h2 className="px-4 pt-3 pb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
@@ -976,8 +981,6 @@ export function ProfilePage() {
           <ArchivedApplicationsCard />
         </div>
       </div>
-
-      <AppearanceCard />
 
       <button
         type="button"
@@ -1270,29 +1273,6 @@ function AccountsSection() {
         </div>
       )}
     </section>
-  )
-}
-
-// Moved here from the now-deleted Settings page — Settings only ever held
-// this and the PAN access log below, both of which read more like personal
-// preferences/your-own-activity than admin-only "settings" (this one isn't
-// even admin-gated), so there was no real page left once both moved.
-function AppearanceCard() {
-  const { theme } = useTheme()
-  return (
-    <div className="card animate-page-in p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-            Theme
-          </p>
-          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-            Currently {theme === 'dark' ? 'dark' : 'light'}.
-          </p>
-        </div>
-        <ThemeToggle />
-      </div>
-    </div>
   )
 }
 
