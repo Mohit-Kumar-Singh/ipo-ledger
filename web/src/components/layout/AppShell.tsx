@@ -25,6 +25,7 @@ import { ToastHost } from '../ToastHost'
 import { ConfirmDialogHost } from '../ConfirmDialogHost'
 import { OnboardingTour } from '../OnboardingTour'
 import { Logo, LogoMark } from '../Logo'
+import { PullToRefresh } from '../PullToRefresh'
 
 // No /profile entry — the identity card above this nav (see below) links
 // there directly now, so a second nav item to the same place was redundant.
@@ -486,9 +487,14 @@ export function AppShell() {
           // Removed at lg where the tab bar is hidden (lg:pb-8 above).
           style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
         >
-          <div key={location.pathname} className="animate-page-in">
-            <Outlet />
-          </div>
+          {/* Phone/tablet only (PullToRefresh no-ops itself on hover-capable
+              devices) — a full reload, not a per-page refetch hook, since
+              every route fetches its own data independently. */}
+          <PullToRefresh>
+            <div key={location.pathname} className="animate-page-in">
+              <Outlet />
+            </div>
+          </PullToRefresh>
         </main>
       </div>
 

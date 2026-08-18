@@ -906,6 +906,14 @@ table {
     transform: translateY(-4px);
     box-shadow: var(--glass-shadow-hover);
   }
+  /* Touch has no :hover to lift on — without this, tapping a Dashboard
+     stat tile on phone gave zero visual acknowledgment until the page
+     navigated. A quick press-down (opposite direction from the hover lift)
+     reads as "yes, that tap registered" the same instant the finger lands. */
+  .tile-hover:active {
+    transform: translateY(0) scale(0.97);
+    box-shadow: var(--glass-shadow);
+  }
 
   /* Glass surface (Dashboard.dc.html reference) — translucent + blurred in
      dark mode, a plain solid card in light (see --glass-* tokens). Scoped
@@ -939,6 +947,13 @@ table {
   .row-card:hover {
     transform: translateY(-2px);
     box-shadow: var(--glass-shadow-hover);
+  }
+  /* Same touch-tap acknowledgment as .tile-hover:active above — most
+     .row-card instances are Links (Dashboard's closing-soon/mandate lists),
+     so a tap needs its own feedback independent of :hover. */
+  .row-card:active {
+    transform: translateY(0) scale(0.98);
+    box-shadow: var(--glass-shadow);
   }
 
   /* GitHub label pill (issue/PR labels): tinted bg, no border, fully round */
