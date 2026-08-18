@@ -507,6 +507,13 @@ interface MatchedRow extends ScrapedRow {
   existingId: string | null
   existingMandate: MandateStatus | null
   existingAppNumber: string | null
+  // The funder/UPI account this row was saved under LAST time, before this
+  // sync run — compared against matchedBank below to catch the case where
+  // that UPI wasn't in the portal yet on the first import (matchedBank was
+  // null, saved unfunded/self) but has since been added as a real bank/UPI
+  // account. See toSyncExisting's filter/patch for where this actually
+  // gets applied.
+  existingBankAccountId: string | null
   // Whether the EXISTING row (before this sync run) was already flagged as
   // ipoji-sourced. A manually-created application that a sync then
   // successfully matches against ipoji IS proof it really exists there —
@@ -794,7 +801,13 @@ export function IpojiSyncPanel({
   banks: BankAccount[]
   existingByKey: Map<
     string,
-    { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null; imported_from_ipoji: boolean }
+    {
+      id: string
+      mandate_status: MandateStatus
+      ipoji_app_number: string | null
+      imported_from_ipoji: boolean
+      bank_account_id: string | null
+    }
   >
   // Keyed by (ipo_id, demat_id, ipoji_app_number) instead — checked FIRST,
   // since ipoji's own application number is the actual stable identity of a
@@ -803,7 +816,13 @@ export function IpojiSyncPanel({
   // this is built for the real duplicate bug it fixes).
   existingByAppNumber: Map<
     string,
-    { id: string; mandate_status: MandateStatus; ipoji_app_number: string | null; imported_from_ipoji: boolean }
+    {
+      id: string
+      mandate_status: MandateStatus
+      ipoji_app_number: string | null
+      imported_from_ipoji: boolean
+      bank_account_id: string | null
+    }
   >
   onImported: () => void
   // Called after this panel creates one or more IPOs that didn't exist in
@@ -909,6 +928,7 @@ export function IpojiSyncPanel({
           existingMandate: existing?.mandate_status ?? null,
           existingAppNumber: existing?.ipoji_app_number ?? null,
           existingImportedFromIpoji: existing?.imported_from_ipoji ?? false,
+          existingBankAccountId: existing?.bank_account_id ?? null,
           guessedMandate: guessMandateStatus(r.status),
           lots,
           amountNum,
@@ -936,8 +956,22 @@ export function IpojiSyncPanel({
   // genuinely doesn't exist on ipoji never appears here at all (nothing to
   // match it to), which is exactly what the "Not on ipoji" filter on
   // Applications surfaces for review/cleanup.
+  //
+  // Also catches the funder-arrives-late case: a UPI ipoji reported wasn't
+  // in the portal yet on the first import (matchedBank came back null, so
+  // the row saved with no funder at all), and has since been added as a
+  // real bank/UPI account. Re-pasting the exact same scraped data used to
+  // silently do nothing for that row — it already had its app number and
+  // was already flagged synced, so neither original condition ever
+  // matched, and the funder stayed unassigned forever short of a manual
+  // edit. Comparing matchedBank against what's actually stored now closes
+  // that gap.
   const toSyncExisting = (rows ?? []).filter(
-    (r) => r.existingId && ((!r.existingAppNumber && r.appNumber) || !r.existingImportedFromIpoji),
+    (r) =>
+      r.existingId &&
+      ((!r.existingAppNumber && r.appNumber) ||
+        !r.existingImportedFromIpoji ||
+        (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId)),
   )
 
   async function handleImport() {
@@ -1033,6 +1067,11 @@ export function IpojiSyncPanel({
         toSyncExisting.map(async (r) => {
           const patch: Record<string, unknown> = { imported_from_ipoji: true }
           if (!r.existingAppNumber && r.appNumber) patch.ipoji_app_number = r.appNumber
+          // Deliberately still never touches funder_override_id (see the
+          // same note on the insert path above) — only the literal
+          // UPI-derived bank_account_id, which is exactly what a re-sync
+          // is supposed to be able to correct.
+          if (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId) patch.bank_account_id = r.matchedBank.id
           const { error } = await supabase.from('applications').update(patch).eq('id', r.existingId)
           if (error) console.error('ipoji sync — existing-row sync failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (synced)`, error }
@@ -1285,9 +1324,15 @@ export function IpojiSyncPanel({
                               <span style={{ color: 'var(--accent)' }}>update mandate → {r.guessedMandate}</span>
                             ) : toSyncExisting.includes(r) ? (
                               <span style={{ color: 'var(--accent)' }}>
-                                {!r.existingImportedFromIpoji ? 'mark synced' : ''}
-                                {!r.existingImportedFromIpoji && !r.existingAppNumber && r.appNumber ? ' + ' : ''}
-                                {!r.existingAppNumber && r.appNumber ? `backfill app # ${r.appNumber}` : ''}
+                                {[
+                                  !r.existingImportedFromIpoji ? 'mark synced' : null,
+                                  !r.existingAppNumber && r.appNumber ? `backfill app # ${r.appNumber}` : null,
+                                  r.matchedBank && r.matchedBank.id !== r.existingBankAccountId
+                                    ? `update funder → ${r.matchedBank.account_holder_name ?? r.upiId}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' + ')}
                               </span>
                             ) : (
                               <span style={{ color: 'var(--ink-muted)' }}>already applied</span>
