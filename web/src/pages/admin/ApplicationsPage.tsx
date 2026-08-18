@@ -960,18 +960,13 @@ export function ApplicationsPage() {
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
                           </p>
-                          {/* IPO name + app number, same row as the holder
-                              name — was only ever shown further down (a
-                              separate muted line, or a desktop-only w-32
-                              column), which on phone meant scanning several
-                              lines just to see which IPO/app a row was even
-                              about. Desktop (sm:) only now — phone gets the
-                              condensed first-word + separate app-number-line
-                              treatment above/below instead. */}
-                          <span className="hidden min-w-0 shrink truncate text-xs sm:inline" style={{ color: 'var(--ink-muted)' }}>
-                            {a.ipos?.company_name}
-                            {a.ipoji_app_number ? ` · App #${a.ipoji_app_number}` : ''}
-                          </span>
+                          {/* IPO name + app number used to run inline right
+                              here, crowding the holder name on the same
+                              line — moved to its own dedicated column (see
+                              right after this identity block) so every row
+                              lines up the same way instead of the name's
+                              own width varying by how long the IPO name
+                              happened to be. */}
                           {/* is_backdated is now only ever set true by the
                               explicit "+ Backdated application" flow —
                               ipoji-synced rows never set it (migration 0064
@@ -1065,9 +1060,8 @@ export function ApplicationsPage() {
                           word + app number stacked above the status badge
                           (when there is one), instead of either crowding the
                           holder name's own line or running the full width
-                          below it. Desktop keeps the inline "company name ·
-                          App #N" text (the sm:inline span above) and its own
-                          badge position further down (below), unchanged. */}
+                          below it. Desktop uses the dedicated column below
+                          instead. */}
                       <div className="flex shrink-0 flex-col items-end gap-1 sm:hidden">
                         {a.ipos?.company_name && (
                           <div className="text-right leading-tight">
@@ -1083,6 +1077,20 @@ export function ApplicationsPage() {
                         )}
                         {a.status !== 'APPLIED' && <StatusBadge status={a.status} />}
                       </div>
+                      </div>
+                      {/* Dedicated IPO name + app number column, desktop
+                          only — was inline on the holder name's own line
+                          (removed above), which made that line's width (and
+                          therefore how much of the name itself showed
+                          before truncating) depend on how long the IPO name
+                          happened to be. Its own fixed-width column instead,
+                          a true sibling of the identity block above (not
+                          nested inside it) — same idea as the mandate/status
+                          columns beside it, so every row's columns land in
+                          the same place regardless of content length. */}
+                      <div className="hidden shrink-0 text-xs sm:block sm:w-48" style={{ color: 'var(--ink-muted)' }}>
+                        {a.ipos?.company_name && <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>{a.ipos.company_name}</p>}
+                        {a.ipoji_app_number && <p className="truncate">#{a.ipoji_app_number}</p>}
                       </div>
 
                       {a.sell_price != null && (
@@ -1144,10 +1152,19 @@ export function ApplicationsPage() {
                           )
                         ) : (
                           <div>
-                            <span style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
+                            <span className="inline-flex items-center gap-1" style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
                               Mandate {a.mandate_status === 'APPROVED' ? 'approved' : 'cancelled'}
+                              {/* The sync's own guess at the mandate status
+                                  (from ipoji's status text), not a reviewed
+                                  human decision — same ipoji-logo symbol used
+                                  elsewhere for "this came from the sync," so
+                                  it reads consistently at a glance instead of
+                                  needing the "by ipoji" text spelled out. */}
+                              {a.mandate_marked_by_ipoji && (
+                                <img src="/ipoji-logo.png" alt="Set by the ipoji sync" title="Set by the ipoji sync" width={13} height={13} />
+                              )}
                             </span>
-                            {mandateMarkerName && (
+                            {!a.mandate_marked_by_ipoji && mandateMarkerName && (
                               <p style={{ color: 'var(--ink-muted)' }}>by {mandateMarkerName}</p>
                             )}
                           </div>
