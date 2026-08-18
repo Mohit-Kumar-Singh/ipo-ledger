@@ -27,11 +27,11 @@ import type {
   ApplicationAttributionRow,
   DematAccount,
   Ipo,
+  SettlementPayment,
 } from '../../types/database'
 
 interface PendingPayoutLine {
   applicationId: string
-  field: 'demat_cut_paid' | 'funder_share_paid'
   ipoName: string
   amount: number
 }
@@ -126,10 +126,28 @@ interface DashboardData {
   expectedProfitByIpo: ExpectedProfitIpoBlock[]
 }
 
-// Sums, per recipient, everything you still owe out of already-sold
-// applications — the demat holder's cut when they aren't you, and the
-// funder's 50/50 share when the split is on and they aren't you either.
-function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: string): PendingPayout[] {
+// Below a rupee is just floating-point noise from the split math, not a
+// real outstanding balance — same threshold PayoutsPage uses for the exact
+// same reason (SETTLED_EPSILON there).
+const PENDING_PAYOUT_EPSILON = 1
+
+// Sums, per funder, what you still need to send them out of already-sold
+// applications — using the live settlement ledger (settlement_payments),
+// same as the Payouts page's own settlement cards, not the old
+// demat_cut_paid/funder_share_paid boolean flags this used to read. Those
+// flags tracked a DIFFERENT, now-obsolete obligation: the old model assumed
+// the holder sent back the full sale proceeds and you paid their cut back
+// out separately afterward. The current model has the holder keep their
+// own cut before sending anything on — there's no separate "pay the holder
+// back" step anymore, so that half of the old tracking doesn't apply to
+// any real obligation under the model actually in use; only the funder
+// side (bidAmount + their profit share, minus whatever's already been
+// logged as sent) is still something you can genuinely still owe.
+function buildPendingPayouts(
+  soldRows: AllotmentBoardRow[],
+  profitPersonName: string,
+  paymentsByApp: Map<string, SettlementPayment[]>,
+): PendingPayout[] {
   const byName = new Map<string, PendingPayoutLine[]>()
   const add = (name: string, line: PendingPayoutLine) => {
     const lines = byName.get(name) ?? []
@@ -149,22 +167,22 @@ function buildPendingPayouts(soldRows: AllotmentBoardRow[], profitPersonName: st
       profitPersonName,
       splitWithFunder: r.split_profit_with_funder,
     })
-    if (!result.isDematHolderSelf && result.dematCutAmount > 0 && !r.demat_cut_paid) {
-      add(r.holder_name, {
-        applicationId: r.application_id,
-        field: 'demat_cut_paid',
-        ipoName: r.company_name,
-        amount: result.dematCutAmount,
-      })
-    }
-    if (result.funderShare > 0 && !r.funder_share_paid) {
-      add(r.bank_account_holder_name ?? 'Unknown', {
-        applicationId: r.application_id,
-        field: 'funder_share_paid',
-        ipoName: r.company_name,
-        amount: result.funderShare,
-      })
-    }
+    if (!result.hasFunder || result.isFunderSelf) continue
+    const amountToFunder = (r.bid_amount ?? 0) + result.funderShare
+    if (amountToFunder <= 0) continue
+    // A holder_to_funder payment counts too — it's money that reached the
+    // funder even though it never passed through you, same reasoning as
+    // PayoutsPage's own sentToFunder calculation.
+    const sentToFunder = (paymentsByApp.get(r.application_id) ?? [])
+      .filter((p) => p.kind === 'admin_to_funder' || p.kind === 'holder_to_funder')
+      .reduce((s, p) => s + p.amount, 0)
+    const remainingToFunder = amountToFunder - sentToFunder
+    if (remainingToFunder <= PENDING_PAYOUT_EPSILON) continue
+    add(r.bank_account_holder_name ?? 'Unknown', {
+      applicationId: r.application_id,
+      ipoName: r.company_name,
+      amount: remainingToFunder,
+    })
   }
   return Array.from(byName.entries())
     .map(([name, lines]) => ({ name, amount: lines.reduce((s, l) => s + l.amount, 0), lines }))
@@ -270,16 +288,26 @@ export function DashboardPage() {
   const hasShownListingToast = useRef(localStorage.getItem('listingToastShownDate') === nowIst().dateStr)
   const hasShownMandateCutoffToast = useRef(localStorage.getItem('mandateCutoffToastShownDate') === nowIst().dateStr)
 
+  // Logs a settlement_payments row instead of flipping a boolean flag —
+  // pendingPayouts is now built off that same live ledger (see
+  // buildPendingPayouts), so this has to write to the thing that ledger
+  // actually reads, same as PayoutsPage's own log-a-payment form does.
   async function markPayoutPaid(line: PendingPayoutLine) {
-    setMarkingPaid(line.applicationId + line.field)
-    await supabase.from('applications').update({ [line.field]: true }).eq('id', line.applicationId)
+    setMarkingPaid(line.applicationId)
+    const { error } = await supabase
+      .from('settlement_payments')
+      .insert({ application_id: line.applicationId, kind: 'admin_to_funder', amount: line.amount })
     setMarkingPaid(null)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
     setData((d) => {
       if (!d) return d
       const pendingPayouts = d.pendingPayouts
         .map((p) => ({
           ...p,
-          lines: p.lines.filter((l) => !(l.applicationId === line.applicationId && l.field === line.field)),
+          lines: p.lines.filter((l) => l.applicationId !== line.applicationId),
         }))
         .map((p) => ({ ...p, amount: p.lines.reduce((s, l) => s + l.amount, 0) }))
         .filter((p) => p.lines.length > 0)
@@ -301,7 +329,7 @@ export function DashboardPage() {
       // Link requests moved off the Dashboard entirely (review now lives on
       // Profile, with a toast on arrival instead of a permanent tile/list
       // here — see ToastHost) — no longer fetched on this page at all.
-      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows] = await Promise.all([
+      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows, settlementPaymentsRes] = await Promise.all([
         // Exact close_date match, not a 7-day window — "closing today" is
         // the thing that actually needs same-day action; a 7-day-out IPO
         // isn't urgent yet and just crowded out the tile/list with noise.
@@ -327,6 +355,12 @@ export function DashboardPage() {
               .in('status', ['ALLOTTED', 'SOLD'])
               .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
           : Promise.resolve({ data: [], error: null }),
+        // Live remaining-to-funder figures for pendingPayouts below (same
+        // ledger PayoutsPage's settlement cards read) — admin-only RLS
+        // (migration 0078), same gate as the applications query above.
+        isAdmin
+          ? supabase.from('settlement_payments').select('*')
+          : Promise.resolve({ data: [], error: null }),
       ])
 
       if (cancelled) return
@@ -343,6 +377,12 @@ export function DashboardPage() {
       // "Payouts pending" — those tiles are for what's still live, not a
       // running history of everything that ever happened.
       const boardRows = ((board.data ?? []) as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived)
+
+      const settlementPaymentsByApp = new Map<string, SettlementPayment[]>()
+      for (const p of (settlementPaymentsRes.data ?? []) as SettlementPayment[]) {
+        if (!settlementPaymentsByApp.has(p.application_id)) settlementPaymentsByApp.set(p.application_id, [])
+        settlementPaymentsByApp.get(p.application_id)!.push(p)
+      }
 
       // Applied-per-IPO accounts come from the board rows already fetched above
       // (one row per application) rather than a separate query — v_allotment_board
@@ -586,7 +626,11 @@ export function DashboardPage() {
         expectedProfitTotal,
         expectedProfitByIpo,
         pendingPayouts: isAdmin
-          ? buildPendingPayouts(boardRows.filter((r) => r.status === 'SOLD'), profile?.full_name ?? '')
+          ? buildPendingPayouts(
+              boardRows.filter((r) => r.status === 'SOLD'),
+              profile?.full_name ?? '',
+              settlementPaymentsByApp,
+            )
           : [],
         // A CANCELLED mandate means the funder never actually approved the
         // UPI block — no money moved, so it's not really "applied" in any
@@ -855,7 +899,7 @@ export function DashboardPage() {
                   <div className="mt-1 space-y-1">
                     {p.lines.map((l) => (
                       <div
-                        key={l.applicationId + l.field}
+                        key={l.applicationId}
                         className="flex items-center justify-between gap-2 text-xs"
                         style={{ color: 'var(--ink-muted)' }}
                       >
@@ -864,10 +908,10 @@ export function DashboardPage() {
                         </span>
                         <button
                           onClick={() => markPayoutPaid(l)}
-                          disabled={markingPaid === l.applicationId + l.field}
+                          disabled={markingPaid === l.applicationId}
                           className="link-accent font-medium disabled:opacity-50"
                         >
-                          {markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                          {markingPaid === l.applicationId ? 'Marking…' : 'Mark paid'}
                         </button>
                       </div>
                     ))}
