@@ -110,6 +110,7 @@ interface SettlementCard {
   profitTotal: number
   cutPercent: number
   holderName: string
+  holderPhone: string | null
   isDematHolderSelf: boolean
   dematCutAmount: number
   // Money coming IN — what the account holder sends back once they've sold.
@@ -175,6 +176,7 @@ function buildSettlementCards(
       profitTotal: result.grossProfit,
       cutPercent: r.profit_share_percent,
       holderName: r.holder_name,
+      holderPhone: r.phone_e164,
       isDematHolderSelf: result.isDematHolderSelf,
       dematCutAmount: result.dematCutAmount,
       amountFromHolder,
@@ -208,6 +210,44 @@ function groupByRecipient(lines: PayoutLine[]): RecipientGroup[] {
     if (!g.phone && l.phone) g.phone = l.phone
     g.lines.push(l)
     g.total += l.amount
+  }
+  return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
+interface SettlementPartyGroup {
+  name: string
+  phone: string | null
+  total: number
+  ipos: { ipoName: string; amount: number }[]
+}
+
+// Below a rupee, a card's remaining amount is just floating-point noise from
+// the split math (halves/percentages), not a real outstanding balance — used
+// as the threshold everywhere "still owed" is checked so a fully-settled
+// card never shows up as a stray ₹0.4 entry.
+const SETTLED_EPSILON = 1
+
+// One row per real person still owed money in a given direction — "who do I
+// need to send, how much, for which IPOs" and the mirror "who do I still
+// need to collect from" — grouped from the live remainingToFunder/
+// remainingFromHolder figures (not the gross totals), so a fully-paid
+// application drops out entirely rather than still listing a ₹0 line.
+function groupSettlementByParty(
+  cards: SettlementCard[],
+  side: 'funder' | 'holder',
+): SettlementPartyGroup[] {
+  const byName = new Map<string, SettlementPartyGroup>()
+  for (const c of cards) {
+    const name = side === 'funder' ? c.funderName : c.holderName
+    const phone = side === 'funder' ? c.funderPhone : c.holderPhone
+    const remaining = side === 'funder' ? c.remainingToFunder : c.remainingFromHolder
+    const applicable = side === 'funder' ? c.hasFunder && !c.isFunderSelf : !c.isDematHolderSelf
+    if (!applicable || !name || remaining <= SETTLED_EPSILON) continue
+    if (!byName.has(name)) byName.set(name, { name, phone, total: 0, ipos: [] })
+    const g = byName.get(name)!
+    if (!g.phone && phone) g.phone = phone
+    g.total += remaining
+    g.ipos.push({ ipoName: c.ipoName, amount: remaining })
   }
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
@@ -293,6 +333,8 @@ export function PayoutsPage() {
   const totalStillFromHolder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingFromHolder), 0)
   const totalStillToFunder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
+  const owedToFunders = groupSettlementByParty(settlementCards, 'funder')
+  const owedFromHolders = groupSettlementByParty(settlementCards, 'holder')
 
   return (
     <div className="space-y-6">
@@ -340,6 +382,29 @@ export function PayoutsPage() {
           </div>
         )}
       </div>
+
+      {/* Who, not just how much — the header tiles above give the two grand
+          totals, but paying someone means knowing WHICH funder and HOW MUCH
+          each one specifically, not one lump sum. Same for collecting: which
+          holder still owes you, across which IPOs. Person drops off either
+          list entirely once fully settled (SETTLED_EPSILON), rather than
+          sticking around as a stray ₹0 row. */}
+      {(owedToFunders.length > 0 || owedFromHolders.length > 0) && (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <SettlementPartyList
+            title="You need to send"
+            groups={owedToFunders}
+            amountColor="var(--critical-text)"
+            emptyLabel="Nothing owed to any funder right now."
+          />
+          <SettlementPartyList
+            title="You need to receive"
+            groups={owedFromHolders}
+            amountColor="var(--good)"
+            emptyLabel="Nothing outstanding from any account holder right now."
+          />
+        </div>
+      )}
 
       {settlementCards.length > 0 && (
         <section className="space-y-3">
@@ -398,6 +463,85 @@ export function PayoutsPage() {
   )
 }
 
+// One row per person, one line per IPO they're tied to within that row —
+// same visual language as PayoutSection's recipient groups below (icon
+// badge + name + total, IPOs listed underneath), just built off the live
+// settlement figures instead of the paid/unpaid demat_cut_paid/
+// funder_share_paid flags.
+function SettlementPartyList({
+  title,
+  groups,
+  amountColor,
+  emptyLabel,
+}: {
+  title: string
+  groups: SettlementPartyGroup[]
+  amountColor: string
+  emptyLabel: string
+}) {
+  return (
+    <div className="card space-y-3 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          {title}
+        </h2>
+        {groups.length > 0 && (
+          <span className="font-mono-ipo text-sm font-semibold" style={{ color: amountColor }}>
+            {rupees(groups.reduce((s, g) => s + g.total, 0))}
+          </span>
+        )}
+      </div>
+      {groups.length === 0 ? (
+        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+          {emptyLabel}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {groups.map((g) => (
+            <div key={g.name} className="border-t pt-3 first:border-t-0 first:pt-0" style={{ borderColor: 'var(--border)' }}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="icon-badge icon-badge-neutral shrink-0 text-xs font-semibold" style={{ width: '1.75rem', height: '1.75rem' }}>
+                    {g.name[0]?.toUpperCase()}
+                  </div>
+                  <span className="text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {g.name}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  {g.phone && (
+                    <button
+                      onClick={() =>
+                        sendCustomWhatsapp(
+                          g.phone!,
+                          `Hi ${g.name}, current outstanding across ${g.ipos.length} IPO${g.ipos.length === 1 ? '' : 's'}: ${rupees(g.total)}.`,
+                        )
+                      }
+                      className="link-accent text-xs font-medium"
+                    >
+                      Message
+                    </button>
+                  )}
+                  <span className="font-mono-ipo text-sm font-semibold" style={{ color: amountColor }}>
+                    {rupees(g.total)}
+                  </span>
+                </div>
+              </div>
+              <div className="mt-1 space-y-0.5 pl-9">
+                {g.ipos.map((i, idx) => (
+                  <p key={idx} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {i.ipoName} · {rupees(i.amount)}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
   holder_to_admin: 'Holder paid you',
   admin_to_funder: 'You paid the funder',
@@ -449,11 +593,22 @@ function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () =
     onLogged()
   }
 
+  // The holder's own side is fully settled once every rupee they owe has
+  // actually been logged as received — either they paid you, or they paid
+  // the funder directly (both count, same reasoning as remainingFromHolder
+  // itself). Independent of whether the funder side is settled — a holder
+  // can finish paying before you've forwarded it on, and this only ever
+  // reflects the holder's own obligation.
+  const holderSettled = !c.isDematHolderSelf && c.amountFromHolder > 0 && c.remainingFromHolder <= SETTLED_EPSILON
+
   return (
     <div className="card stagger-item space-y-3 p-4">
-      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-        {c.ipoName} — sold {c.lotSize} share{c.lotSize === 1 ? '' : 's'} at {rupees(c.sellPrice)}/share
-      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+          {c.ipoName} — sold {c.lotSize} share{c.lotSize === 1 ? '' : 's'} at {rupees(c.sellPrice)}/share
+        </p>
+        {holderSettled && <span className="badge badge-good shrink-0">Holder settled ✓</span>}
+      </div>
 
       {!c.isDematHolderSelf && c.amountFromHolder > 0 && (
         <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--good-tint)', background: 'var(--good-tint)' }}>
