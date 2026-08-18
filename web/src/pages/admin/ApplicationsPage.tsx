@@ -926,8 +926,17 @@ export function ApplicationsPage() {
                           block on a phone: every fixed-width desktop column
                           (w-32/w-36/w-24) just wrapped onto its own
                           cramped line with no visual grouping at all. sm:
-                          and up keeps the original dense row unchanged. */}
-                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                          and up keeps the original row-of-columns shape, but
+                          items-start (was items-center) — centering each
+                          column vertically against the row's tallest sibling
+                          (the mandate column, up to 3 lines: status/marker/
+                          ipoji text) shoved every shorter column toward the
+                          middle instead, which is what actually read as
+                          "misaligned" rather than any single column's own
+                          content being wrong. Top-aligning every column
+                          fixes that regardless of which column ends up
+                          tallest on a given row. */}
+                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:flex-row sm:flex-wrap sm:items-start sm:gap-4">
                       <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                       {eligibleForNotAllotted && (
@@ -1097,9 +1106,17 @@ export function ApplicationsPage() {
                       {/* border-t + pt on phone only — a real divider between
                           the identity block above and this one, instead of
                           it just running straight into whatever came before
-                          with no visual break. */}
+                          with no visual break. Widened from w-36 (144px) to
+                          w-56 (224px) on desktop — 144px was forcing "Mandate
+                          approved" to wrap onto two lines and truncating the
+                          ipoji status line to "..." on nearly every row,
+                          which was the other half of what read as "messed
+                          up" alignment (not just the items-center issue
+                          above). truncate stays as a safety net for the
+                          rare genuinely-long ipoji status string — full text
+                          is still in the title attribute either way. */}
                       <div
-                        className="w-full border-t pt-2.5 text-xs sm:w-36 sm:shrink-0 sm:border-t-0 sm:pt-0"
+                        className="w-full border-t pt-2.5 text-xs sm:w-56 sm:shrink-0 sm:border-t-0 sm:pt-0"
                         style={{ borderColor: 'var(--border)' }}
                         id={`mandate-${a.id}`}
                       >
