@@ -655,13 +655,13 @@ table {
   border-radius: inherit;
   /* Alternating with a mix toward TRANSPARENT (the first attempt) barely
      registered as motion — its visibility depends on whatever's behind the
-     blur, and blur(6px) smoothed the already-subtle contrast further.
-     Mixing toward black instead keeps both stops fully opaque, so the
+     blur. Mixing toward black instead keeps both stops fully opaque, so the
      bright/dark contrast (and therefore the rotation) reads the same
-     regardless of background — same reason the original amber/red version
-     always alternated between two fully-opaque colors, never faded one
-     toward transparent. */
-  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 55%, black), var(--good));
+     regardless of background. Pushed further still (55%→20% green, i.e. a
+     much darker second stop) plus opacity 1 (was 0.8) and a touch less blur
+     — the 55%/0.8 version was still too subtle to clearly read as
+     spinning. */
+  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 20%, black), var(--good));
   /* conic-gradient fills its ENTIRE box, not just a ring around the edge
      — without this mask it painted a solid blurred rectangle behind the
      whole card. padding + a content-box/xor mask keeps only the outer
@@ -671,8 +671,8 @@ table {
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  filter: blur(6px);
-  opacity: 0.8;
+  filter: blur(5px);
+  opacity: 1;
   animation: aura-spin 6s linear infinite;
 }
 @keyframes aura-spin {
