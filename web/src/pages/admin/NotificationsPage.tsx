@@ -95,7 +95,9 @@ function buildHolderAllottedCards(rows: ApplicationForFunderRow[]): HolderAllott
   for (const r of rows) {
     const holder = r.demat_accounts
     if (!holder?.phone_e164 || !r.ipos) continue
-    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+    // SOLD dropped — once it's actually sold there's nothing left to
+    // "notify holder about being allotted," they already sold it.
+    if (r.status !== 'ALLOTTED') continue
     if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
     const cardsForIpo = cardsByIpo.get(r.ipo_id)!
     // Keyed by phone, not name — two different demat accounts can share a
@@ -272,8 +274,15 @@ function buildSoldFunderMessage(card: SoldFunderCard): string {
   const PARTY = '\u{1F389}'
   const cutPercentLabel = `${Math.round(card.cutPercent) === card.cutPercent ? card.cutPercent : card.cutPercent.toFixed(1)}%`
   const b = expectedProfitBreakdown(card, card.sellPricePerShare)
+  // Combined (mine + funder's) profit per lot, before the /2 split below —
+  // this is exactly what the account holder owes back on top of returning
+  // the original lot price, since holder's own cut is already removed by
+  // this point (netProfitPerLot). Shown explicitly since the /2 breakdown
+  // right below it only ever shows each half separately, not the combined
+  // total the holder actually has to pay out.
+  const holderPays = b.netProfitPerLot * card.totalLots
   const intro =
-    `Hi ${card.funderName}, your *${card.ipoName}* application(s) have been *sold* today at ` +
+    `Hi ${card.funderName}, your *${card.ipoName}* application(s) have been *sold* at ` +
     `${rupees(card.sellPricePerShare)}/share ${PARTY}:\n\n${list}`
   return (
     `${intro}\n\n` +
@@ -283,7 +292,10 @@ function buildSoldFunderMessage(card: SoldFunderCard): string {
     `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot\n` +
     `> ${rupees(b.profitPerLot)} − ${cutPercentLabel} (account holder cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
     `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share) = ${rupees(b.yourProfitPerLot)} your profit/lot\n\n` +
-    `*Remaining to pay you* = ${rupees(b.investedTotal)} (principal) + ${rupees(b.netYourProfit)} (profit) = *${rupees(b.amountToReturn)}*` +
+    `_Account holder pays_\n` +
+    `${rupees(b.lotAmount)} (original lot price) × ${card.totalLots} = ${rupees(b.investedTotal)} (principal)\n` +
+    `+ ${rupees(holderPays)} (my profit + your funder profit combined)\n` +
+    `*Remaining to pay you* = ${rupees(b.investedTotal)} + ${rupees(b.netYourProfit)} (your half of it) = *${rupees(b.amountToReturn)}*` +
     `${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
@@ -426,7 +438,7 @@ export function NotificationsPage() {
   const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
   const [sellTodayCards, setSellTodayCards] = useState<SellReminderCard[]>([])
   const [sellTomorrowCards, setSellTomorrowCards] = useState<SellReminderCard[]>([])
-  const [soldTodayCards, setSoldTodayCards] = useState<SoldFunderCard[]>([])
+  const [soldCards, setSoldCards] = useState<SoldFunderCard[]>([])
   const [loading, setLoading] = useState(true)
   // Surfaced instead of silently swallowed — the funders query previously
   // just fell back to an empty array on any error (data ?? []), so a real
@@ -484,17 +496,20 @@ export function NotificationsPage() {
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
     const todayStr = nowIst().dateStr
-    // Already sold, on the IPO's own listing day — nothing left to project
-    // (it's real now) or remind the holder about (they already sold).
-    // Excluded from the pre-sale "Allotment updates" projection below and
-    // replaced by its own "Sold today" section with real numbers instead.
-    const isSoldToday = (r: ApplicationForFunderRow) => r.status === 'SOLD' && r.ipos?.listing_date === todayStr
+    // Already sold — nothing left to project (it's real now) or remind the
+    // holder about (they already sold), regardless of exactly which day it
+    // listed on. NOT date-gated to "listed today" — a sale entered a day or
+    // two after listing (the realistic common case, not same-day) still
+    // needs to drop out of the pre-sale projection and show up in the real
+    // "Sold" section below instead of lingering there forever with a stale
+    // GMP-based guess.
+    const isSold = (r: ApplicationForFunderRow) => r.status === 'SOLD'
     setFunderCards(buildFunderIpoCards(funderRows))
-    setAllottedCards(buildFunderAllottedCards(funderRows.filter((r) => !isSoldToday(r)), sameIdentity))
+    setAllottedCards(buildFunderAllottedCards(funderRows.filter((r) => !isSold(r)), sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
     setSellTodayCards(buildSellReminderCards(funderRows, todayStr))
     setSellTomorrowCards(buildSellReminderCards(funderRows, tomorrowIstDateStr()))
-    setSoldTodayCards(buildSoldFunderCards(funderRows.filter((r) => isSoldToday(r) && r.sell_price != null), sameIdentity))
+    setSoldCards(buildSoldFunderCards(funderRows.filter((r) => isSold(r) && r.sell_price != null), sameIdentity))
     setMyNotifications((myNotifsRes.data ?? []) as Notification[])
     setLoading(false)
   }
@@ -537,19 +552,22 @@ export function NotificationsPage() {
         <SellReminderSection title="Sell tomorrow" when="tomorrow" cards={sellTomorrowCards} />
       )}
 
-      {/* Applications already marked SOLD, on the IPO's own listing day —
-          replaces both the sell-reminder (nothing left to remind, already
-          sold) and the pre-sale "Allotment updates" projection (nothing
-          left to project, it's real now) for exactly these applications.
-          Real numbers via computeProfitSplit, not a GMP/live-price guess. */}
-      {isAdmin && !loading && soldTodayCards.length > 0 && (
+      {/* Any application already marked SOLD — replaces both the
+          sell-reminder (nothing left to remind, already sold) and the
+          pre-sale "Allotment updates" projection (nothing left to project,
+          it's real now) for exactly these applications. Not restricted to
+          "listed today" — a sale entered a day or two after listing (the
+          realistic common case) still needs this real-numbers card instead
+          of lingering in the pre-sale projection forever. Real numbers via
+          computeProfitSplit, not a GMP/live-price guess. */}
+      {isAdmin && !loading && soldCards.length > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-            Sold today
-            <InfoTooltip text="One card per funder per IPO listing today whose funded accounts already show as SOLD — with the real profit, computed from the actual sell price entered, not a GMP/live-price estimate." />
+            Sold
+            <InfoTooltip text="One card per funder per IPO whose funded accounts already show as SOLD — with the real profit, computed from the actual sell price entered, not a GMP/live-price estimate." />
           </h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {soldTodayCards.map((c) => {
+            {soldCards.map((c) => {
               const message = buildSoldFunderMessage(c)
               return (
                 <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
