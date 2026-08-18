@@ -696,9 +696,9 @@ export function ApplicationsPage() {
             {(
               [
                 ['recent', 'Recent'],
-                ['funder', 'Who funded it'],
+                ['funder', 'Funded'],
                 ['upi', 'UPI ID'],
-                ['cancelled', `Cancelled mandate (${cancelledCount})`],
+                ['cancelled', `Canceled (${cancelledCount})`],
                 // A FILTER, not a sort — see groupedApplications — restricted
                 // to rows never confirmed against ipoji at all, for spotting
                 // ones created by mistake and cleaning them up.
@@ -706,7 +706,7 @@ export function ApplicationsPage() {
                 // Another filter — more than one active application for the
                 // same account+IPO (now allowed when each is funded via a
                 // different bank/UPI account, migration 0070).
-                ['duplicates', `Duplicate applications (${duplicatesCount})`],
+                ['duplicates', `Duplicate (${duplicatesCount})`],
               ] as [SortMode, string][]
             ).map(([mode, label]) => (
               <button
@@ -1004,7 +1004,7 @@ export function ApplicationsPage() {
                               still worth flagging so it's never mistaken for
                               an accidental double-entry. */}
                           {duplicateAppIds.has(a.id) && (
-                            <span className="badge badge-warning shrink-0 text-[10px]" title="More than one active application for this account on this IPO — see the 'Duplicate applications' sort.">
+                            <span className="badge badge-warning shrink-0 text-[10px]" title="More than one active application for this account on this IPO — see the 'Duplicate' sort.">
                               duplicate
                             </span>
                           )}

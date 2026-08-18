@@ -10,6 +10,17 @@ const BUCKET = 'sell-instructions'
 
 type PdfRow = { platform: DematPlatform; storage_path: string; updated_at: string }
 
+// PDF or any image (a lot of platforms' T-PIN/sell steps are more naturally
+// shared as a screenshot than a formatted document) — null for anything else.
+function extensionFor(file: File): string | null {
+  if (file.type === 'application/pdf') return 'pdf'
+  if (file.type.startsWith('image/')) {
+    const sub = file.type.split('/')[1] || 'jpg'
+    return sub === 'jpeg' ? 'jpg' : sub
+  }
+  return null
+}
+
 // Admin-only library of one how-to-verify-with-T-PIN + how-to-sell PDF per
 // trading platform, reused across every IPO's listing-day sell reminders. A
 // platform with no PDF is a valid state — the send flow just goes text-only
@@ -41,17 +52,26 @@ export function SellInstructionPdfsSection() {
   }, [])
 
   async function handleUpload(platform: DematPlatform, file: File) {
-    if (file.type !== 'application/pdf') {
-      showToast('Please choose a PDF file.', 'warning')
+    const ext = extensionFor(file)
+    if (!ext) {
+      showToast('Please choose a PDF or image file.', 'warning')
       return
     }
     setBusy(platform)
-    // Stable per-platform path — upsert overwrites in place, so "replace" is
-    // just another upload to the same key (no orphaned old files to clean up).
-    const path = `${platform}.pdf`
+    // Stable per-platform path, but now suffixed by the actual file's
+    // extension (was always `.pdf`) — so switching a platform from a PDF to
+    // an image (or back) changes the storage key. upsert only overwrites in
+    // place when the key matches, so remove the previous object first when
+    // the extension actually changed, otherwise it'd be left orphaned in
+    // the bucket even though the row below now points elsewhere.
+    const path = `${platform}.${ext}`
+    const prev = rows[platform]
+    if (prev && prev.storage_path !== path) {
+      await supabase.storage.from(BUCKET).remove([prev.storage_path])
+    }
     const { error: upErr } = await supabase.storage
       .from(BUCKET)
-      .upload(path, file, { upsert: true, contentType: 'application/pdf' })
+      .upload(path, file, { upsert: true, contentType: file.type })
     if (upErr) {
       showToast(`Upload failed: ${upErr.message}`, 'critical')
       setBusy(null)
@@ -69,7 +89,7 @@ export function SellInstructionPdfsSection() {
     if (rowErr) {
       showToast(`Saved the file but couldn't record it: ${rowErr.message}`, 'critical')
     } else {
-      showToast(`${PLATFORM_LABELS[platform]} PDF updated.`, 'good')
+      showToast(`${PLATFORM_LABELS[platform]} sell-instruction file updated.`, 'good')
     }
     setBusy(null)
     load()
@@ -78,13 +98,13 @@ export function SellInstructionPdfsSection() {
   async function handleRemove(platform: DematPlatform) {
     const row = rows[platform]
     if (!row) return
-    if (!(await confirmDialog(`Remove the ${PLATFORM_LABELS[platform]} sell-instruction PDF?`, { tone: 'critical', confirmLabel: 'Remove' })))
+    if (!(await confirmDialog(`Remove the ${PLATFORM_LABELS[platform]} sell-instruction file?`, { tone: 'critical', confirmLabel: 'Remove' })))
       return
     setBusy(platform)
     await supabase.storage.from(BUCKET).remove([row.storage_path])
     const { error } = await supabase.from('sell_instruction_pdfs').delete().eq('platform', platform)
     if (error) showToast(`Couldn't remove: ${error.message}`, 'critical')
-    else showToast(`${PLATFORM_LABELS[platform]} PDF removed.`, 'good')
+    else showToast(`${PLATFORM_LABELS[platform]} sell-instruction file removed.`, 'good')
     setBusy(null)
     load()
   }
@@ -176,7 +196,7 @@ function PdfRowUI({
           {PLATFORM_LABELS[platform]}
         </p>
         <p className="text-xs" style={{ color: row ? 'var(--good)' : 'var(--ink-muted)' }}>
-          {row ? `PDF on file · updated ${new Date(row.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No PDF'}
+          {row ? `Uploaded · ${new Date(row.updated_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'No file'}
         </p>
       </div>
       <div className="flex shrink-0 items-center gap-3">
@@ -208,7 +228,7 @@ function PdfRowUI({
         <input
           ref={inputRef}
           type="file"
-          accept="application/pdf"
+          accept="application/pdf,image/*"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0]
