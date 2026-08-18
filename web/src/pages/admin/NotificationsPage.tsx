@@ -581,24 +581,30 @@ export function NotificationsPage() {
             {soldCards.map((c) => {
               const message = buildSoldFunderMessage(c)
               return (
-                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.funderName}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
-                    </p>
+                // Same rotating green ring IposPage wraps a hot-GMP card in
+                // (.aura, see index.css) — a sold/allotted card is exactly
+                // this kind of good-news moment too, not just the static
+                // aura-card glow underneath.
+                <div key={c.key} className="aura">
+                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.funderName}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                      disabled={!c.phone}
+                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Send
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Send
-                  </button>
                 </div>
               )
             })}
@@ -665,32 +671,34 @@ export function NotificationsPage() {
               const message = buildFunderAllottedMessage(c)
               const profit = c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
               return (
-                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {isAdmin ? c.funderName : c.ipoName}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
-                    </p>
+                <div key={c.key} className="aura">
+                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {isAdmin ? c.funderName : c.ipoName}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
+                      </p>
+                    </div>
+                    {isAdmin ? (
+                      <button
+                        type="button"
+                        onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                        disabled={!c.phone}
+                        title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                        className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Send
+                      </button>
+                    ) : (
+                      profit != null && (
+                        <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
+                          {rupees(profit)}
+                        </span>
+                      )
+                    )}
                   </div>
-                  {isAdmin ? (
-                    <button
-                      type="button"
-                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                      disabled={!c.phone}
-                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Send
-                    </button>
-                  ) : (
-                    profit != null && (
-                      <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
-                        {rupees(profit)}
-                      </span>
-                    )
-                  )}
                 </div>
               )
             })}
@@ -708,29 +716,31 @@ export function NotificationsPage() {
             {holderAllottedCards.map((c) => {
               const message = buildHolderAllottedMessage(c)
               return (
-                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.holderName}
-                      {c.hasOverride && (
-                        <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
-                          {'\u{1F3F7}\u{FE0F}'}
-                        </span>
-                      )}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · {c.totalLots} lot(s)
-                    </p>
+                <div key={c.key} className="aura">
+                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {c.holderName}
+                        {c.hasOverride && (
+                          <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
+                            {'\u{1F3F7}\u{FE0F}'}
+                          </span>
+                        )}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {c.ipoName} · {c.totalLots} lot(s)
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                      disabled={!c.phone}
+                      title={c.phone ? undefined : 'No phone number on file for this account'}
+                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Send
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Send
-                  </button>
                 </div>
               )
             })}

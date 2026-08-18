@@ -110,6 +110,11 @@ body {
   --critical-tint: #ffebe9;
   --critical-text: #d1242f;
 
+  /* Aura ring color once GMP runs past the golden threshold (>60%, see
+     IposPage's IpoCard) — a richer amber-gold than --warning so "very hot"
+     visibly outranks the plain green aura, not just a status-y amber. */
+  --gold: #c98a2b;
+
   --violet: #8250df;
   --violet-tint: #fbefff;
 
@@ -207,6 +212,8 @@ body {
   --critical: #f87171;
   --critical-tint: rgba(248, 113, 113, 0.14);
   --critical-text: #f87171;
+
+  --gold: #e3b341;
 
   --violet: #c4b5fd;
   --violet-tint: rgba(196, 181, 253, 0.14);
@@ -652,7 +659,14 @@ table {
   position: absolute;
   inset: -3px;
   z-index: -1;
-  border-radius: inherit;
+  /* inset: -3px grows this box 3px past .card's own edge on every side, but
+     `border-radius: inherit` copied .card's radius verbatim onto that now-
+     bigger box — a corner curve sized for the smaller box is visibly too
+     tight for the bigger one, so the mask's content-box/border-box rings
+     stop being concentric right at the corners and leave a small gap in the
+     glow exactly there. Growing the radius by the same 3px the box grew
+     keeps both rings concentric all the way around. */
+  border-radius: calc(var(--card-radius) + 3px);
   /* Alternating with a mix toward TRANSPARENT (the first attempt) barely
      registered as motion — its visibility depends on whatever's behind the
      blur. Mixing toward black instead keeps both stops fully opaque, so the
@@ -660,8 +674,15 @@ table {
      regardless of background. Pushed further still (55%→20% green, i.e. a
      much darker second stop) plus opacity 1 (was 0.8) and a touch less blur
      — the 55%/0.8 version was still too subtle to clearly read as
-     spinning. */
-  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 20%, black), var(--good));
+     spinning. --aura-color defaults to --good but IpoCard overrides it to
+     --gold past the 60% GMP threshold, so the same ring definition serves
+     both colors. */
+  background: conic-gradient(
+    from var(--aura-angle),
+    var(--aura-color, var(--good)),
+    color-mix(in srgb, var(--aura-color, var(--good)) 20%, black),
+    var(--aura-color, var(--good))
+  );
   /* conic-gradient fills its ENTIRE box, not just a ring around the edge
      — without this mask it painted a solid blurred rectangle behind the
      whole card. padding + a content-box/xor mask keeps only the outer
@@ -673,7 +694,10 @@ table {
   mask-composite: exclude;
   filter: blur(5px);
   opacity: 1;
-  animation: aura-spin 6s linear infinite;
+  /* --aura-duration is set inline per-card (IpoCard) — faster as GMP% rises
+     above the 40% baseline, so a hotter IPO's ring visibly spins faster
+     rather than every hot-GMP card looking identically urgent. */
+  animation: aura-spin var(--aura-duration, 6s) linear infinite;
 }
 @keyframes aura-spin {
   to {

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckIcon } from '@primer/octicons-react'
 import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
@@ -728,6 +728,15 @@ function IpoCard({
   // so it stays on-theme in both light and dark without its own overrides.
   const gmpPercent = parseGmpPercent(ipo.gmp_notes)
   const isHotGmp = gmpPercent != null && gmpPercent > 45
+  // 40% is the reference point the current 6s spin was tuned at — above
+  // that, speed scales up in the same proportion the GMP% rose (240 =
+  // 6 * 40), so an 80% GMP spins twice as fast as a 40% one instead of every
+  // hot-GMP card reading identically urgent regardless of how hot it is.
+  // Floored at 1s so it never blurs into an unreadable flicker.
+  const auraDurationSec = isHotGmp && gmpPercent ? Math.max(1, 240 / gmpPercent) : undefined
+  // Past 60% the ring goes from green ("good news") to gold ("very hot") —
+  // a visibly different tier, not just a faster version of the same color.
+  const isGoldenGmp = isHotGmp && gmpPercent != null && gmpPercent > 60
   const card = (
     <div className="card stagger-item flex flex-col gap-2 p-3.5">
       <div className="flex items-start justify-between gap-2">
@@ -845,7 +854,19 @@ function IpoCard({
   )
 
   if (!isHotGmp) return card
-  return <div className="aura">{card}</div>
+  return (
+    <div
+      className="aura"
+      style={
+        {
+          '--aura-duration': auraDurationSec ? `${auraDurationSec}s` : undefined,
+          '--aura-color': isGoldenGmp ? 'var(--gold)' : undefined,
+        } as CSSProperties
+      }
+    >
+      {card}
+    </div>
+  )
 }
 
 function ImportCard({
