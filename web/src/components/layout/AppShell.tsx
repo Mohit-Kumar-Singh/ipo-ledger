@@ -467,8 +467,17 @@ export function AppShell() {
           top inset keeps the page's own <h1> clear of the clock on first
           paint; scrolling still slides content up under the status bar as iOS
           expects. Zero on desktop (no inset), and on the content wrapper (not
-          the sticky sidebar, which handles its own inset). */}
-      <div className="min-w-0 flex-1 overflow-x-hidden" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+          the sticky sidebar, which handles its own inset).
+          env(safe-area-inset-top) alone isn't enough on Android — it only
+          ever reports an actual display CUTOUT (a notch), not "there's a
+          status bar here." In the browser's own Fullscreen mode (this
+          page's own fullscreen toggle, or a phone's "hide address bar on
+          scroll" browser chrome) Android hides the status bar without
+          creating a cutout, so env() reports 0 and a page title collided
+          directly with the clock/battery icons — confirmed via a real
+          screenshot. pt-3 (mobile only, sm:pt-0) is a fixed floor under
+          that env() value for exactly that gap. */}
+      <div className="safe-top min-w-0 flex-1 overflow-x-hidden">
         <main
           className="mx-auto max-w-6xl px-4 pt-6 sm:px-6 md:px-8 md:pt-8 lg:pb-8"
           // Extra bottom padding on phone/tablet so the fixed bottom tab bar

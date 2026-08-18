@@ -40,6 +40,24 @@ body {
   touch-action: pan-x pan-y;
 }
 
+/* env(safe-area-inset-top) alone only ever reports an actual display CUTOUT
+   (an iPhone notch/Dynamic Island) — it does NOT mean "there's a status bar
+   here." In the browser's own Fullscreen mode (this app's fullscreen
+   toggle, or a phone browser hiding its address bar on scroll) Android
+   hides the status bar without creating a cutout, so env() reports 0 and a
+   page's own <h1> collided directly with the clock/battery icons —
+   confirmed via a real screenshot. The fixed 0.75rem floor (mobile only)
+   guarantees real clearance in that case; sm: and up drops back to pure
+   env() since desktop has no status bar to begin with. */
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+@media (max-width: 639px) {
+  .safe-top {
+    padding-top: max(env(safe-area-inset-top), 0.75rem);
+  }
+}
+
 :root {
   color-scheme: light;
 

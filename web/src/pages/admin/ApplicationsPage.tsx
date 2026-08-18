@@ -918,14 +918,24 @@ export function ApplicationsPage() {
                   return (
                     <Fragment key={a.id}>
                       {funderHeader}
-                      <div className="stagger-item flex flex-wrap items-center gap-3 p-4">
+                      {/* flex-col on phone (stacked, with border-t dividers
+                          between the identity/mandate/action groups below
+                          giving real breathing room) — was one giant
+                          flex-wrap row at every width, which is exactly
+                          what made this collapse into an unreadable dense
+                          block on a phone: every fixed-width desktop column
+                          (w-32/w-36/w-24) just wrapped onto its own
+                          cramped line with no visual grouping at all. sm:
+                          and up keeps the original dense row unchanged. */}
+                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                      <div className="flex items-start gap-3">
                       {eligibleForNotAllotted && (
                         <input
                           type="checkbox"
                           aria-label={`Select ${holderName} for bulk not-allotted`}
                           checked={selectedForNotAllotted.has(a.id)}
                           onChange={() => toggleSelectedForNotAllotted(a.id)}
-                          className="shrink-0"
+                          className="mt-2 shrink-0 sm:mt-0"
                         />
                       )}
                       <div
@@ -1028,6 +1038,17 @@ export function ApplicationsPage() {
                             )
                           ))}
                       </div>
+                      {/* Status badge shown here (top row, mobile) AND again
+                          below (sm:, desktop's original position) — cheaper
+                          than threading one badge through two very
+                          differently-shaped layouts, and it only ever
+                          renders one or the other per breakpoint. */}
+                      {a.status !== 'APPLIED' && (
+                        <div className="shrink-0 sm:hidden">
+                          <StatusBadge status={a.status} />
+                        </div>
+                      )}
+                      </div>
 
                       {/* App # (ipoji's own application number, when synced from there)
                           replaces the old lots/amount display — those are now assumed
@@ -1035,8 +1056,12 @@ export function ApplicationsPage() {
                           scraped values, so showing them here read as more precise than
                           they actually are. This is a directly checkable identifier
                           against ipoji instead. Blank for manually-entered applications,
-                          which never have one. */}
-                      <div className="w-32 shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          which never have one. Hidden on phone — the group header
+                          above already names the IPO, so repeating it (plus the app
+                          number, which is often ALSO already shown under the name
+                          above) was pure duplication once this became its own line
+                          instead of a fixed desktop column. */}
+                      <div className="hidden w-32 shrink-0 text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
                         {a.ipoji_app_number && (
                           <>
                             {/* First word only ("Dhoot" not "Dhoot Transmission") —
@@ -1050,7 +1075,7 @@ export function ApplicationsPage() {
                       </div>
 
                       {a.sell_price != null && (
-                        <div className="w-24 shrink-0 text-xs" style={{ color: 'var(--good)' }}>
+                        <div className="w-full shrink-0 text-xs sm:w-24" style={{ color: 'var(--good)' }}>
                           Sold ₹{a.sell_price.toLocaleString('en-IN')}
                         </div>
                       )}
@@ -1059,10 +1084,23 @@ export function ApplicationsPage() {
                           row here — showing it as a badge on every single
                           application was just noise, not information. Only the
                           states that actually mean something (allotted/not
-                          allotted/sold) get a badge now. */}
-                      {a.status !== 'APPLIED' && <StatusBadge status={a.status} />}
+                          allotted/sold) get a badge now. Desktop position —
+                          see the phone-only copy of this same badge above. */}
+                      {a.status !== 'APPLIED' && (
+                        <div className="hidden sm:block">
+                          <StatusBadge status={a.status} />
+                        </div>
+                      )}
 
-                      <div className="w-36 shrink-0 text-xs" id={`mandate-${a.id}`}>
+                      {/* border-t + pt on phone only — a real divider between
+                          the identity block above and this one, instead of
+                          it just running straight into whatever came before
+                          with no visual break. */}
+                      <div
+                        className="w-full border-t pt-2.5 text-xs sm:w-36 sm:shrink-0 sm:border-t-0 sm:pt-0"
+                        style={{ borderColor: 'var(--border)' }}
+                        id={`mandate-${a.id}`}
+                      >
                         {a.mandate_status === 'PENDING' ? (
                           canMarkMandate ? (
                             <div className="flex items-center gap-2">
@@ -1109,7 +1147,11 @@ export function ApplicationsPage() {
                         )}
                       </div>
 
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <div
+                        className="flex w-full items-center justify-between gap-2 border-t pt-2.5 sm:w-auto sm:shrink-0 sm:flex-wrap sm:border-t-0 sm:pt-0"
+                        style={{ borderColor: 'var(--border)' }}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
                         {isOwner && a.status === 'APPLIED' && (
                           <>
                             {/* Can't know allotment status before the registrar has actually
@@ -1165,11 +1207,13 @@ export function ApplicationsPage() {
                             Undo
                           </button>
                         )}
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
                         {isOwner && (
                         <button
                           onClick={() => openEdit(a)}
                           aria-label={`Edit application for ${a.demat_accounts?.holder_name}`}
-                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                          className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
                           style={{ color: 'var(--ink-muted)' }}
                         >
                           <PencilIcon size={15} />
@@ -1179,12 +1223,13 @@ export function ApplicationsPage() {
                         <button
                           onClick={() => deleteApplication(a.id)}
                           aria-label={`Delete application for ${a.demat_accounts?.holder_name}`}
-                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
+                          className="rounded-lg p-2 transition-colors hover:bg-[var(--critical-tint)] sm:p-1.5"
                           style={{ color: 'var(--critical)' }}
                         >
                           <TrashIcon size={15} />
                         </button>
                         )}
+                        </div>
                       </div>
                       </div>
                     </Fragment>
