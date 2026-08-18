@@ -64,7 +64,7 @@ export type ProfitProjectionRow = {
 // account on file at all — a genuinely self-funded application still needs
 // to generate a funder card (e.g. the Expected profit projection), same
 // fallback lib/applicationAttribution.ts's pie chart already uses.
-function effectiveFunder(r: ProfitProjectionRow) {
+export function effectiveFunder(r: ProfitProjectionRow) {
   return (
     r.funder_override ??
     r.bank_accounts ??
@@ -237,4 +237,32 @@ export function buildBookedProfitLines(rows: ProfitProjectionRow[], profitPerson
     })
   }
   return lines
+}
+
+// Same shape as FunderAllottedCard (NotificationsPage's pre-sale "Allotment
+// updates" projection card) plus the one thing that projection doesn't
+// have yet: a REAL sell price. Reuses buildFunderAllottedCards internally —
+// only ever called with an already-filtered row set (status === 'SOLD' AND
+// listing_date === target date), so the aggregation itself doesn't need
+// separate logic, just a real price to feed expectedProfitBreakdown's
+// `livePricePerShare` param instead of a GMP guess or a live quote.
+export interface SoldFunderCard extends FunderAllottedCard {
+  sellPricePerShare: number
+}
+
+export function buildSoldFunderCards(
+  soldTodayRows: ProfitProjectionRow[],
+  sameIdentity: (a: string, b: string) => boolean,
+): SoldFunderCard[] {
+  const cards = buildFunderAllottedCards(soldTodayRows, sameIdentity) as SoldFunderCard[]
+  for (const c of cards) {
+    const cardRows = soldTodayRows.filter((r) => {
+      const funder = effectiveFunder(r)
+      return r.ipo_id === c.ipoId && !!funder?.account_holder_name && sameIdentity(funder.account_holder_name, c.funderName)
+    })
+    const totalLots = cardRows.reduce((s, r) => s + r.lots, 0)
+    const weightedSum = cardRows.reduce((s, r) => s + (r.sell_price ?? 0) * r.lots, 0)
+    c.sellPricePerShare = totalLots > 0 ? weightedSum / totalLots : 0
+  }
+  return cards
 }

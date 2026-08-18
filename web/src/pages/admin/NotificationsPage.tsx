@@ -9,10 +9,12 @@ import { sameIdentity } from '../../lib/applicationAttribution'
 import { buildSellReminderText, resolveSellPdfUrl, type SellAccountDetails } from '../../lib/sellReminder'
 import {
   buildFunderAllottedCards,
+  buildSoldFunderCards,
   expectedProfitBreakdown,
   rupees,
   type FunderAllottedCard,
   type ProfitProjectionRow,
+  type SoldFunderCard,
 } from '../../lib/expectedProfit'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { Notification } from '../../types/database'
@@ -253,6 +255,40 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   )
 }
 
+// Same message shape as buildFunderAllottedMessage (the PRE-sale projection
+// above) — reusing expectedProfitBreakdown with the real sell price as its
+// `livePricePerShare` param gives every number (profit/lot, amount to
+// return, etc.) for free, computed off what actually happened instead of a
+// GMP/live-quote guess. Only shown for applications sold on the IPO's own
+// listing day (see buildSoldFunderCards) — this REPLACES the pre-sale
+// projection card and the sell-reminder-to-holder for those specific
+// applications, since there's nothing left to project or remind once it's
+// actually sold.
+function buildSoldFunderMessage(card: SoldFunderCard): string {
+  const list = card.holderNames.map((h, i) => `${i + 1}. ${h.name}${h.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}`).join('\n')
+  const footnote = card.holderNames.some((h) => h.isOverride)
+    ? `\n\n_🏷️ = funded via a transfer to a different UPI, not that your own UPI_`
+    : ''
+  const PARTY = '\u{1F389}'
+  const cutPercentLabel = `${Math.round(card.cutPercent) === card.cutPercent ? card.cutPercent : card.cutPercent.toFixed(1)}%`
+  const b = expectedProfitBreakdown(card, card.sellPricePerShare)
+  const intro =
+    `Hi ${card.funderName}, your *${card.ipoName}* application(s) have been *sold* today at ` +
+    `${rupees(card.sellPricePerShare)}/share ${PARTY}:\n\n${list}`
+  return (
+    `${intro}\n\n` +
+    `_Profit_\n` +
+    `${rupees(b.yourProfitPerLot)} × ${card.totalLots} (lots) = *${rupees(b.netYourProfit)}*\n` +
+    `> ${rupees(card.sellPricePerShare)}/share × lot size = ${rupees(b.soldPrice)} (sold price)\n` +
+    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot\n` +
+    `> ${rupees(b.profitPerLot)} − ${cutPercentLabel} (account holder cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
+    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share) = ${rupees(b.yourProfitPerLot)} your profit/lot\n\n` +
+    `*Remaining to pay you* = ${rupees(b.investedTotal)} (principal) + ${rupees(b.netYourProfit)} (profit) = *${rupees(b.amountToReturn)}*` +
+    `${footnote}\n\n` +
+    `> Other updates are posted on ${PORTAL_URL}`
+  )
+}
+
 // Local calendar day, not UTC — an application entered at 11pm IST is
 // "today" to whoever's looking at this page, even though its applied_at
 // timestamp may already have rolled into tomorrow in UTC.
@@ -390,6 +426,7 @@ export function NotificationsPage() {
   const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
   const [sellTodayCards, setSellTodayCards] = useState<SellReminderCard[]>([])
   const [sellTomorrowCards, setSellTomorrowCards] = useState<SellReminderCard[]>([])
+  const [soldTodayCards, setSoldTodayCards] = useState<SoldFunderCard[]>([])
   const [loading, setLoading] = useState(true)
   // Surfaced instead of silently swallowed — the funders query previously
   // just fell back to an empty array on any error (data ?? []), so a real
@@ -425,7 +462,7 @@ export function NotificationsPage() {
           // literal paying UPI, and funder_override_id, migration 0063)
           // — and funder cards/messages prefer the override when set
           // (see effectiveFunder()).
-          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, ' +
+          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
             'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
             'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
             'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
@@ -446,11 +483,18 @@ export function NotificationsPage() {
     ])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
     const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
+    const todayStr = nowIst().dateStr
+    // Already sold, on the IPO's own listing day — nothing left to project
+    // (it's real now) or remind the holder about (they already sold).
+    // Excluded from the pre-sale "Allotment updates" projection below and
+    // replaced by its own "Sold today" section with real numbers instead.
+    const isSoldToday = (r: ApplicationForFunderRow) => r.status === 'SOLD' && r.ipos?.listing_date === todayStr
     setFunderCards(buildFunderIpoCards(funderRows))
-    setAllottedCards(buildFunderAllottedCards(funderRows, sameIdentity))
+    setAllottedCards(buildFunderAllottedCards(funderRows.filter((r) => !isSoldToday(r)), sameIdentity))
     setHolderAllottedCards(buildHolderAllottedCards(funderRows))
-    setSellTodayCards(buildSellReminderCards(funderRows, nowIst().dateStr))
+    setSellTodayCards(buildSellReminderCards(funderRows, todayStr))
     setSellTomorrowCards(buildSellReminderCards(funderRows, tomorrowIstDateStr()))
+    setSoldTodayCards(buildSoldFunderCards(funderRows.filter((r) => isSoldToday(r) && r.sell_price != null), sameIdentity))
     setMyNotifications((myNotifsRes.data ?? []) as Notification[])
     setLoading(false)
   }
@@ -491,6 +535,46 @@ export function NotificationsPage() {
       )}
       {isAdmin && !loading && sellTomorrowCards.length > 0 && (
         <SellReminderSection title="Sell tomorrow" when="tomorrow" cards={sellTomorrowCards} />
+      )}
+
+      {/* Applications already marked SOLD, on the IPO's own listing day —
+          replaces both the sell-reminder (nothing left to remind, already
+          sold) and the pre-sale "Allotment updates" projection (nothing
+          left to project, it's real now) for exactly these applications.
+          Real numbers via computeProfitSplit, not a GMP/live-price guess. */}
+      {isAdmin && !loading && soldTodayCards.length > 0 && (
+        <section>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
+            Sold today
+            <InfoTooltip text="One card per funder per IPO listing today whose funded accounts already show as SOLD — with the real profit, computed from the actual sell price entered, not a GMP/live-price estimate." />
+          </h2>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {soldTodayCards.map((c) => {
+              const message = buildSoldFunderMessage(c)
+              return (
+                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.funderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
       )}
 
       {/* Non-admin only — the funder/holder card sections below are
