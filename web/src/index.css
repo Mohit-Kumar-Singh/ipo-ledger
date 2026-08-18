@@ -653,7 +653,15 @@ table {
   inset: -3px;
   z-index: -1;
   border-radius: inherit;
-  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 35%, transparent), var(--good));
+  /* Alternating with a mix toward TRANSPARENT (the first attempt) barely
+     registered as motion — its visibility depends on whatever's behind the
+     blur, and blur(6px) smoothed the already-subtle contrast further.
+     Mixing toward black instead keeps both stops fully opaque, so the
+     bright/dark contrast (and therefore the rotation) reads the same
+     regardless of background — same reason the original amber/red version
+     always alternated between two fully-opaque colors, never faded one
+     toward transparent. */
+  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 55%, black), var(--good));
   /* conic-gradient fills its ENTIRE box, not just a ring around the edge
      — without this mask it painted a solid blurred rectangle behind the
      whole card. padding + a content-box/xor mask keeps only the outer
