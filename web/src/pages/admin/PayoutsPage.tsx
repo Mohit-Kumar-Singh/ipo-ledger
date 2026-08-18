@@ -344,7 +344,7 @@ export function PayoutsPage() {
             Payouts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Every payout owed out of a sold application, across every IPO — {outstandingLines.length} outstanding
+            {outstandingLines.length} outstanding
             {outstandingLines.length > 0 && ` (₹${Math.round(outstandingTotal).toLocaleString('en-IN')})`}.
           </p>
         </div>
