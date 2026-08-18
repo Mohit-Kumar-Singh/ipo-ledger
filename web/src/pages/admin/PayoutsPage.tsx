@@ -14,7 +14,7 @@ import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
-import type { AllotmentBoardRow } from '../../types/database'
+import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
 interface PayoutLine {
@@ -82,7 +82,8 @@ function buildPayoutLines(rows: AllotmentBoardRow[], profitPersonName: string): 
 }
 
 function rupees(n: number): string {
-  return `₹${Math.round(n).toLocaleString('en-IN')}`
+  const sign = n < 0 ? '−' : ''
+  return `${sign}₹${Math.round(Math.abs(n)).toLocaleString('en-IN')}`
 }
 
 // The two-sided settlement for one SOLD application: what the account
@@ -91,9 +92,13 @@ function rupees(n: number): string {
 // their profit share, if any — money GOING OUT). Distinct from PayoutLine
 // above, which only tracks the OUTGOING obligations already being marked
 // paid/unpaid; this is a per-application view of the full picture (both
-// directions at once), computed fresh each render rather than tracked in
-// the DB — there's no "received from holder" flag to check off, only
-// "owed to funder"/"owed to holder's cut" already exist as real fields.
+// directions at once).
+//
+// remainingFromHolder/remainingToFunder are the LIVE figures — the full
+// amountFromHolder/amountToFunder owed, minus whatever settlement_payments
+// rows have actually been logged against this application so far (see
+// migration 0078). Can go negative if overpaid; shown as-is rather than
+// clamped to 0, since an overpayment is worth noticing, not hiding.
 interface SettlementCard {
   applicationId: string
   ipoName: string
@@ -121,9 +126,16 @@ interface SettlementCard {
   // directly rather than re-derived, so it can never drift from the
   // authoritative split even if the two amounts above are ever adjusted.
   myProfit: number
+  payments: SettlementPayment[]
+  remainingFromHolder: number
+  remainingToFunder: number
 }
 
-function buildSettlementCards(rows: AllotmentBoardRow[], profitPersonName: string): SettlementCard[] {
+function buildSettlementCards(
+  rows: AllotmentBoardRow[],
+  profitPersonName: string,
+  paymentsByApp: Map<string, SettlementPayment[]>,
+): SettlementCard[] {
   const cards: SettlementCard[] = []
   for (const r of rows) {
     if (r.sell_price == null) continue
@@ -139,6 +151,19 @@ function buildSettlementCards(rows: AllotmentBoardRow[], profitPersonName: strin
       splitWithFunder: r.split_profit_with_funder,
     })
     const bidAmount = r.bid_amount ?? 0
+    const amountFromHolder = result.isDematHolderSelf ? 0 : result.totalSoldAmount - result.dematCutAmount
+    const amountToFunder = result.hasFunder && !result.isFunderSelf ? bidAmount + result.funderShare : 0
+    const payments = paymentsByApp.get(r.application_id) ?? []
+    // A holder_to_funder payment reduces BOTH sides at once — it's money
+    // that left the holder's pocket (counts against what they still owe)
+    // AND money the funder now has (counts against what's still owed to
+    // them) — it just never passed through you.
+    const paidByHolder = payments
+      .filter((p) => p.kind === 'holder_to_admin' || p.kind === 'holder_to_funder')
+      .reduce((s, p) => s + p.amount, 0)
+    const sentToFunder = payments
+      .filter((p) => p.kind === 'admin_to_funder' || p.kind === 'holder_to_funder')
+      .reduce((s, p) => s + p.amount, 0)
     cards.push({
       applicationId: r.application_id,
       ipoName: r.company_name,
@@ -152,14 +177,17 @@ function buildSettlementCards(rows: AllotmentBoardRow[], profitPersonName: strin
       holderName: r.holder_name,
       isDematHolderSelf: result.isDematHolderSelf,
       dematCutAmount: result.dematCutAmount,
-      amountFromHolder: result.isDematHolderSelf ? 0 : result.totalSoldAmount - result.dematCutAmount,
+      amountFromHolder,
       hasFunder: result.hasFunder,
       isFunderSelf: result.isFunderSelf,
       funderName: r.bank_account_holder_name,
       funderPhone: r.bank_account_phone,
       funderShare: result.funderShare,
-      amountToFunder: result.hasFunder && !result.isFunderSelf ? bidAmount + result.funderShare : 0,
+      amountToFunder,
       myProfit: result.profitPersonShare,
+      payments,
+      remainingFromHolder: amountFromHolder - paidByHolder,
+      remainingToFunder: amountToFunder - sentToFunder,
     })
   }
   return cards
@@ -188,6 +216,7 @@ export function PayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [rows, setRows] = useState<AllotmentBoardRow[]>([])
+  const [payments, setPayments] = useState<SettlementPayment[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
@@ -199,13 +228,21 @@ export function PayoutsPage() {
     // No per-IPO filter — v_allotment_board is already RLS-scoped per
     // viewer, this just doesn't narrow it down to one selected IPO the way
     // AllotmentBoardPage does.
-    const { data, error } = await supabase.from('v_allotment_board').select('*').eq('status', 'SOLD')
-    if (error) {
-      setLoadError(error.message)
+    const [boardRes, paymentsRes] = await Promise.all([
+      supabase.from('v_allotment_board').select('*').eq('status', 'SOLD'),
+      supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
+    ])
+    if (boardRes.error) {
+      setLoadError(boardRes.error.message)
       setLoading(false)
       return
     }
-    setRows(((data ?? []) as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived))
+    setRows((boardRes.data as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived))
+    // Not fatal on its own — the page still works with the pre-existing
+    // paid/unpaid flags below, just without the live remaining-amount
+    // figures on each settlement card.
+    if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
+    setPayments((paymentsRes.data as SettlementPayment[]) ?? [])
     setLoading(false)
   }
 
@@ -244,9 +281,17 @@ export function PayoutsPage() {
   const paidGroups = groupByRecipient(paidLines).filter(searchFilter)
   const outstandingTotal = outstandingLines.reduce((s, l) => s + l.amount, 0)
 
-  const settlementCards = buildSettlementCards(rows, profile?.full_name ?? '')
-  const totalIncoming = settlementCards.reduce((s, c) => s + c.amountFromHolder, 0)
-  const totalOutgoing = settlementCards.reduce((s, c) => s + c.amountToFunder, 0)
+  const paymentsByApp = new Map<string, SettlementPayment[]>()
+  for (const p of payments) {
+    if (!paymentsByApp.has(p.application_id)) paymentsByApp.set(p.application_id, [])
+    paymentsByApp.get(p.application_id)!.push(p)
+  }
+  const settlementCards = buildSettlementCards(rows, profile?.full_name ?? '', paymentsByApp)
+  // Live figures — what's ACTUALLY still outstanding right now, after every
+  // logged settlement_payments row, not the gross pre-payment totals. This
+  // is the headline "how much do I still need to send to funders" number.
+  const totalStillFromHolder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingFromHolder), 0)
+  const totalStillToFunder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
 
   return (
@@ -262,23 +307,26 @@ export function PayoutsPage() {
           </p>
         </div>
         {/* Adjacent to the header text, not its own full-width row — the
-            overall picture across every sold application at a glance. */}
+            overall picture across every sold application at a glance. These
+            are the LIVE remaining figures (after settlement_payments), not
+            the gross totals — "Still to send" is what actually still needs
+            moving out of your own pocket right now. */}
         {settlementCards.length > 0 && (
           <div className="card flex shrink-0 items-center gap-4 px-4 py-2.5 text-sm">
             <div>
               <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                Coming in
+                Still owed to you
               </p>
               <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>
-                {rupees(totalIncoming)}
+                {rupees(totalStillFromHolder)}
               </p>
             </div>
             <div>
               <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                Going out
+                Still to send funders
               </p>
               <p className="font-mono-ipo font-semibold" style={{ color: 'var(--critical-text)' }}>
-                {rupees(totalOutgoing)}
+                {rupees(totalStillToFunder)}
               </p>
             </div>
             <div>
@@ -300,7 +348,7 @@ export function PayoutsPage() {
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {settlementCards.map((c) => (
-              <SettlementCardView key={c.applicationId} c={c} />
+              <SettlementCardView key={c.applicationId} c={c} onLogged={load} />
             ))}
           </div>
         </section>
@@ -350,12 +398,57 @@ export function PayoutsPage() {
   )
 }
 
+const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
+  holder_to_admin: 'Holder paid you',
+  admin_to_funder: 'You paid the funder',
+  holder_to_funder: 'Holder paid the funder directly',
+}
+
 // One card per sold application, showing both directions of money at once:
 // what the account holder sends back (green — coming in) and what's owed
 // out to whoever funded it (subtle red — going out). Either half can be
 // absent (self-funded: no funder row; the holder IS you: no holder row).
-function SettlementCardView({ c }: { c: SettlementCard }) {
+// Below that, the live remaining amounts (after logged payments) and a
+// small form to log a new one.
+function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () => void }) {
   const cutRemainder = c.profitTotal - c.dematCutAmount
+  const [showLog, setShowLog] = useState(false)
+  const [kind, setKind] = useState<SettlementPaymentKind>('holder_to_admin')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  // Defaults the amount field to whatever's still outstanding for the
+  // selected kind's direction, so the common case (logging the full
+  // remaining amount in one go) is a single tap rather than retyping a
+  // number that's already on screen above.
+  function selectKind(k: SettlementPaymentKind) {
+    setKind(k)
+    const suggested = k === 'admin_to_funder' || k === 'holder_to_funder' ? c.remainingToFunder : c.remainingFromHolder
+    setAmount(suggested > 0 ? String(Math.round(suggested)) : '')
+  }
+
+  async function logPayment() {
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    setSaving(true)
+    const { error } = await supabase
+      .from('settlement_payments')
+      .insert({ application_id: c.applicationId, kind, amount: amt, note: note.trim() || null })
+    setSaving(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    setAmount('')
+    setNote('')
+    setShowLog(false)
+    onLogged()
+  }
+
   return (
     <div className="card stagger-item space-y-3 p-4">
       <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
@@ -380,6 +473,12 @@ function SettlementCardView({ c }: { c: SettlementCard }) {
             <p className="pt-1 font-medium" style={{ color: 'var(--good)' }}>
               Total to receive: {rupees(c.bidAmount)} + {rupees(cutRemainder)} = {rupees(c.amountFromHolder)}
             </p>
+            {c.remainingFromHolder !== c.amountFromHolder && (
+              <p className="pt-1 font-medium" style={{ color: c.remainingFromHolder > 0 ? 'var(--warning-text)' : 'var(--good)' }}>
+                Still owed: {rupees(c.remainingFromHolder)}
+                {c.remainingFromHolder < 0 && ' (overpaid)'}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -398,6 +497,12 @@ function SettlementCardView({ c }: { c: SettlementCard }) {
             <p className="pt-1 font-medium" style={{ color: 'var(--critical-text)' }}>
               Total to pay: {rupees(c.bidAmount)} + {rupees(c.funderShare)} = {rupees(c.amountToFunder)}
             </p>
+            {c.remainingToFunder !== c.amountToFunder && (
+              <p className="pt-1 font-medium" style={{ color: c.remainingToFunder > 0 ? 'var(--warning-text)' : 'var(--good)' }}>
+                Still to send: {rupees(c.remainingToFunder)}
+                {c.remainingToFunder < 0 && ' (overpaid)'}
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -405,6 +510,60 @@ function SettlementCardView({ c }: { c: SettlementCard }) {
       <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
         My profit: <span style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{rupees(c.myProfit)}</span>
       </p>
+
+      {c.payments.length > 0 && (
+        <div className="space-y-1 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+          {c.payments.map((p) => (
+            <div key={p.id} className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
+              <span>
+                {PAYMENT_KIND_LABELS[p.kind]}
+                {p.note && ` — ${p.note}`}
+              </span>
+              <span className="font-mono-ipo shrink-0">{rupees(p.amount)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(c.amountFromHolder > 0 || c.amountToFunder > 0) &&
+        (showLog ? (
+          <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+            <select value={kind} onChange={(e) => selectKind(e.target.value as SettlementPaymentKind)} className="input text-xs">
+              {c.amountFromHolder > 0 && <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>}
+              {c.amountToFunder > 0 && <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>}
+              {c.amountToFunder > 0 && <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>}
+            </select>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="Amount"
+                className="input text-xs"
+              />
+              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-xs" />
+            </div>
+            <div className="flex gap-2">
+              <button onClick={logPayment} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
+                {saving ? 'Logging…' : 'Log payment'}
+              </button>
+              <button onClick={() => setShowLog(false)} className="btn-secondary text-xs">
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => {
+              selectKind(c.amountFromHolder > 0 ? 'holder_to_admin' : 'admin_to_funder')
+              setShowLog(true)
+            }}
+            className="link-accent text-xs font-medium"
+          >
+            + Log a payment
+          </button>
+        ))}
     </div>
   )
 }
@@ -499,4 +658,3 @@ function PayoutSection({
     </section>
   )
 }
-

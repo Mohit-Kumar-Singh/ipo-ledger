@@ -129,6 +129,24 @@ export interface Application {
 
 export type MandateStatus = 'PENDING' | 'APPROVED' | 'CANCELLED'
 
+// One logged money movement toward settling a SOLD application — see
+// migration 0078 for the full reasoning behind the three kinds. Partial
+// amounts are expected (a holder rarely pays the whole amountFromHolder in
+// one go); "how much is still owed" is always amountFromHolder/amountToFunder
+// (computeProfitSplit) minus the relevant kinds' sum, computed client-side,
+// never stored — this table is only ever the log of what's actually moved.
+export type SettlementPaymentKind = 'holder_to_admin' | 'admin_to_funder' | 'holder_to_funder'
+
+export interface SettlementPayment {
+  id: string
+  application_id: string
+  kind: SettlementPaymentKind
+  amount: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+}
+
 export interface Notification {
   id: string
   application_id: string | null
