@@ -866,6 +866,17 @@ table {
     transition:
       transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
       box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    /* A long-press on an <a> (Dashboard's stat tiles are Links) triggers
+       the browser's OWN native link-preview/callout gesture on phone (iOS
+       Safari's "Peek" tries to render the destination — this whole SPA —
+       inside a preview overlay; Android shows a copy/open/share sheet).
+       For an SPA that's enough contention to read as the entire app
+       freezing, not just an unwanted menu. touch-callout: none turns off
+       iOS's version outright; touch-action: manipulation removes the
+       double-tap-to-zoom delay/ambiguity that otherwise widens the window
+       where a long-press gets interpreted as a preview trigger. */
+    -webkit-touch-callout: none;
+    touch-action: manipulation;
   }
   .tile-hover:hover {
     transform: translateY(-4px);
