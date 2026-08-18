@@ -81,6 +81,90 @@ function buildPayoutLines(rows: AllotmentBoardRow[], profitPersonName: string): 
   return lines
 }
 
+function rupees(n: number): string {
+  return `₹${Math.round(n).toLocaleString('en-IN')}`
+}
+
+// The two-sided settlement for one SOLD application: what the account
+// holder owes back (principal + all profit except their own cut — money
+// COMING IN) and what's owed out to whoever funded it (their principal +
+// their profit share, if any — money GOING OUT). Distinct from PayoutLine
+// above, which only tracks the OUTGOING obligations already being marked
+// paid/unpaid; this is a per-application view of the full picture (both
+// directions at once), computed fresh each render rather than tracked in
+// the DB — there's no "received from holder" flag to check off, only
+// "owed to funder"/"owed to holder's cut" already exist as real fields.
+interface SettlementCard {
+  applicationId: string
+  ipoName: string
+  lots: number
+  lotSize: number
+  sellPrice: number
+  bidAmount: number
+  totalSoldAmount: number
+  profitTotal: number
+  cutPercent: number
+  holderName: string
+  isDematHolderSelf: boolean
+  dematCutAmount: number
+  // Money coming IN — what the account holder sends back once they've sold.
+  amountFromHolder: number
+  hasFunder: boolean
+  isFunderSelf: boolean
+  funderName: string | null
+  funderPhone: string | null
+  funderShare: number
+  // Money going OUT — what's owed to the funder (their principal + share).
+  amountToFunder: number
+  // What's actually left over for the profit person (you) once both sides
+  // above have moved — incoming minus outgoing, from computeProfitSplit
+  // directly rather than re-derived, so it can never drift from the
+  // authoritative split even if the two amounts above are ever adjusted.
+  myProfit: number
+}
+
+function buildSettlementCards(rows: AllotmentBoardRow[], profitPersonName: string): SettlementCard[] {
+  const cards: SettlementCard[] = []
+  for (const r of rows) {
+    if (r.sell_price == null) continue
+    const result = computeProfitSplit({
+      sellPricePerShare: r.sell_price,
+      lotSize: r.lot_size,
+      lots: r.lots,
+      bidAmount: r.bid_amount ?? 0,
+      cutPercent: r.profit_share_percent,
+      dematHolderName: r.holder_name,
+      funderName: r.bank_account_holder_name,
+      profitPersonName,
+      splitWithFunder: r.split_profit_with_funder,
+    })
+    const bidAmount = r.bid_amount ?? 0
+    cards.push({
+      applicationId: r.application_id,
+      ipoName: r.company_name,
+      lots: r.lots,
+      lotSize: r.lot_size,
+      sellPrice: r.sell_price,
+      bidAmount,
+      totalSoldAmount: result.totalSoldAmount,
+      profitTotal: result.grossProfit,
+      cutPercent: r.profit_share_percent,
+      holderName: r.holder_name,
+      isDematHolderSelf: result.isDematHolderSelf,
+      dematCutAmount: result.dematCutAmount,
+      amountFromHolder: result.isDematHolderSelf ? 0 : result.totalSoldAmount - result.dematCutAmount,
+      hasFunder: result.hasFunder,
+      isFunderSelf: result.isFunderSelf,
+      funderName: r.bank_account_holder_name,
+      funderPhone: r.bank_account_phone,
+      funderShare: result.funderShare,
+      amountToFunder: result.hasFunder && !result.isFunderSelf ? bidAmount + result.funderShare : 0,
+      myProfit: result.profitPersonShare,
+    })
+  }
+  return cards
+}
+
 interface RecipientGroup {
   name: string
   phone: string | null
@@ -160,6 +244,11 @@ export function PayoutsPage() {
   const paidGroups = groupByRecipient(paidLines).filter(searchFilter)
   const outstandingTotal = outstandingLines.reduce((s, l) => s + l.amount, 0)
 
+  const settlementCards = buildSettlementCards(rows, profile?.full_name ?? '')
+  const totalIncoming = settlementCards.reduce((s, c) => s + c.amountFromHolder, 0)
+  const totalOutgoing = settlementCards.reduce((s, c) => s + c.amountToFunder, 0)
+  const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -172,7 +261,50 @@ export function PayoutsPage() {
             {outstandingLines.length > 0 && ` (₹${Math.round(outstandingTotal).toLocaleString('en-IN')})`}.
           </p>
         </div>
+        {/* Adjacent to the header text, not its own full-width row — the
+            overall picture across every sold application at a glance. */}
+        {settlementCards.length > 0 && (
+          <div className="card flex shrink-0 items-center gap-4 px-4 py-2.5 text-sm">
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Coming in
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>
+                {rupees(totalIncoming)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Going out
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--critical-text)' }}>
+                {rupees(totalOutgoing)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                My profit
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                {rupees(totalMyProfit)}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+
+      {settlementCards.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Settlement — every sold application
+          </h2>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {settlementCards.map((c) => (
+              <SettlementCardView key={c.applicationId} c={c} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {rows.length > 0 && (
         <div className="relative">
@@ -214,6 +346,65 @@ export function PayoutsPage() {
           />
         </>
       )}
+    </div>
+  )
+}
+
+// One card per sold application, showing both directions of money at once:
+// what the account holder sends back (green — coming in) and what's owed
+// out to whoever funded it (subtle red — going out). Either half can be
+// absent (self-funded: no funder row; the holder IS you: no holder row).
+function SettlementCardView({ c }: { c: SettlementCard }) {
+  const cutRemainder = c.profitTotal - c.dematCutAmount
+  return (
+    <div className="card stagger-item space-y-3 p-4">
+      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+        {c.ipoName} — sold {c.lotSize} share{c.lotSize === 1 ? '' : 's'} at {rupees(c.sellPrice)}/share
+      </p>
+
+      {!c.isDematHolderSelf && c.amountFromHolder > 0 && (
+        <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--good-tint)', background: 'var(--good-tint)' }}>
+          <p className="mb-1.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+            From {c.holderName} (account holder)
+          </p>
+          <div className="space-y-0.5" style={{ color: 'var(--ink-secondary)' }}>
+            <p>Total sold: {rupees(c.totalSoldAmount)}</p>
+            <p>Invested: {rupees(c.bidAmount)}</p>
+            <p>
+              Profit: {rupees(c.totalSoldAmount)} − {rupees(c.bidAmount)} = {rupees(c.profitTotal)}
+            </p>
+            <p className="pt-1">Their {c.cutPercent}% profit-sharing (incl. TAX) cut:</p>
+            <p>
+              {rupees(c.profitTotal)} × {c.cutPercent}% = {rupees(c.dematCutAmount)}
+            </p>
+            <p className="pt-1 font-medium" style={{ color: 'var(--good)' }}>
+              Total to receive: {rupees(c.bidAmount)} + {rupees(cutRemainder)} = {rupees(c.amountFromHolder)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && (
+        <div
+          className="rounded-lg border p-3 text-xs"
+          style={{ borderColor: 'var(--critical-tint)', background: 'var(--critical-tint)' }}
+        >
+          <p className="mb-1.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+            To {c.funderName} (funder)
+          </p>
+          <div className="space-y-0.5" style={{ color: 'var(--ink-secondary)' }}>
+            <p>Their principal: {rupees(c.bidAmount)}</p>
+            <p>Their profit share: {rupees(c.funderShare)}</p>
+            <p className="pt-1 font-medium" style={{ color: 'var(--critical-text)' }}>
+              Total to pay: {rupees(c.bidAmount)} + {rupees(c.funderShare)} = {rupees(c.amountToFunder)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+        My profit: <span style={{ color: 'var(--ink-primary)', fontWeight: 600 }}>{rupees(c.myProfit)}</span>
+      </p>
     </div>
   )
 }
