@@ -39,6 +39,22 @@ Deno.serve(async (req) => {
     const { type, table, record, old_record } = body
     if (table !== 'applications') return new Response('ignored', { status: 200, headers: cors })
 
+    // Funder corrected (e.g. a UPI that wasn't in the portal yet at import
+    // time, added and re-synced afterward — v1.154.2) — any notification
+    // still QUEUED for this application was composed with the OLD funder
+    // name baked into its variables (a point-in-time snapshot, not a live
+    // join), so it stays wrong forever unless something re-composes it.
+    // Only ever touches QUEUED rows: a SENT/SIMULATED/FAILED one already
+    // reached (or attempted to reach) someone, so rewriting or deleting it
+    // after the fact would misrepresent what actually happened.
+    if (
+      type === 'UPDATE' &&
+      (old_record?.bank_account_id !== record.bank_account_id ||
+        old_record?.funder_override_id !== record.funder_override_id)
+    ) {
+      await requeueForFunderChange(record.id)
+    }
+
     let templateKind: TemplateKind | null = null
     if (type === 'INSERT') templateKind = 'ipo_applied'
     if (type === 'UPDATE' && old_record?.status !== record.status && record.status === 'ALLOTTED') {
@@ -104,6 +120,26 @@ function resolveFunder(
 function formatBankDetail(b: BankRow | null): string {
   if (!b) return ''
   return [b.bank_name && b.last4 ? `${b.bank_name} ••${b.last4}` : b.bank_name, b.upi_id].filter(Boolean).join(' / ')
+}
+
+// Deletes any still-QUEUED notification for this application and re-queues
+// a fresh one in its place, so a funder correction actually shows up in the
+// message instead of leaving the row's original snapshot stale forever.
+// queueForApplication's own idempotency check (`if (existing) return`)
+// would otherwise silently no-op a re-queue attempt without the delete
+// first, since it only checks "does a row of this type already exist,"
+// not whether that row's content is still accurate.
+async function requeueForFunderChange(applicationId: string) {
+  const { data: queued } = await admin
+    .from('notifications')
+    .select('id, type')
+    .eq('application_id', applicationId)
+    .eq('status', 'QUEUED')
+  if (!queued || queued.length === 0) return
+  for (const row of queued) {
+    await admin.from('notifications').delete().eq('id', row.id)
+    await queueForApplication(applicationId, row.type === 'ALLOTTED' ? 'ipo_allotted' : 'ipo_applied')
+  }
 }
 
 // Builds the message content and inserts it as QUEUED. No network call — the

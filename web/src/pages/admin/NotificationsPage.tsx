@@ -475,7 +475,7 @@ export function NotificationsPage() {
           // — and funder cards/messages prefer the override when set
           // (see effectiveFunder()).
           'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes), ' +
+            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
             'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
             'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -494,7 +494,18 @@ export function NotificationsPage() {
         : Promise.resolve({ data: [], error: null }),
     ])
     setFundersError(fundersRes.error ? fundersRes.error.message : null)
-    const funderRows = (fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]
+    // Archived filtered out HERE, once, for every card built below — was
+    // previously never checked in this file at all (ipos.is_archived
+    // wasn't even selected), so an IPO that auto-archived because every
+    // application on it settled (e.g. all marked NOT_ALLOTTED) could still
+    // show up in the "Funders" overview: buildFunderIpoCards gates on
+    // isLiveIpo() (a pure date-range check, open_date..listing_date) which
+    // has no idea an IPO was archived — confirmed live: Behari Lal
+    // Engineering, is_archived=true, still within its listing_date window,
+    // kept appearing there.
+    const funderRows = ((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]).filter(
+      (r) => !r.ipos?.is_archived,
+    )
     const todayStr = nowIst().dateStr
     // Already sold — nothing left to project (it's real now) or remind the
     // holder about (they already sold), regardless of exactly which day it

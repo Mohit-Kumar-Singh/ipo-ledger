@@ -950,6 +950,16 @@ export function ApplicationsPage() {
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
                           </p>
+                          {/* IPO name + app number, same row as the holder
+                              name — was only ever shown further down (a
+                              separate muted line, or a desktop-only w-32
+                              column), which on phone meant scanning several
+                              lines just to see which IPO/app a row was even
+                              about. */}
+                          <span className="min-w-0 shrink truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                            {a.ipos?.company_name}
+                            {a.ipoji_app_number ? ` · App #${a.ipoji_app_number}` : ''}
+                          </span>
                           {/* is_backdated is now only ever set true by the
                               explicit "+ Backdated application" flow —
                               ipoji-synced rows never set it (migration 0064
@@ -1048,30 +1058,6 @@ export function ApplicationsPage() {
                           <StatusBadge status={a.status} />
                         </div>
                       )}
-                      </div>
-
-                      {/* App # (ipoji's own application number, when synced from there)
-                          replaces the old lots/amount display — those are now assumed
-                          defaults on ipoji-imported rows (see IpojiSyncPanel), not real
-                          scraped values, so showing them here read as more precise than
-                          they actually are. This is a directly checkable identifier
-                          against ipoji instead. Blank for manually-entered applications,
-                          which never have one. Hidden on phone — the group header
-                          above already names the IPO, so repeating it (plus the app
-                          number, which is often ALSO already shown under the name
-                          above) was pure duplication once this became its own line
-                          instead of a fixed desktop column. */}
-                      <div className="hidden w-32 shrink-0 text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
-                        {a.ipoji_app_number && (
-                          <>
-                            {/* First word only ("Dhoot" not "Dhoot Transmission") —
-                                grouped-by-IPO headers above already give the full
-                                name; this is just enough to place the App # at a
-                                glance while scanning, not a second full label. */}
-                            <p className="truncate font-medium">{a.ipos?.company_name?.split(' ')[0]}</p>
-                            <p className="font-mono-ipo">App #{a.ipoji_app_number}</p>
-                          </>
-                        )}
                       </div>
 
                       {a.sell_price != null && (
