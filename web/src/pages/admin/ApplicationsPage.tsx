@@ -949,14 +949,28 @@ export function ApplicationsPage() {
                         <div className="flex items-center gap-1.5">
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
+                            {/* Phone only — the full company name + app
+                                number alongside it (span below) was
+                                crowding the holder name itself down to a
+                                sliver before it truncated. Just the IPO's
+                                first word here instead, enough to identify
+                                which IPO at a glance; the app number moves
+                                to its own line underneath (see below). */}
+                            {a.ipos?.company_name && (
+                              <span className="ml-1 font-normal sm:hidden" style={{ color: 'var(--ink-muted)' }}>
+                                {a.ipos.company_name.split(' ')[0]}
+                              </span>
+                            )}
                           </p>
                           {/* IPO name + app number, same row as the holder
                               name — was only ever shown further down (a
                               separate muted line, or a desktop-only w-32
                               column), which on phone meant scanning several
                               lines just to see which IPO/app a row was even
-                              about. */}
-                          <span className="min-w-0 shrink truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                              about. Desktop (sm:) only now — phone gets the
+                              condensed first-word + separate app-number-line
+                              treatment above/below instead. */}
+                          <span className="hidden min-w-0 shrink truncate text-xs sm:inline" style={{ color: 'var(--ink-muted)' }}>
                             {a.ipos?.company_name}
                             {a.ipoji_app_number ? ` · App #${a.ipoji_app_number}` : ''}
                           </span>
@@ -1006,6 +1020,16 @@ export function ApplicationsPage() {
                             </span>
                           )}
                         </div>
+                        {/* Phone-only counterpart to the first-word IPO tag
+                            above — the app number, on its own line instead
+                            of crowding the name row. Desktop already shows
+                            the full "company name · App #N" (the sm:inline
+                            span above), so this is redundant there. */}
+                        {a.ipoji_app_number && (
+                          <p className="truncate text-xs sm:hidden" style={{ color: 'var(--ink-muted)' }}>
+                            App #{a.ipoji_app_number}
+                          </p>
+                        )}
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
