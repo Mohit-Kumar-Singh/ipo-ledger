@@ -711,48 +711,67 @@ table {
     box-shadow: 0 0 0 3px var(--accent-tint);
   }
 
+  /* Squircle-ish radius (was rounded-md/6px — GitHub-flat) + a hand-tuned
+     "back ease" curve standing in for real spring physics on the CSS-only
+     buttons (Framer Motion is reserved for the bottom tab bar's shared-
+     layout morph, where a real physics engine actually earns its keep —
+     see AppShell). slight overshoot on the way in reads as springy without
+     a library; :active press-scale is the tactile "liquid" feedback iOS
+     controls have that a color-only hover never gave these. */
   .btn-primary {
-    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
     background: var(--btn-primary-bg);
     border-color: rgba(31, 35, 40, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: background-color 0.15s ease;
+    transition: background-color 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .btn-primary:hover:not(:disabled) {
     background: var(--btn-primary-hover);
   }
+  .btn-primary:active:not(:disabled) {
+    transform: scale(0.96);
+  }
 
   .btn-secondary {
-    @apply rounded-md border px-3 py-2 text-sm font-medium disabled:opacity-50;
+    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-medium disabled:opacity-50;
     border-color: var(--border-strong);
     color: var(--ink-primary);
     background: var(--hover-surface);
-    transition: background-color 0.15s ease;
+    transition: background-color 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .btn-secondary:hover:not(:disabled) {
     background: var(--border);
   }
+  .btn-secondary:active:not(:disabled) {
+    transform: scale(0.96);
+  }
 
   .btn-warning {
-    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
     background: var(--warning);
     border-color: rgba(0, 0, 0, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: filter 0.15s ease;
+    transition: filter 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .btn-warning:hover:not(:disabled) {
     filter: brightness(0.92);
   }
+  .btn-warning:active:not(:disabled) {
+    transform: scale(0.96);
+  }
 
   .btn-danger {
-    @apply rounded-md border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
     background: var(--critical);
     border-color: rgba(0, 0, 0, 0.15);
     box-shadow: var(--shadow-sm);
-    transition: filter 0.15s ease;
+    transition: filter 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .btn-danger:hover:not(:disabled) {
     filter: brightness(0.92);
+  }
+  .btn-danger:active:not(:disabled) {
+    transform: scale(0.96);
   }
 
   .link-accent {
@@ -769,16 +788,21 @@ table {
      those are the Dashboard's own richer glass treatment; this is the
      baseline for every other page's plain cards. */
   .card {
-    @apply rounded-md border;
+    @apply rounded-xl border;
     border-color: var(--border-strong);
     background: var(--surface);
+    /* Faint top highlight — a glass-edge cue even on the flat, unblurred
+       surface this still is in light mode / on desktop; barely visible
+       against a light background, reads as a soft rim in dark mode. Doesn't
+       compete with border-color since it's an inset shadow, not a border. */
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
     transition:
-      transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
-      box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+      box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   }
   .card:hover {
     transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
+    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
   /* "Aura" card — good-news treatment for the allotment cards on

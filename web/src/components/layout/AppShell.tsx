@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import {
   ArchiveIcon,
   BellIcon,
@@ -515,19 +516,35 @@ export function AppShell() {
                 aria-current={isActive ? 'page' : undefined}
                 aria-label={t.label}
                 title={t.label}
-                className={`relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2 transition-colors ${
-                  isActive ? 'glass-tab-active' : ''
-                }`}
+                className="relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2"
                 style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
               >
-                <Icon size={22} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
-                {count > 0 && (
-                  <span
-                    aria-label={`${count} pending`}
-                    className="absolute top-1 right-[24%] h-2 w-2 rounded-full"
-                    style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                {/* Shared layoutId — Framer Motion morphs this single pill
+                    between whichever tab is active instead of each tab
+                    independently fading its own background in/out, which is
+                    what actually reads as "liquid" (a physical piece of
+                    glass sliding under the icon) rather than a cross-fade. */}
+                {isActive && (
+                  <motion.div
+                    layoutId="bottom-tab-indicator"
+                    className="glass-tab-active absolute inset-0 rounded-[1.25rem]"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
+                <motion.div
+                  whileTap={{ scale: 0.88 }}
+                  transition={{ type: 'spring', stiffness: 600, damping: 20 }}
+                  className="relative z-10 flex items-center justify-center"
+                >
+                  <Icon size={22} fill={isActive ? 'var(--accent)' : 'var(--header-fg-muted)'} />
+                  {count > 0 && (
+                    <span
+                      aria-label={`${count} pending`}
+                      className="absolute -top-1 -right-2 h-2 w-2 rounded-full"
+                      style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                    />
+                  )}
+                </motion.div>
               </NavLink>
             )
           })}
@@ -541,31 +558,42 @@ export function AppShell() {
                 aria-current={isActive ? 'page' : undefined}
                 aria-label="Profile"
                 title="Profile"
-                className={`relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2 transition-colors ${
-                  isActive ? 'glass-tab-active' : ''
-                }`}
+                className="relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2"
                 style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
               >
-                <span
-                  className="flex items-center justify-center rounded-full text-[10px] font-bold"
-                  style={{
-                    height: 23,
-                    width: 23,
-                    background: 'var(--accent)',
-                    color: '#ffffff',
-                    outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
-                    outlineOffset: 1,
-                  }}
-                >
-                  {initials}
-                </span>
-                {pendingCount > 0 && (
-                  <span
-                    aria-label={`${pendingCount} pending`}
-                    className="absolute top-1 right-[24%] h-2 w-2 rounded-full"
-                    style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                {isActive && (
+                  <motion.div
+                    layoutId="bottom-tab-indicator"
+                    className="glass-tab-active absolute inset-0 rounded-[1.25rem]"
+                    transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
+                <motion.div
+                  whileTap={{ scale: 0.88 }}
+                  transition={{ type: 'spring', stiffness: 600, damping: 20 }}
+                  className="relative z-10 flex items-center justify-center"
+                >
+                  <span
+                    className="flex items-center justify-center rounded-full text-[10px] font-bold"
+                    style={{
+                      height: 23,
+                      width: 23,
+                      background: 'var(--accent)',
+                      color: '#ffffff',
+                      outline: isActive ? '2px solid var(--accent)' : '2px solid transparent',
+                      outlineOffset: 1,
+                    }}
+                  >
+                    {initials}
+                  </span>
+                  {pendingCount > 0 && (
+                    <span
+                      aria-label={`${pendingCount} pending`}
+                      className="absolute -top-1 -right-2 h-2 w-2 rounded-full"
+                      style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
+                    />
+                  )}
+                </motion.div>
               </NavLink>
             )
           })()}
