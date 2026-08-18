@@ -310,7 +310,7 @@ export function AllotmentBoardPage() {
             aria-label={`Send sell reminder (${allottedCount} allotted)`}
             title={`Send sell reminder (${allottedCount} allotted)`}
             className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-            style={{ color: 'var(--accent)' }}
+            style={{ color: 'var(--ink-secondary)' }}
           >
             <PaperAirplaneIcon size={18} />
             <span
