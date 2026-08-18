@@ -132,11 +132,19 @@ export function IpoTimeline({ milestones }: IpoTimelineProps) {
           />
         ))}
       </div>
-      <div className="mt-2 grid gap-1 text-xs" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
+      {/* Text alignment matches each milestone's actual position on the bar
+          above it — the first dot sits at the far LEFT edge and the last at
+          the far RIGHT edge, not centered in an equal-width column like the
+          two middle ones. Centered text on the first/last column let "Open"
+          and "Listing" hang past the bar's own left/right edge on a narrow
+          card; left/right-aligning them keeps the date flush with its dot
+          instead of overflowing outward. */}
+      <div className="mt-2 grid gap-1 text-[10px]" style={{ gridTemplateColumns: `repeat(${milestones.length}, minmax(0, 1fr))` }}>
         {milestones.map((m, i) => {
           const isCurrent = i === currentIdx
+          const align = i === 0 ? 'text-left' : i === milestones.length - 1 ? 'text-right' : 'text-center'
           return (
-            <div key={`${m.label}-${i}`}>
+            <div key={`${m.label}-${i}`} className={align}>
               <p
                 className="font-mono-ipo tabular-nums"
                 style={{ fontWeight: isCurrent ? 700 : 400, color: isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)' }}

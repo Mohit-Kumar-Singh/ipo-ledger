@@ -653,16 +653,17 @@ export function IposPage() {
           ) : (
             <>
               {/* Three explicit sections, top to bottom — live first (what
-                  you'd actually act on today), then closed (bidding's over,
-                  nothing left to do but wait/record), then upcoming
-                  (nothing to do yet). Every section past the first gets the
-                  same divider-with-label treatment; the label itself
-                  (unlike the old single "Closed" divider) is now always
-                  shown so it's never ambiguous which section is which. */}
+                  you'd actually act on today), then upcoming (worth knowing
+                  about soon), then closed (bidding's over, nothing left to
+                  do but wait/record — the least time-sensitive of the
+                  three). Every section past the first gets the same
+                  divider-with-label treatment; the label itself (unlike the
+                  old single "Closed" divider) is now always shown so it's
+                  never ambiguous which section is which. */}
               {([
                 ['Live', liveIpos, false],
-                ['Closed', closedIpos, true],
                 ['Upcoming', upcomingIpos, true],
+                ['Closed', closedIpos, true],
               ] as const).map(
                 ([label, list, withDivider]) =>
                   list.length > 0 && (
@@ -784,10 +785,13 @@ function IpoCard({
             <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {ipo.company_name}
             </h3>
-            <p className="font-mono-ipo truncate text-[13px]" style={{ color: 'var(--ink-muted)' }}>
+            {/* Registrar + bid amount only (max bid price × lot size) — the
+                price band and lot size separately were more than this line
+                needed to say; the one number that actually matters here is
+                what a full lot costs at the top of the band. */}
+            <p className="font-mono-ipo truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
               {ipo.registrar}
-              {ipo.price_low && ipo.price_high && ` · ₹${ipo.price_low}-${ipo.price_high}`}
-              {ipo.lot_size ? ` · lot ${ipo.lot_size}` : ''}
+              {ipo.price_high && ipo.lot_size && ` · ₹${(ipo.price_high * ipo.lot_size).toLocaleString('en-IN')} bid`}
             </p>
           </div>
         </div>

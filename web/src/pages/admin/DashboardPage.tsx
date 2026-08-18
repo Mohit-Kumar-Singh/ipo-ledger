@@ -965,17 +965,24 @@ function StatTile({
     critical: 'var(--shadow-glow-critical)',
   }[tone]
   const animated = useCountUp(value)
+  // Icon + label share one row (was icon, then label, then value stacked
+  // three-high) — the icon badge doesn't need a whole row to itself when
+  // the label text next to it is exactly as short. One fewer row means the
+  // tile itself can run shorter too (p-3 -> p-2.5 below), not just the same
+  // height with a gap removed.
   const inner = (
     <>
-      <div
-        className={`icon-badge icon-badge-${tone} mb-2.5`}
-        style={{ width: '2rem', height: '2rem', borderRadius: '0.5rem', boxShadow: toneGlow }}
-      >
-        <Icon size={15} />
+      <div className="mb-1 flex items-center gap-1.5">
+        <div
+          className={`icon-badge icon-badge-${tone} shrink-0`}
+          style={{ width: '1.5rem', height: '1.5rem', borderRadius: '0.4rem', boxShadow: toneGlow }}
+        >
+          <Icon size={12} />
+        </div>
+        <p className="min-w-0 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+          {label}
+        </p>
       </div>
-      <p className="mb-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-        {label}
-      </p>
       <p
         className="font-mono-ipo truncate text-xl font-bold tracking-tight"
         style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
@@ -986,11 +993,11 @@ function StatTile({
   )
 
   const tile = to ? (
-    <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-3">
+    <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-2.5">
       {inner}
     </Link>
   ) : (
-    <div className="glass-card tile-hover stagger-item flex flex-col p-3">{inner}</div>
+    <div className="glass-card tile-hover stagger-item flex flex-col p-2.5">{inner}</div>
   )
 
   if (!panel) return tile

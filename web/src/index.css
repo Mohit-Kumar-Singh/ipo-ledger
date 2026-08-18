@@ -860,7 +860,15 @@ table {
      celebratory moment rather than routine list noise. Deliberately scoped
      to this one use, not folded into .card. */
   .aura-card {
-    @apply rounded-md border;
+    @apply border;
+    /* Was rounded-md (a flat 6px), out of sync with plain .card's own
+       var(--card-radius) (0.75rem, bumped further on touch) — the Funders
+       section sits right next to these same-shaped-in-principle cards using
+       .card, and the mismatched radius made an allotted/sold card visibly a
+       different shape, not just a different color. Sharing the same token
+       also keeps .aura-card and the .aura ring wrapping it (which already
+       rounds to --card-radius) concentric with each other. */
+    border-radius: var(--card-radius);
     position: relative;
     border-color: color-mix(in srgb, var(--good) 45%, var(--border-strong));
     background:
