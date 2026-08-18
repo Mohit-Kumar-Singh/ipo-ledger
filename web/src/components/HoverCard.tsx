@@ -4,7 +4,7 @@
 // stat-tile panels, now the one hover-card implementation the rest of the
 // portal reuses too (see InfoTooltip below) instead of plain `title=`
 // attributes.
-import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import { InfoIcon } from '@primer/octicons-react'
 
 export type HoverCardTone = 'info' | 'warning' | 'good' | 'critical'
@@ -34,7 +34,32 @@ export function HoverCard({
 }) {
   const toneColor = TONE_COLOR[tone]
   const rootRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
+  // Correction applied on top of the align='left'/'right' CSS anchor so the
+  // panel never spills past the viewport edge — align='right' anchors the
+  // panel's right edge to a narrow left-column trigger (e.g. Dashboard's
+  // 2-col mobile stat grid), and a 288px-wide (w-72) panel run leftward from
+  // there lands well past x=0, clipped and unreadable (real bug: the
+  // "Awaiting mandate approval" panel showing truncated "...ellery Mart"
+  // rows off the left edge of the screen). Measured on mount/resize, not
+  // tied to open/hover state, since the panel is always laid out in the DOM
+  // (just invisible via opacity) so its geometry is measurable regardless.
+  const [shiftPx, setShiftPx] = useState(0)
+  useEffect(() => {
+    function measure() {
+      const el = panelRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const margin = 8
+      if (rect.left < margin) setShiftPx(margin - rect.left)
+      else if (rect.right > window.innerWidth - margin) setShiftPx(window.innerWidth - margin - rect.right)
+      else setShiftPx(0)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [])
   // `group-hover` alone never shows this on a touch device — there's no
   // real hover state to enter, so the panel simply never appeared no
   // matter how long someone pressed. Detected once (not per-render) since
@@ -82,9 +107,15 @@ export function HoverCard({
     <div ref={rootRef} className="group relative" onClickCapture={handleClickCapture}>
       {children}
       <div
+        ref={panelRef}
         className={`pointer-events-none absolute top-full z-30 mt-2 w-72 max-w-[88vw] translate-y-1 opacity-0 transition-all duration-150 ease-out group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 ${
           open ? 'pointer-events-auto translate-y-0 opacity-100' : ''
         } ${align === 'right' ? 'right-0' : 'left-0'}`}
+        // Sets Tailwind's own translate-x custom property rather than the
+        // `transform` shorthand directly — the latter would clobber the
+        // translate-y-1/group-hover:translate-y-0 classes' pop-in animation
+        // instead of composing with it.
+        style={{ '--tw-translate-x': `${shiftPx}px` } as CSSProperties}
       >
         <div
           className="overflow-hidden rounded-xl border p-3 text-left text-xs shadow-2xl backdrop-blur-md"
