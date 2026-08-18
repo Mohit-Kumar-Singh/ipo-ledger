@@ -928,7 +928,8 @@ export function ApplicationsPage() {
                           cramped line with no visual grouping at all. sm:
                           and up keeps the original dense row unchanged. */}
                       <div className="stagger-item flex flex-col gap-2.5 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-1 items-start gap-3">
                       {eligibleForNotAllotted && (
                         <input
                           type="checkbox"
@@ -949,18 +950,6 @@ export function ApplicationsPage() {
                         <div className="flex items-center gap-1.5">
                           <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
-                            {/* Phone only — the full company name + app
-                                number alongside it (span below) was
-                                crowding the holder name itself down to a
-                                sliver before it truncated. Just the IPO's
-                                first word here instead, enough to identify
-                                which IPO at a glance; the app number moves
-                                to its own line underneath (see below). */}
-                            {a.ipos?.company_name && (
-                              <span className="ml-1 font-normal sm:hidden" style={{ color: 'var(--ink-muted)' }}>
-                                {a.ipos.company_name.split(' ')[0]}
-                              </span>
-                            )}
                           </p>
                           {/* IPO name + app number, same row as the holder
                               name — was only ever shown further down (a
@@ -1020,16 +1009,6 @@ export function ApplicationsPage() {
                             </span>
                           )}
                         </div>
-                        {/* Phone-only counterpart to the first-word IPO tag
-                            above — the app number, on its own line instead
-                            of crowding the name row. Desktop already shows
-                            the full "company name · App #N" (the sm:inline
-                            span above), so this is redundant there. */}
-                        {a.ipoji_app_number && (
-                          <p className="truncate text-xs sm:hidden" style={{ color: 'var(--ink-muted)' }}>
-                            App #{a.ipoji_app_number}
-                          </p>
-                        )}
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
@@ -1072,16 +1051,29 @@ export function ApplicationsPage() {
                             )
                           ))}
                       </div>
-                      {/* Status badge shown here (top row, mobile) AND again
-                          below (sm:, desktop's original position) — cheaper
-                          than threading one badge through two very
-                          differently-shaped layouts, and it only ever
-                          renders one or the other per breakpoint. */}
-                      {a.status !== 'APPLIED' && (
-                        <div className="shrink-0 sm:hidden">
-                          <StatusBadge status={a.status} />
-                        </div>
-                      )}
+                      </div>
+                      {/* Right-aligned corner block, phone only — IPO first
+                          word + app number stacked above the status badge
+                          (when there is one), instead of either crowding the
+                          holder name's own line or running the full width
+                          below it. Desktop keeps the inline "company name ·
+                          App #N" text (the sm:inline span above) and its own
+                          badge position further down (below), unchanged. */}
+                      <div className="flex shrink-0 flex-col items-end gap-1 sm:hidden">
+                        {a.ipos?.company_name && (
+                          <div className="text-right leading-tight">
+                            <p className="truncate text-xs font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                              {a.ipos.company_name.split(' ')[0]}
+                            </p>
+                            {a.ipoji_app_number && (
+                              <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                #{a.ipoji_app_number}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {a.status !== 'APPLIED' && <StatusBadge status={a.status} />}
+                      </div>
                       </div>
 
                       {a.sell_price != null && (
