@@ -609,12 +609,14 @@ table {
 }
 
 /* "Hot GMP" hype ring (IposPage, gmp% > 45) — a soft rotating glow behind
-   the card, not a fixed brand color: var(--warning)/var(--critical) are
-   the same "needs attention" tokens used everywhere else in the app, so
-   this stays on-theme (and near-invisible in light mode, where the glow
-   tokens are already muted) without a color override of its own. The
-   glow sits behind the card (negative z-index via stacking context from
-   position:relative + isolation) and blurred, so it reads as an aura, not
+   the card. Green (var(--good), the same "good news" token used everywhere
+   else in the app), not the amber/red "needs attention" pairing this used
+   before — a high GMP is good news, not a warning. Faded via color-mix
+   rather than a second hue for the rotation to actually read as spinning,
+   since --good and --good-text are the same exact color in dark mode (no
+   visible difference to alternate between). The glow sits behind the card
+   (negative z-index via stacking context from position:relative +
+   isolation) and blurred, so it reads as an aura, not
    a hard ring — the card itself is untouched, just wrapped. */
 .aura {
   position: relative;
@@ -651,7 +653,7 @@ table {
   inset: -3px;
   z-index: -1;
   border-radius: inherit;
-  background: conic-gradient(from var(--aura-angle), var(--warning), var(--critical), var(--warning));
+  background: conic-gradient(from var(--aura-angle), var(--good), color-mix(in srgb, var(--good) 35%, transparent), var(--good));
   /* conic-gradient fills its ENTIRE box, not just a ring around the edge
      — without this mask it painted a solid blurred rectangle behind the
      whole card. padding + a content-box/xor mask keeps only the outer
