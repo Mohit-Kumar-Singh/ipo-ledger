@@ -56,8 +56,20 @@ interface ImportDetail {
   allotment_out: boolean | null
 }
 
+// 7% floor — an IPO ipoji already shows running below this isn't worth
+// tracking, so it's excluded at the same choke point every import path goes
+// through (quick-sync's auto-eligible filter, the manual "Select all
+// eligible" button, and saveOne's own skip check for a manually-checked
+// low-GMP candidate). Unparseable/missing GMP text is left eligible — this
+// only excludes a GMP that's actually known to be low, not one ipoji hasn't
+// published yet.
+const MIN_SYNC_GMP_PERCENT = 7
+
 function isEligible(c: ImportCandidate): boolean {
-  return c.open_date != null && c.close_date != null && c.lot_size != null
+  if (c.open_date == null || c.close_date == null || c.lot_size == null) return false
+  const gmpPercent = parseGmpPercent(c.gmp)
+  if (gmpPercent != null && gmpPercent < MIN_SYNC_GMP_PERCENT) return false
+  return true
 }
 
 function deriveStatus(ipo: Ipo): { label: string; badge: string } {
@@ -471,8 +483,13 @@ export function IposPage() {
           <div className="flex flex-wrap items-center gap-3">
             {/* Select-all/bulk-delete lives here now, next to Import/Add,
                 instead of its own separate row below the header. */}
+            {/* Desktop/tablet only — phone drops bulk select/delete entirely
+                (see IpoCard's own checkbox, same breakpoint) rather than
+                cramming a checkbox row + "N selected" delete link into the
+                already-tight phone header. Individual delete (the trash
+                icon on each card) still covers single-IPO removal on phone. */}
             {visibleIpos.length > 0 && (
-              <>
+              <div className="hidden items-center gap-3 sm:flex">
                 <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
                   <input
                     type="checkbox"
@@ -493,7 +510,7 @@ export function IposPage() {
                     Delete {selectedIpos.size} selected
                   </button>
                 )}
-              </>
+              </div>
             )}
             {/* One click, entirely in the background: fetch current IPOs
                 from ipoji, select every eligible one, save — no panel, no
@@ -741,10 +758,14 @@ function IpoCard({
     <div className="card stagger-item flex flex-col gap-2 p-3.5">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-start gap-2">
+          {/* Hidden on phone — bulk select/delete is desktop/tablet-only
+              (see the header's "Select all", same sm: breakpoint), so the
+              checkbox has nothing to drive there. Without hiding it, the
+              card kept reserving its gap for a control that did nothing. */}
           {isAdmin && onToggleSelected && (
             <input
               type="checkbox"
-              className="mt-1 shrink-0"
+              className="mt-1 hidden shrink-0 sm:block"
               checked={selected ?? false}
               onChange={onToggleSelected}
               aria-label={`Select ${ipo.company_name}`}
@@ -934,7 +955,11 @@ function ImportCard({
 
       {!eligible && (
         <p className="text-xs" style={{ color: 'var(--warning-text)' }}>
-          Missing date or lot size — can't bulk-save.
+          {(() => {
+            const pct = parseGmpPercent(c.gmp)
+            if (pct != null && pct < MIN_SYNC_GMP_PERCENT) return `GMP ${pct}% is below the ${MIN_SYNC_GMP_PERCENT}% sync floor.`
+            return "Missing date or lot size — can't bulk-save."
+          })()}
         </p>
       )}
     </label>

@@ -7,7 +7,7 @@
 // shows as TBA/N/A are skipped; they'll pick up automatically once ipoji
 // fills them in on a later run, or an admin can add them manually meanwhile.
 import { createClient } from 'npm:@supabase/supabase-js@2'
-import { fetchDetail, fetchListCandidates, type Candidate } from '../_shared/ipoji.ts'
+import { fetchDetail, fetchListCandidates, parseGmpPercent, type Candidate } from '../_shared/ipoji.ts'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
@@ -16,8 +16,17 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET')!
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
+// 7% floor — matches web/src/pages/admin/IposPage.tsx's MIN_SYNC_GMP_PERCENT
+// (the manual quick-sync/import-panel path). Missing/unparseable GMP text is
+// left eligible; this only excludes a GMP ipoji has actually published as
+// low, not one it hasn't reported yet.
+const MIN_SYNC_GMP_PERCENT = 7
+
 function isEligible(c: Candidate): boolean {
-  return c.open_date != null && c.close_date != null && c.lot_size != null
+  if (c.open_date == null || c.close_date == null || c.lot_size == null) return false
+  const gmpPercent = parseGmpPercent(c.gmp)
+  if (gmpPercent != null && gmpPercent < MIN_SYNC_GMP_PERCENT) return false
+  return true
 }
 
 // Collapses stray whitespace ipoji's markup can introduce — e.g. a trailing

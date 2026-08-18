@@ -15,6 +15,18 @@ const MONTHS: Record<string, string> = {
   jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
 }
 
+// Extracts a percentage like "17%" out of free-text GMP notes (e.g.
+// "GMP: ₹95-96 (17%)") — same regex as web/src/lib/ipoGmp.ts's
+// parseGmpPercent, duplicated here since Deno Edge Functions and the Vite
+// web app don't share a module boundary. Keep both in sync if this changes.
+export function parseGmpPercent(gmpNotes: string | null | undefined): number | null {
+  if (!gmpNotes) return null
+  const match = gmpNotes.match(/(-?\d+(?:\.\d+)?)\s*%/)
+  if (!match) return null
+  const value = Number(match[1])
+  return Number.isNaN(value) ? null : value
+}
+
 export interface Candidate {
   company_name: string
   open_date: string | null
