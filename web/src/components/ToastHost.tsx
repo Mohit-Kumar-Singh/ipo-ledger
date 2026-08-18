@@ -179,7 +179,14 @@ export function ToastHost() {
   if (toasts.length === 0) return null
 
   return (
-    <div className="fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
+    // .safe-top adds env(safe-area-inset-top) (mobile: floored at 0.75rem
+    // even with no real notch — see its own comment in index.css) ON TOP of
+    // the existing top-4 offset, so a toast on phone actually clears the
+    // status bar's clock/battery icons instead of sitting right under them.
+    // Was a bare `fixed top-4` with no safe-area handling at all — fine on
+    // desktop (no status bar to collide with), but AppShell's own header/
+    // main already needed this exact fix for the same reason.
+    <div className="safe-top fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
       {toasts.map((t) => (
         <Panel
           key={t.id}

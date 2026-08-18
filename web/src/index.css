@@ -61,6 +61,16 @@ body {
 :root {
   color-scheme: light;
 
+  /* .card's own corner radius, as a token instead of duplicated literals —
+     .aura (IposPage's hot-GMP glow ring) needs to match this exactly, and a
+     hardcoded `border-radius: inherit` was silently inheriting from the
+     wrong ancestor (the grid the card sits in, not the card itself),
+     giving a square glow behind a rounded card. Redefined by the
+     `pointer: coarse` touch block below to 1.25rem, same as .card's own
+     touch-only radius bump — .aura reads this same variable so it can
+     never drift out of sync with whatever .card's radius actually is. */
+  --card-radius: 0.75rem;
+
   /* GitHub's actual light palette (Primer primitives) — every token below is
      kept under its ORIGINAL name so every existing page (which already
      references var(--accent), .card, .btn-primary, etc.) picks up GitHub's
@@ -609,7 +619,11 @@ table {
 .aura {
   position: relative;
   isolation: isolate;
-  border-radius: inherit;
+  /* Was `inherit` — silently resolved to 0 from the grid this sits in
+     (an ancestor's radius, not the .card child's), giving a square glow
+     behind a rounded card. --card-radius is the actual token .card itself
+     uses, so this can't drift out of sync with whatever that is. */
+  border-radius: var(--card-radius);
   /* IpoCard's grid (sm:grid-cols-2) stretches items to fill the row
      height by default — as a direct grid child, .aura stretched to match
      its tallest sibling instead of the actual card's own height, and the
@@ -788,7 +802,8 @@ table {
      those are the Dashboard's own richer glass treatment; this is the
      baseline for every other page's plain cards. */
   .card {
-    @apply rounded-xl border;
+    @apply border;
+    border-radius: var(--card-radius);
     border-color: var(--border-strong);
     background: var(--surface);
     /* Faint top highlight — a glass-edge cue even on the flat, unblurred
@@ -1003,6 +1018,13 @@ table {
    feel like iOS controls rather than dense web buttons. Gated on
    `pointer: coarse`, so the desktop density is completely untouched. */
 @media (pointer: coarse) {
+  /* :root, not .card — .aura (IposPage's hot-GMP ring) wraps .card as its
+     PARENT, so it needs this variable redefined somewhere that's an
+     ancestor of both of them, not on .card itself (a custom property set
+     on a descendant never reaches a sibling/ancestor). */
+  :root {
+    --card-radius: 1.25rem;
+  }
   .btn-primary,
   .btn-secondary,
   .btn-warning,
@@ -1058,7 +1080,7 @@ table {
      values; light mode gets them from the block above. Desktop keeps the
      flat 6px .card untouched (this block is pointer:coarse-gated). */
   .card {
-    border-radius: 1.25rem;
+    border-radius: var(--card-radius);
     background: var(--glass-bg);
     border-color: var(--glass-border);
     backdrop-filter: var(--glass-blur);
