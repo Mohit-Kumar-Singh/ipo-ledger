@@ -252,6 +252,39 @@ function groupSettlementByParty(
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
 
+// Both directions of an application's own obligations done — the holder's
+// side (if there was one to begin with) and the funder's side (ditto). A
+// self-funded or self-held application is trivially "settled" on the side
+// that never applied to it in the first place.
+function isCardFullySettled(c: SettlementCard): boolean {
+  const holderDone = c.isDematHolderSelf || c.amountFromHolder <= 0 || c.remainingFromHolder <= SETTLED_EPSILON
+  const funderDone = !c.hasFunder || c.isFunderSelf || c.amountToFunder <= 0 || c.remainingToFunder <= SETTLED_EPSILON
+  return holderDone && funderDone
+}
+
+interface IpoSettlementGroup {
+  ipoName: string
+  cards: SettlementCard[]
+  allSettled: boolean
+}
+
+// One entry per IPO, not per application — the page used to list every sold
+// application as its own flat card regardless of which IPO it belonged to,
+// which meant the same IPO's several holders/funders scattered across the
+// grid instead of reading as one settlement job. Grouped + sorted with any
+// still-outstanding IPO first, so the ones needing action surface above the
+// fully-settled ones rather than being interleaved by application id order.
+function groupCardsByIpo(cards: SettlementCard[]): IpoSettlementGroup[] {
+  const byIpo = new Map<string, SettlementCard[]>()
+  for (const c of cards) {
+    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, [])
+    byIpo.get(c.ipoName)!.push(c)
+  }
+  return Array.from(byIpo.entries())
+    .map(([ipoName, ipoCards]) => ({ ipoName, cards: ipoCards, allSettled: ipoCards.every(isCardFullySettled) }))
+    .sort((a, b) => Number(a.allSettled) - Number(b.allSettled) || a.ipoName.localeCompare(b.ipoName))
+}
+
 export function PayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -335,6 +368,7 @@ export function PayoutsPage() {
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
   const owedToFunders = groupSettlementByParty(settlementCards, 'funder')
   const owedFromHolders = groupSettlementByParty(settlementCards, 'holder')
+  const ipoSettlementGroups = groupCardsByIpo(settlementCards)
 
   return (
     <div className="space-y-6">
@@ -406,14 +440,14 @@ export function PayoutsPage() {
         </div>
       )}
 
-      {settlementCards.length > 0 && (
+      {ipoSettlementGroups.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Settlement — every sold application
+            Settlement — by IPO
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {settlementCards.map((c) => (
-              <SettlementCardView key={c.applicationId} c={c} onLogged={load} />
+            {ipoSettlementGroups.map((g) => (
+              <IpoSettlementCard key={g.ipoName} group={g} onLogged={load} />
             ))}
           </div>
         </section>
@@ -548,14 +582,42 @@ const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
   holder_to_funder: 'Holder paid the funder directly',
 }
 
-// One card per sold application, showing both directions of money at once:
-// what the account holder sends back (green — coming in) and what's owed
-// out to whoever funded it (subtle red — going out). Either half can be
-// absent (self-funded: no funder row; the holder IS you: no holder row).
-// Below that, the live remaining amounts (after logged payments) and a
-// small form to log a new one.
+// One card per IPO — every sold application under it as a row (see
+// SettlementCardView below), separated by dividers instead of each being
+// its own top-level card. "Settled ✓" on the header once every row's both
+// sides (holder owed you, you owed the funder) are fully paid — the whole
+// point of grouping this way is that IPO-level state ("is this one done")
+// is exactly what used to require scanning every application card by eye.
+function IpoSettlementCard({ group, onLogged }: { group: IpoSettlementGroup; onLogged: () => void }) {
+  return (
+    <div className="card stagger-item p-4">
+      <div className="mb-1 flex flex-wrap items-center gap-2">
+        <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+          {group.ipoName}
+        </p>
+        {group.allSettled && <span className="badge badge-good shrink-0">Settled ✓</span>}
+      </div>
+      <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+        {group.cards.map((c) => (
+          <SettlementCardView key={c.applicationId} c={c} onLogged={onLogged} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// One row per sold application within an IpoSettlementCard — collapsed by
+// default to just the two one-line summaries ("From X — need to receive
+// ₹N" / "To Y — need to send ₹N"), with a "Show calculation" toggle that
+// reveals the full breakdown (both colored blocks below, payment history,
+// and the log-a-payment form) only when actually needed. Was its own
+// always-expanded top-level .card per application — with several sold
+// applications on the same IPO that meant scrolling through a wall of
+// identical-looking math to find the one number that mattered (who to pay,
+// how much), which is what this collapsed-by-default summary fixes.
 function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () => void }) {
   const cutRemainder = c.profitTotal - c.dematCutAmount
+  const [showDetails, setShowDetails] = useState(false)
   const [showLog, setShowLog] = useState(false)
   const [kind, setKind] = useState<SettlementPaymentKind>('holder_to_admin')
   const [amount, setAmount] = useState('')
@@ -600,15 +662,61 @@ function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () =
   // can finish paying before you've forwarded it on, and this only ever
   // reflects the holder's own obligation.
   const holderSettled = !c.isDematHolderSelf && c.amountFromHolder > 0 && c.remainingFromHolder <= SETTLED_EPSILON
+  // Mirror of holderSettled for the funder side — used the same way, just
+  // for the "To {funder} — need to send" summary line's own settled state.
+  const funderSettled = c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && c.remainingToFunder <= SETTLED_EPSILON
 
   return (
-    <div className="card stagger-item space-y-3 p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-          {c.ipoName} — sold {c.lotSize} share{c.lotSize === 1 ? '' : 's'} at {rupees(c.sellPrice)}/share
-        </p>
-        {holderSettled && <span className="badge badge-good shrink-0">Holder settled ✓</span>}
+    <div className="stagger-item space-y-2 py-3 first:pt-0 last:pb-0">
+      {/* Collapsed-by-default summary — the two numbers that actually
+          matter (who to collect from, who to pay, how much) without
+          needing to open the full calculation to find them. Either line
+          can be absent (self-funded: no funder line; holder IS you: no
+          holder line) or shown settled instead of an amount. */}
+      <div className="space-y-1">
+        {!c.isDematHolderSelf && c.amountFromHolder > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
+              From <span className="font-medium">{c.holderName}</span> — need to receive
+            </p>
+            {holderSettled ? (
+              <span className="badge badge-good shrink-0">Settled ✓</span>
+            ) : (
+              <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--good)' }}>
+                {rupees(c.remainingFromHolder)}
+              </span>
+            )}
+          </div>
+        )}
+        {c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
+              To <span className="font-medium">{c.funderName}</span> — need to send
+            </p>
+            {funderSettled ? (
+              <span className="badge badge-good shrink-0">Settled ✓</span>
+            ) : (
+              <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--critical-text)' }}>
+                {rupees(c.remainingToFunder)}
+              </span>
+            )}
+          </div>
+        )}
       </div>
+
+      <button
+        type="button"
+        onClick={() => setShowDetails((v) => !v)}
+        className="link-accent text-xs font-medium"
+      >
+        {showDetails ? 'Hide calculation' : 'Show calculation'}
+      </button>
+
+      {showDetails && (
+        <div className="space-y-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+        Sold {c.lotSize} share{c.lotSize === 1 ? '' : 's'} at {rupees(c.sellPrice)}/share
+      </p>
 
       {!c.isDematHolderSelf && c.amountFromHolder > 0 && (
         <div className="rounded-lg border p-3 text-xs" style={{ borderColor: 'var(--good-tint)', background: 'var(--good-tint)' }}>
@@ -719,6 +827,8 @@ function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () =
             + Log a payment
           </button>
         ))}
+        </div>
+      )}
     </div>
   )
 }
