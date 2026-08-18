@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Confetti Celebration</title>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<style>
+  :root {
+    --bg-0: #08070c;
+    --bg-1: #100e1a;
+    --card-bg: rgba(255, 255, 255, 0.04);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --ink-primary: #f5f3ff;
+    --ink-muted: #9d97b3;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    background:
+      radial-gradient(60% 50% at 20% 15%, rgba(236, 72, 153, 0.16), transparent 60%),
+      radial-gradient(55% 45% at 85% 20%, rgba(139, 92, 246, 0.14), transparent 60%),
+      radial-gradient(50% 50% at 50% 90%, rgba(251, 191, 36, 0.10), transparent 60%),
+      linear-gradient(180deg, var(--bg-0), var(--bg-1));
+    color: var(--ink-primary);
+    overflow: hidden;
+  }
+
+  /* The confetti canvas itself is created/destroyed per-call by the
+     library's own `confetti.create()` — nothing persistent to style here,
+     this just keeps whatever canvas exists from ever intercepting clicks. */
+  canvas {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .panel {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    padding: 3rem 2.5rem;
+    border-radius: 1.5rem;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 24px 64px -24px rgba(0, 0, 0, 0.6);
+    text-align: center;
+    max-width: 420px;
+    width: calc(100vw - 2.5rem);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    background: linear-gradient(90deg, #f472b6, #a78bfa, #fb923c);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  p.subtitle {
+    margin: -1.25rem 0 0;
+    font-size: 0.875rem;
+    color: var(--ink-muted);
+  }
+
+  .buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    width: 100%;
+  }
+
+  button.confetti-btn {
+    appearance: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.875rem 1.5rem;
+    border-radius: 0.875rem;
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #fff;
+    letter-spacing: 0.01em;
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.18s ease, filter 0.18s ease;
+    box-shadow: 0 10px 24px -10px var(--glow, rgba(236, 72, 153, 0.5));
+  }
+
+  button.confetti-btn:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.08);
+  }
+
+  button.confetti-btn:active {
+    transform: translateY(0) scale(0.97);
+  }
+
+  button.confetti-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  #burst-btn {
+    --glow: rgba(236, 72, 153, 0.45);
+    background: linear-gradient(135deg, #ec4899, #a855f7);
+  }
+
+  #cannons-btn {
+    --glow: rgba(139, 92, 246, 0.45);
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+  }
+
+  #shower-btn {
+    --glow: rgba(251, 146, 60, 0.45);
+    background: linear-gradient(135deg, #fb923c, #f59e0b);
+  }
+
+  footer {
+    font-size: 0.75rem;
+    color: var(--ink-muted);
+  }
+
+  footer a {
+    color: inherit;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    button.confetti-btn {
+      transition: none;
+    }
+  }
+</style>
+</head>
+<body>
+  <main class="panel">
+    <div>
+      <h1>Confetti Celebration</h1>
+      <p class="subtitle">Pick a burst.</p>
+    </div>
+    <div class="buttons">
+      <button id="burst-btn" class="confetti-btn" type="button">Single Burst</button>
+      <button id="cannons-btn" class="confetti-btn" type="button">Side Cannons</button>
+      <button id="shower-btn" class="confetti-btn" type="button">Continuous Shower</button>
+    </div>
+    <footer>Powered by <a href="https://github.com/catdad/canvas-confetti" target="_blank" rel="noopener">canvas-confetti</a></footer>
+  </main>
+
+  <script>
+    // Instagram-ish palette — pinks/purples/oranges/yellows/blues, shared by
+    // all three effects so they read as one consistent brand rather than
+    // three different confetti "themes."
+    const PALETTE = ['#ec4899', '#a855f7', '#8b5cf6', '#fb923c', '#facc15', '#38bdf8', '#f472b6'];
+
+    // One instance bound to its own canvas, reused across every trigger —
+    // calling the bare global `confetti()` repeatedly instead would spin up
+    // a fresh full-viewport canvas per call and never guarantee the old one
+    // gets torn down, which is exactly the "broken canvas left on the DOM"
+    // failure mode the brief calls out. resize: true keeps that one canvas
+    // correctly sized across viewport/orientation changes instead of
+    // stretching stale pixel dimensions; useWorker offloads the particle
+    // math to a Web Worker so a heavy burst can't janky the main thread
+    // (and therefore the buttons' own hover/press animations).
+    const myConfetti = confetti.create(undefined, { resize: true, useWorker: true });
+
+    const burstBtn = document.getElementById('burst-btn');
+    const cannonsBtn = document.getElementById('cannons-btn');
+    const showerBtn = document.getElementById('shower-btn');
+    const allButtons = [burstBtn, cannonsBtn, showerBtn];
+
+    function setBusy(busy) {
+      allButtons.forEach((b) => { b.disabled = busy; });
+    }
+
+    // decay < 1 (default 0.9) is what makes a particle actually fade/slow
+    // toward the end of its life instead of just vanishing the instant
+    // `ticks` runs out — "fade out organically" from the brief.
+    burstBtn.addEventListener('click', () => {
+      myConfetti({
+        particleCount: 140,
+        spread: 80,
+        startVelocity: 45,
+        origin: { x: 0.5, y: 0.55 },
+        colors: PALETTE,
+        ticks: 220,
+        decay: 0.9,
+        scalar: 1,
+      });
+    });
+
+    cannonsBtn.addEventListener('click', () => {
+      const shared = {
+        particleCount: 90,
+        spread: 55,
+        startVelocity: 55,
+        ticks: 260,
+        decay: 0.91,
+        colors: PALETTE,
+      };
+      myConfetti({ ...shared, angle: 60, origin: { x: 0, y: 1 } });
+      myConfetti({ ...shared, angle: 120, origin: { x: 1, y: 1 } });
+    });
+
+    let showerTimer = null;
+    showerBtn.addEventListener('click', () => {
+      if (showerTimer) return; // already running — ignore a second click mid-shower
+      const durationMs = 3000;
+      const end = Date.now() + durationMs;
+      setBusy(true);
+
+      (function frame() {
+        // A steady rain across the top of the viewport, not a single big
+        // burst — small particleCount per frame, fired every animation
+        // frame for exactly 3s, so density reads as continuous rather than
+        // a handful of visible individual bursts.
+        myConfetti({
+          particleCount: 3,
+          startVelocity: 20,
+          spread: 100,
+          ticks: 200,
+          decay: 0.92,
+          gravity: 0.9,
+          origin: { x: Math.random(), y: -0.05 },
+          colors: PALETTE,
+          scalar: 0.9,
+        });
+
+        if (Date.now() < end) {
+          showerTimer = requestAnimationFrame(frame);
+        } else {
+          showerTimer = null;
+          setBusy(false);
+        }
+      })();
+    });
+  </script>
+</body>
+</html>

@@ -1,9 +1,23 @@
+import { useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircleIcon } from '@primer/octicons-react'
 import { AttributionChart, AttributionLegend } from './AttributionChart'
 import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
+
+// localStorage, not component state — "every active account has applied"
+// stays true across every future render/reload of this same still-open IPO
+// (accountsLeft doesn't go back up), so a plain ref/state guard would refire
+// the confetti on every single page visit instead of exactly once, the same
+// once-per-key pattern DashboardPage already uses for its GMP/listing/
+// mandate-cutoff toasts.
+function hasCelebrated(ipoId: string): boolean {
+  return localStorage.getItem(`ipo-fully-applied-confetti:${ipoId}`) === '1'
+}
+function markCelebrated(ipoId: string) {
+  localStorage.setItem(`ipo-fully-applied-confetti:${ipoId}`, '1')
+}
 
 // One self-contained card per IPO — company name/GMP/subscription/dates up
 // top, the attribution donut and the progress ring side by side below.
@@ -60,9 +74,56 @@ export function IpoDashboardCard({
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const canExpand = accountsLeft > 0
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // Fires a 5s confetti shower, anchored at this card's own position (not
+  // full-viewport-centered), the first time every active account has
+  // applied to this IPO — a real "you're done here" celebratory moment,
+  // not just a ring quietly filling in. totalActive > 0 guards against
+  // firing on a 0/0 IPO nobody's applied to at all (accountsLeft is also 0
+  // there, but there's nothing to celebrate).
+  useEffect(() => {
+    if (accountsLeft !== 0 || totalActive === 0) return
+    if (hasCelebrated(ipoId)) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      markCelebrated(ipoId)
+      return
+    }
+    markCelebrated(ipoId)
+    let cancelled = false
+    import('canvas-confetti').then(({ default: confetti }) => {
+      if (cancelled) return
+      const rect = cardRef.current?.getBoundingClientRect()
+      const originX = rect ? (rect.left + rect.width / 2) / window.innerWidth : 0.5
+      const originY = rect ? (rect.top + rect.height / 2) / window.innerHeight : 0.4
+      const myConfetti = confetti.create(undefined, { resize: true, useWorker: true })
+      const palette = ['#ec4899', '#a855f7', '#8b5cf6', '#fb923c', '#facc15', '#38bdf8']
+      const durationMs = 5000
+      const end = Date.now() + durationMs
+      ;(function frame() {
+        if (cancelled) return
+        myConfetti({
+          particleCount: 3,
+          startVelocity: 20,
+          spread: 100,
+          ticks: 200,
+          decay: 0.92,
+          gravity: 0.9,
+          origin: { x: originX + (Math.random() - 0.5) * 0.2, y: originY },
+          colors: palette,
+          scalar: 0.9,
+        })
+        if (Date.now() < end) requestAnimationFrame(frame)
+      })()
+    })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountsLeft, totalActive, ipoId])
 
   return (
-    <div className="glass-card stagger-item space-y-2.5 p-4">
+    <div ref={cardRef} className="glass-card stagger-item space-y-2.5 p-4">
       {/* "N left" used to sit here as its own badge — moved down into
           IpoProgressGauge itself, directly under the applied/total ratio
           it's derived from, since it's a reading of the ring, not a
