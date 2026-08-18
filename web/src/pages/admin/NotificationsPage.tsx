@@ -581,30 +581,28 @@ export function NotificationsPage() {
             {soldCards.map((c) => {
               const message = buildSoldFunderMessage(c)
               return (
-                // Same rotating green ring IposPage wraps a hot-GMP card in
-                // (.aura, see index.css) — a sold/allotted card is exactly
-                // this kind of good-news moment too, not just the static
-                // aura-card glow underneath.
-                <div key={c.key} className="aura">
-                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.funderName}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                      disabled={!c.phone}
-                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Send
-                    </button>
+                // No rotating .aura ring here (unlike Allotment updates/
+                // Notify holders below) — sold is a closed-out, routine
+                // record at this point, not the "just happened" celebratory
+                // moment the ring is for. Keeps the static aura-card glow.
+                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.funderName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send
+                  </button>
                 </div>
               )
             })}
