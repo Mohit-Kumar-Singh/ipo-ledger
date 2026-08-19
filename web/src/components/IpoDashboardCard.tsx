@@ -6,19 +6,6 @@ import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 
-// localStorage, not component state — "every active account has applied"
-// stays true across every future render/reload of this same still-open IPO
-// (accountsLeft doesn't go back up), so a plain ref/state guard would refire
-// the confetti on every single page visit instead of exactly once, the same
-// once-per-key pattern DashboardPage already uses for its GMP/listing/
-// mandate-cutoff toasts.
-function hasCelebrated(ipoId: string): boolean {
-  return localStorage.getItem(`ipo-fully-applied-confetti:${ipoId}`) === '1'
-}
-function markCelebrated(ipoId: string) {
-  localStorage.setItem(`ipo-fully-applied-confetti:${ipoId}`, '1')
-}
-
 // One self-contained card per IPO — company name/GMP/subscription/dates up
 // top, the attribution donut and the progress ring side by side below.
 // Clicking specifically the "N left" badge inside the gauge (not the card
@@ -77,19 +64,14 @@ export function IpoDashboardCard({
   const cardRef = useRef<HTMLDivElement>(null)
 
   // Fires a 5s confetti shower, anchored at this card's own position (not
-  // full-viewport-centered), the first time every active account has
-  // applied to this IPO — a real "you're done here" celebratory moment,
-  // not just a ring quietly filling in. totalActive > 0 guards against
-  // firing on a 0/0 IPO nobody's applied to at all (accountsLeft is also 0
-  // there, but there's nothing to celebrate).
+  // full-viewport-centered), every time this card mounts (page load/reload)
+  // with every active account already applied to this IPO — deliberately
+  // NOT once-ever: a reload is the reward, not a one-time surprise.
+  // totalActive > 0 guards against firing on a 0/0 IPO nobody's applied to
+  // at all (accountsLeft is also 0 there, but there's nothing to celebrate).
   useEffect(() => {
     if (accountsLeft !== 0 || totalActive === 0) return
-    if (hasCelebrated(ipoId)) return
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      markCelebrated(ipoId)
-      return
-    }
-    markCelebrated(ipoId)
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     let cancelled = false
     import('canvas-confetti').then(({ default: confetti }) => {
       if (cancelled) return
