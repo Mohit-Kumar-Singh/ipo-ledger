@@ -581,11 +581,10 @@ export function NotificationsPage() {
             {soldCards.map((c) => {
               const message = buildSoldFunderMessage(c)
               return (
-                // No rotating .aura ring here (unlike Allotment updates/
-                // Notify holders below) — sold is a closed-out, routine
-                // record at this point, not the "just happened" celebratory
-                // moment the ring is for. Keeps the static aura-card glow.
-                <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+                // Plain .card, not the green .allotted-card treatment —
+                // sold is a closed-out, routine record at this point, not
+                // the "you got shares" moment that tint is for.
+                <div key={c.key} className="card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">
                     <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                       {c.funderName}
@@ -669,34 +668,32 @@ export function NotificationsPage() {
               const message = buildFunderAllottedMessage(c)
               const profit = c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
               return (
-                <div key={c.key} className="aura">
-                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {isAdmin ? c.funderName : c.ipoName}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
-                      </p>
-                    </div>
-                    {isAdmin ? (
-                      <button
-                        type="button"
-                        onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                        disabled={!c.phone}
-                        title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                        className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Send
-                      </button>
-                    ) : (
-                      profit != null && (
-                        <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
-                          {rupees(profit)}
-                        </span>
-                      )
-                    )}
+                <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {isAdmin ? c.funderName : c.ipoName}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
+                    </p>
                   </div>
+                  {isAdmin ? (
+                    <button
+                      type="button"
+                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                      disabled={!c.phone}
+                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
+                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Send
+                    </button>
+                  ) : (
+                    profit != null && (
+                      <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
+                        {rupees(profit)}
+                      </span>
+                    )
+                  )}
                 </div>
               )
             })}
@@ -714,31 +711,29 @@ export function NotificationsPage() {
             {holderAllottedCards.map((c) => {
               const message = buildHolderAllottedMessage(c)
               return (
-                <div key={c.key} className="aura">
-                  <div className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {c.holderName}
-                        {c.hasOverride && (
-                          <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
-                            {'\u{1F3F7}\u{FE0F}'}
-                          </span>
-                        )}
-                      </p>
-                      <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {c.ipoName} · {c.totalLots} lot(s)
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                      disabled={!c.phone}
-                      title={c.phone ? undefined : 'No phone number on file for this account'}
-                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Send
-                    </button>
+                <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {c.holderName}
+                      {c.hasOverride && (
+                        <span className="ml-1.5" title="Funded via a transfer to a different UPI account">
+                          {'\u{1F3F7}\u{FE0F}'}
+                        </span>
+                      )}
+                    </p>
+                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {c.ipoName} · {c.totalLots} lot(s)
+                    </p>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                    disabled={!c.phone}
+                    title={c.phone ? undefined : 'No phone number on file for this account'}
+                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Send
+                  </button>
                 </div>
               )
             })}
@@ -852,7 +847,7 @@ function SellReminderSection({
       </h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {cards.map((c) => (
-          <div key={c.key} className="aura-card stagger-item flex items-center justify-between gap-2 p-3">
+          <div key={c.key} className="card stagger-item flex items-center justify-between gap-2 p-3">
             <div className="min-w-0">
               <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {c.holderName}

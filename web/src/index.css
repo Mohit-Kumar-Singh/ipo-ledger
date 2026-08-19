@@ -854,38 +854,20 @@ table {
     box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
-  /* "Aura" card — good-news treatment for the allotment cards on
-     Notifications: a soft glow using --good, distinct from every other
-     plain .card on the page so an allotted funder card reads as a small
-     celebratory moment rather than routine list noise. Deliberately scoped
-     to this one use, not folded into .card. */
-  .aura-card {
+  /* Good-news treatment for the allotted cards on Notifications — was a
+     rotating .aura glow ring (v1.162.0) wrapping a radial-gradient "aura"
+     card underneath it (before that, a static glow-only version); both
+     replaced with a plain, quiet green tint + soft shadow. No ring, no
+     gradient trick, no hover lift — an allotted notification should read
+     as calm good news, not a hype animation. Kept as its own class rather
+     than folded into .card since the tint is still specific to this one
+     "you got shares" moment, not every card on the page. */
+  .allotted-card {
     @apply border;
-    /* Was rounded-md (a flat 6px), out of sync with plain .card's own
-       var(--card-radius) (0.75rem, bumped further on touch) — the Funders
-       section sits right next to these same-shaped-in-principle cards using
-       .card, and the mismatched radius made an allotted/sold card visibly a
-       different shape, not just a different color. Sharing the same token
-       also keeps .aura-card and the .aura ring wrapping it (which already
-       rounds to --card-radius) concentric with each other. */
     border-radius: var(--card-radius);
-    position: relative;
-    border-color: color-mix(in srgb, var(--good) 45%, var(--border-strong));
-    background:
-      linear-gradient(var(--surface), var(--surface)) padding-box,
-      radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--good) 55%, transparent), transparent 60%);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--good) 20%, transparent),
-      0 8px 24px -12px color-mix(in srgb, var(--good) 45%, transparent);
-    transition:
-      transform 0.15s cubic-bezier(0.16, 1, 0.3, 1),
-      box-shadow 0.15s cubic-bezier(0.16, 1, 0.3, 1);
-  }
-  .aura-card:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--good) 30%, transparent),
-      0 12px 32px -12px color-mix(in srgb, var(--good) 55%, transparent);
+    border-color: color-mix(in srgb, var(--good) 30%, var(--border-strong));
+    background: color-mix(in srgb, var(--good) 7%, var(--surface));
+    box-shadow: var(--shadow-sm);
   }
 
   /* Depth-on-hover for the Dashboard stat tiles — lifts + deepens the
