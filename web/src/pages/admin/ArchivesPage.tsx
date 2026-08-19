@@ -3,6 +3,7 @@ import { UndoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
+import { computeProfitSplit } from '../../lib/profitSplit'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo } from '../../types/database'
 
@@ -11,6 +12,24 @@ const statusBadgeClass: Record<AllotmentBoardRow['status'], string> = {
   ALLOTTED: 'badge-good',
   NOT_ALLOTTED: 'badge-neutral',
   SOLD: 'badge-violet',
+}
+
+function rupees(n: number): string {
+  const sign = n < 0 ? '−' : ''
+  return `${sign}₹${Math.round(Math.abs(n)).toLocaleString('en-IN')}`
+}
+
+// "22/Aug/26" — day/short-month-name/2-digit-year. UTC, not local time, so
+// a date-only string (no time component, same convention every other
+// date-only field in this app already follows — see AllotmentBoardPage's
+// own day+month formatter) doesn't shift a day depending on the viewer's
+// timezone.
+function formatArchiveDate(dateStr: string): string {
+  const d = new Date(dateStr)
+  const day = d.toLocaleDateString('en-IN', { day: '2-digit', timeZone: 'UTC' })
+  const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
+  const year = d.toLocaleDateString('en-IN', { year: '2-digit', timeZone: 'UTC' })
+  return `${day}/${month}/${year}`
 }
 
 // Everything settled and moved out of the way — an IPO ends up here once
@@ -72,27 +91,48 @@ export function ArchivesPage() {
     rowsByIpo.get(r.ipo_id)!.push(r)
   }
 
+  // An archived IPO nobody ever actually applied to (auto-archived once
+  // fully NOT_ALLOTTED, or archived by hand before anything was tracked
+  // against it) isn't a "settled" record worth keeping in view here — just
+  // noise with nothing underneath it to expand into.
+  const visibleIpos = ipos.filter((ipo) => (rowsByIpo.get(ipo.id)?.length ?? 0) > 0)
+
+  const totals = visibleIpos.reduce(
+    (acc, ipo) => {
+      const items = rowsByIpo.get(ipo.id) ?? []
+      acc.applications += items.length
+      // "Allotted" here counts every application that ever reached that
+      // state, including ones later sold — SOLD is a subsequent status,
+      // not a separate bucket that never went through allotment.
+      acc.allotted += items.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD').length
+      return acc
+    },
+    { applications: 0, allotted: 0 },
+  )
+
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
           Archives
         </h1>
-        <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-          {ipos.length} settled IPO{ipos.length === 1 ? '' : 's'} — either fully not-allotted or archived once
-          allotment and payouts were done. Nothing here is deleted; it's just out of the way everywhere else.
-        </p>
+        {visibleIpos.length > 0 && (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {visibleIpos.length} IPO{visibleIpos.length === 1 ? '' : 's'} · {totals.applications} application
+            {totals.applications === 1 ? '' : 's'} · {totals.allotted} allotted
+          </p>
+        )}
       </div>
 
       {loading ? (
         <InlineSpinner />
-      ) : ipos.length === 0 ? (
+      ) : visibleIpos.length === 0 ? (
         <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
           Nothing archived yet.
         </p>
       ) : (
         <div className="space-y-3">
-          {ipos.map((ipo) => {
+          {visibleIpos.map((ipo) => {
             const items = rowsByIpo.get(ipo.id) ?? []
             const isOpen = expanded.has(ipo.id)
             const counts = {
@@ -100,6 +140,25 @@ export function ArchivesPage() {
               notAllotted: items.filter((r) => r.status === 'NOT_ALLOTTED').length,
               sold: items.filter((r) => r.status === 'SOLD').length,
             }
+            // Total profit (the profit-person's own share, same computation
+            // PayoutsPage uses) across every SOLD application under this
+            // IPO — only meaningful once something's actually been sold.
+            const totalProfit = items
+              .filter((r) => r.status === 'SOLD' && r.sell_price != null)
+              .reduce((sum, r) => {
+                const result = computeProfitSplit({
+                  sellPricePerShare: r.sell_price!,
+                  lotSize: r.lot_size,
+                  lots: r.lots,
+                  bidAmount: r.bid_amount ?? 0,
+                  cutPercent: r.profit_share_percent,
+                  dematHolderName: r.holder_name,
+                  funderName: r.bank_account_holder_name,
+                  profitPersonName: profile?.full_name ?? '',
+                  splitWithFunder: r.split_profit_with_funder,
+                })
+                return sum + result.profitPersonShare
+              }, 0)
             return (
               <div key={ipo.id} className="card stagger-item p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -117,8 +176,12 @@ export function ArchivesPage() {
                         {ipo.company_name}
                       </p>
                       <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        {ipo.listing_date ? `Listed ${ipo.listing_date}` : ipo.allotment_date ? `Allotment ${ipo.allotment_date}` : 'No dates'}
-                        {items.length > 0 && ` · ${items.length} application${items.length === 1 ? '' : 's'}`}
+                        {ipo.listing_date
+                          ? `Listed ${formatArchiveDate(ipo.listing_date)}`
+                          : ipo.allotment_date
+                            ? `Allotment ${formatArchiveDate(ipo.allotment_date)}`
+                            : 'No dates'}
+                        {` · ${items.length} application${items.length === 1 ? '' : 's'}`}
                       </p>
                     </div>
                   </button>
@@ -126,6 +189,11 @@ export function ArchivesPage() {
                     {counts.notAllotted > 0 && <span className="badge badge-neutral text-xs">{counts.notAllotted} not allotted</span>}
                     {counts.allotted > 0 && <span className="badge badge-good text-xs">{counts.allotted} allotted</span>}
                     {counts.sold > 0 && <span className="badge badge-violet text-xs">{counts.sold} sold</span>}
+                    {totalProfit !== 0 && (
+                      <span className="badge text-xs" style={{ background: 'var(--good-tint)', color: 'var(--good-text)' }}>
+                        {rupees(totalProfit)} profit
+                      </span>
+                    )}
                     {isAdmin && (
                       <button
                         onClick={() => unarchive(ipo)}
