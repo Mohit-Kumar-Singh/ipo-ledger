@@ -559,20 +559,31 @@ function nameMatches(ipojiName: string, companyName: string): boolean {
 
 function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
   if (!normalize(ipojiName)) return null
-  return ipos.find((i) => nameMatches(ipojiName, i.company_name)) ?? null
+  // A generic/short shorthand can substring-match more than one IPO's
+  // company_name (nameMatches' `full.includes(n)` rule) — silently taking
+  // the first (array-order, not intent) risked filing a bid under the wrong
+  // IPO entirely. Ambiguous now means "not found" (surfaced for manual
+  // review on the Applications page / IPOs page) rather than a guess.
+  const matches = ipos.filter((i) => nameMatches(ipojiName, i.company_name))
+  return matches.length === 1 ? matches[0] : null
 }
 
 function matchDematByName(applicantName: string, accounts: DematAccount[]): DematAccount | null {
   const n = normalize(applicantName)
   if (!n) return null
-  const exact = accounts.find((a) => normalize(a.holder_name) === n)
-  if (exact) return exact
+  const exact = accounts.filter((a) => normalize(a.holder_name) === n)
+  if (exact.length > 0) return exact.length === 1 ? exact[0] : null
   // First-token match ("Manya Singh" vs a holder_name that starts "Manya…")
   // catches the common case of a nickname/short form without over-matching
-  // on a bare surname shared by multiple accounts.
+  // on a bare surname shared by multiple accounts — but two linked accounts
+  // sharing a first name ("Manya Singh" and "Manya Gupta") used to silently
+  // resolve to whichever came first alphabetically, misattributing a bid to
+  // the wrong person. Ambiguous now returns null ("not found", reviewed by
+  // hand) instead of guessing.
   const firstToken = applicantName.trim().split(/\s+/)[0]
   const nt = normalize(firstToken)
-  return accounts.find((a) => normalize(a.holder_name.split(/\s+/)[0]) === nt) ?? null
+  const byFirstToken = accounts.filter((a) => normalize(a.holder_name.split(/\s+/)[0]) === nt)
+  return byFirstToken.length === 1 ? byFirstToken[0] : null
 }
 
 // PAN is never stored in plaintext (see reveal-pan / PAN_KEY in
@@ -714,7 +725,11 @@ interface ImportDetail {
 // list-candidate names instead of this portal's saved IPOs.
 function matchCandidateName(ipojiName: string, candidates: ImportCandidate[]): ImportCandidate | null {
   if (!normalize(ipojiName)) return null
-  return candidates.find((c) => nameMatches(ipojiName, c.company_name)) ?? null
+  // Same ambiguity guard as matchIpo — don't auto-create/upsert against a
+  // guessed candidate when more than one of ipoji's own current-IPO list
+  // names matches the shorthand.
+  const matches = candidates.filter((c) => nameMatches(ipojiName, c.company_name))
+  return matches.length === 1 ? matches[0] : null
 }
 
 // A scraped application can name an IPO this portal has no row for at all
