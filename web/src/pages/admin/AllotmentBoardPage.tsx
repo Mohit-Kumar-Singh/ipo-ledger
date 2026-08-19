@@ -9,7 +9,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, TagIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -431,8 +431,11 @@ export function AllotmentBoardPage() {
                   </td>
                   <td className="px-4 py-2.5">{row.bank_account_holder_name ?? '—'}</td>
                   <td className="px-4 py-2.5">
-                    <span className={`badge ${statusBadgeClass[row.status]}`} title={row.status.replace('_', ' ')}>
-                      {row.status === 'SOLD' ? '💰' : row.status.replace('_', ' ')}
+                    <span
+                      className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
+                      title={row.status.replace('_', ' ')}
+                    >
+                      {row.status === 'SOLD' ? <TagIcon size={13} /> : row.status.replace('_', ' ')}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
@@ -682,8 +685,11 @@ function SoldPayoutsSection({
                       cramped into one row was the thing getting clipped/
                       unreadable on a narrow screen. */}
                   <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-                    <span className={`badge ${statusBadgeClass[row.status]}`} title={row.status.replace('_', ' ')}>
-                      {row.status === 'SOLD' ? '💰' : row.status.replace('_', ' ')}
+                    <span
+                      className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
+                      title={row.status.replace('_', ' ')}
+                    >
+                      {row.status === 'SOLD' ? <TagIcon size={13} /> : row.status.replace('_', ' ')}
                     </span>
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
@@ -911,7 +917,7 @@ function SoldBreakdown({
         <Stat label="Your share" value={result.profitPersonShare} />
       </div>
       {(!result.isDematHolderSelf && result.dematCutAmount > 0) || result.funderShare > 0 ? (
-        <div className="flex flex-wrap gap-x-6 gap-y-2">
+        <div className="flex flex-col gap-2">
           {!result.isDematHolderSelf && result.dematCutAmount > 0 && (
             <PayoutLine
               label={`${row.holder_name} — ₹${Math.round(result.dematCutAmount).toLocaleString('en-IN')} cut`}
@@ -960,20 +966,27 @@ function PayoutLine({
   onMessage?: () => void
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span style={{ color: paid ? 'var(--good)' : 'var(--ink-primary)' }}>{label}</span>
-      {onMessage && phone && (
-        <button onClick={onMessage} className="link-accent font-medium" aria-label="Message" title="Message">
-          💬
-        </button>
-      )}
-      {paid ? (
-        <span className="badge badge-good">Paid</span>
-      ) : (
-        <button onClick={onMarkPaid} disabled={marking} className="link-accent font-medium disabled:opacity-50">
-          {marking ? 'Marking…' : 'Mark paid'}
-        </button>
-      )}
+    <div className="flex items-center justify-between gap-3">
+      <span className="truncate" style={{ color: paid ? 'var(--good)' : 'var(--ink-primary)' }}>{label}</span>
+      <div className="flex shrink-0 items-center gap-3">
+        {onMessage && phone && (
+          <button
+            onClick={onMessage}
+            className="link-accent inline-flex items-center"
+            aria-label="Message"
+            title="Message"
+          >
+            <CommentDiscussionIcon size={15} />
+          </button>
+        )}
+        {paid ? (
+          <span className="badge badge-good">Paid</span>
+        ) : (
+          <button onClick={onMarkPaid} disabled={marking} className="link-accent font-medium disabled:opacity-50">
+            {marking ? 'Marking…' : 'Mark paid'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }
