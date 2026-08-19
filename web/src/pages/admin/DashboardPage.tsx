@@ -161,7 +161,18 @@ function buildPendingPayouts(
       lotSize: r.lot_size,
       lots: r.lots,
       bidAmount: r.bid_amount ?? 0,
-      cutPercent: r.profit_share_percent,
+      // demat_accounts has no funder-visibility RLS policy at all (only
+      // linked_user_id = auth.uid()) — a funder viewing their OWN
+      // "Owed to you" tile isn't linked to the demat account they funded,
+      // so v_allotment_board's join to it is silently blocked for exactly
+      // that row, and profit_share_percent comes back null (unlike
+      // holder_name, which survives via a separate RLS-bypassing resolver
+      // function). null/100 evaluates to 0 in JS, which skipped the demat
+      // holder's cut entirely and inflated a real funder's own payout by
+      // half the missing cut — confirmed live (₹17,086 shown instead of
+      // the correct ₹16,560). Same ?? 25 fallback buildFunderAllottedCards
+      // already uses for this exact situation.
+      cutPercent: r.profit_share_percent ?? 25,
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,

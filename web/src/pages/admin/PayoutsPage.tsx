@@ -45,7 +45,16 @@ function buildPayoutLines(rows: AllotmentBoardRow[], profitPersonName: string): 
       lotSize: r.lot_size,
       lots: r.lots,
       bidAmount: r.bid_amount ?? 0,
-      cutPercent: r.profit_share_percent,
+      // See the matching comment on Dashboard's buildPendingPayouts — a
+      // funder-only viewer isn't linked to the demat account they funded,
+      // so demat_accounts RLS silently blocks v_allotment_board's join to
+      // it for that row and profit_share_percent comes back null, which
+      // JS coerces to 0 and skips the holder's cut entirely. Admin (the
+      // only caller of this specific function today) always has full
+      // access via is_admin(), so this fallback is defensive here rather
+      // than fixing an observed bug — kept consistent with the other two
+      // call sites below, which a funder genuinely does hit now.
+      cutPercent: r.profit_share_percent ?? 25,
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
@@ -147,7 +156,12 @@ function buildSettlementCards(
       lotSize: r.lot_size,
       lots: r.lots,
       bidAmount: r.bid_amount ?? 0,
-      cutPercent: r.profit_share_percent,
+      // See the comment on Dashboard's buildPendingPayouts — a funder-only
+      // viewer's own copy of this row has profit_share_percent nulled out
+      // by demat_accounts RLS (they're not linked to the account they
+      // funded), which without this fallback silently skipped the demat
+      // holder's cut and inflated their own settlement figures.
+      cutPercent: r.profit_share_percent ?? 25,
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
@@ -176,7 +190,10 @@ function buildSettlementCards(
       bidAmount,
       totalSoldAmount: result.totalSoldAmount,
       profitTotal: result.grossProfit,
-      cutPercent: r.profit_share_percent,
+      // Display-only field (the "Show calculation" breakdown text) — same
+      // fallback as the computeProfitSplit call above, so the number shown
+      // always matches what dematCutAmount was actually computed from.
+      cutPercent: r.profit_share_percent ?? 25,
       holderName: r.holder_name,
       holderPhone: r.phone_e164,
       isDematHolderSelf: result.isDematHolderSelf,

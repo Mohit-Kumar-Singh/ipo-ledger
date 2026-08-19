@@ -200,7 +200,14 @@ export function ArchivesPage() {
                   lotSize: r.lot_size,
                   lots: r.lots,
                   bidAmount: r.bid_amount ?? 0,
-                  cutPercent: r.profit_share_percent,
+                  // Genuinely nullable — see AllotmentBoardRow's own
+                  // comment on this field (demat_accounts has no
+                  // funder-visibility RLS policy, so a funder-only viewer's
+                  // own copy of a row they didn't personally link can come
+                  // back with this null). Admin-only page today, but the
+                  // fallback costs nothing and keeps this consistent with
+                  // every other call site now that the type says so.
+                  cutPercent: r.profit_share_percent ?? 25,
                   dematHolderName: r.holder_name,
                   funderName: r.bank_account_holder_name,
                   profitPersonName: profile?.full_name ?? '',

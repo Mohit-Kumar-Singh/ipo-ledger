@@ -173,7 +173,15 @@ export interface AllotmentBoardRow {
   holder_name: string
   pan_masked: string
   phone_e164: string
-  profit_share_percent: number
+  // Genuinely nullable at runtime, not just in principle — demat_accounts
+  // has no funder-visibility RLS policy (only linked_user_id = auth.uid()),
+  // so for a funder-only viewer querying a row they didn't personally
+  // link, v_allotment_board's join to demat_accounts is silently blocked
+  // and this comes back null (unlike holder_name, which survives via a
+  // separate RLS-bypassing resolver function). Confirmed live: an
+  // unguarded `r.profit_share_percent` read let JS's null/100 = 0 coercion
+  // silently skip the demat holder's cut in a funder's own payout math.
+  profit_share_percent: number | null
   bank_name: string | null
   last4: string | null
   lots: number

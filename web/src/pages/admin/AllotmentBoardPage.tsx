@@ -771,7 +771,12 @@ function SoldForm({
     lotSize: row.lot_size,
     lots: row.lots,
     bidAmount: row.bid_amount ?? 0,
-    cutPercent: row.profit_share_percent,
+    // Genuinely nullable — demat_accounts has no funder-visibility RLS
+    // policy, so a non-admin viewer's own copy of a row they didn't
+    // personally link (funded but don't own) can come back with this
+    // null, which without a fallback silently skipped the demat holder's
+    // cut in this preview.
+    cutPercent: row.profit_share_percent ?? 25,
     dematHolderName: row.holder_name,
     funderName: row.bank_account_holder_name,
     profitPersonName,
@@ -810,7 +815,7 @@ function SoldForm({
           <Stat label="Total sold" value={preview.totalSoldAmount} />
           <Stat label="Gross profit" value={preview.grossProfit} />
           <Stat
-            label={`${row.holder_name}'s cut (${row.profit_share_percent}%)`}
+            label={`${row.holder_name}'s cut (${row.profit_share_percent ?? 25}%)`}
             value={preview.dematCutAmount}
             note={preview.isDematHolderSelf ? 'self' : undefined}
           />
@@ -847,7 +852,11 @@ export function payoutMessage(
   const total = Math.round(result.totalSoldAmount)
   const invested = Math.round(row.bid_amount ?? 0)
   const profit = total - invested
-  const cutPct = row.profit_share_percent
+  // Genuinely nullable — see AllotmentBoardRow's own comment on this
+  // field. This builds an actual WhatsApp message someone gets sent, so a
+  // silent null-to-0 coercion here wouldn't just mis-render a UI number,
+  // it would send a real person a wrong payout figure.
+  const cutPct = row.profit_share_percent ?? 25
   // Each line's number feeds the next (cut, then remainder, then the 50/50
   // split) using values already rounded to whole rupees — so the equations
   // in the message add up cleanly instead of showing paise-level fractions.
@@ -902,7 +911,8 @@ function SoldBreakdown({
     lotSize: row.lot_size,
     lots: row.lots,
     bidAmount: row.bid_amount ?? 0,
-    cutPercent: row.profit_share_percent,
+    // Genuinely nullable — see AllotmentBoardRow's own comment on this field.
+    cutPercent: row.profit_share_percent ?? 25,
     dematHolderName: row.holder_name,
     funderName: row.bank_account_holder_name,
     profitPersonName,
