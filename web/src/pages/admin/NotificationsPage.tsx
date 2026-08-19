@@ -660,9 +660,10 @@ export function NotificationsPage() {
       {/* Non-admin now sees this too, not just admin — a funder's own "this
           IPO is allotted, funded by you" card, same underlying data
           (RLS already scopes it to just their own applications), just no
-          Send button (nothing to send to themselves) — the expected-profit
-          number is shown directly instead, since that's the actual thing
-          they're here to see. */}
+          Send button (nothing to send to themselves). No money figure
+          either — a funder's job here is to see status, not the profit
+          split economics behind it; only admin (who actually settles the
+          payout) sees the expected-profit projection. */}
       {!loading && allottedCards.length > 0 && (
         <section>
           <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-secondary)' }}>
@@ -672,7 +673,7 @@ export function NotificationsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
               const message = buildFunderAllottedMessage(c)
-              const profit = c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
+              const profit = isAdmin && c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
               return (
                 <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">
@@ -695,11 +696,7 @@ export function NotificationsPage() {
                       <PaperAirplaneIcon size={14} />
                     </button>
                   ) : (
-                    profit != null && (
-                      <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
-                        {rupees(profit)}
-                      </span>
-                    )
+                    <span className="badge badge-good shrink-0">Allotted</span>
                   )}
                 </div>
               )

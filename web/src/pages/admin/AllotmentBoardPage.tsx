@@ -9,7 +9,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, TagIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -435,7 +435,7 @@ export function AllotmentBoardPage() {
                       className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
                       title={row.status.replace('_', ' ')}
                     >
-                      {row.status === 'SOLD' ? <TagIcon size={13} /> : row.status.replace('_', ' ')}
+                      {row.status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : row.status.replace('_', ' ')}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
@@ -689,7 +689,7 @@ function SoldPayoutsSection({
                       className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
                       title={row.status.replace('_', ' ')}
                     >
-                      {row.status === 'SOLD' ? <TagIcon size={13} /> : row.status.replace('_', ' ')}
+                      {row.status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : row.status.replace('_', ' ')}
                     </span>
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
@@ -980,7 +980,10 @@ function PayoutLine({
           </button>
         )}
         {paid ? (
-          <span className="badge badge-good">Paid</span>
+          <span className="badge badge-good inline-flex items-center gap-1">
+            <FileCheckIcon size={12} />
+            Paid
+          </span>
         ) : (
           <button onClick={onMarkPaid} disabled={marking} className="link-accent font-medium disabled:opacity-50">
             {marking ? 'Marking…' : 'Mark paid'}
