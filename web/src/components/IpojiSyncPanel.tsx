@@ -928,10 +928,27 @@ export function IpojiSyncPanel({
         // funded via a different bank/UPI account" case, which ipoji
         // reports with genuinely different app numbers per bid, not the
         // same one resolving differently.
+        const byAppNumber = r.appNumber
+          ? existingByAppNumber.get(`${matchedIpo?.id}_${matchedDemat?.id}_${r.appNumber}`)
+          : undefined
+        // The key-based fallback (no distinct app-number record yet) used to
+        // match ANY existing row for this (ipo, demat, bank) triple — including
+        // an old CANCELLED one. That's wrong for a real, observed ipoji case:
+        // someone reapplies via the same UPI after a cancelled bid, getting a
+        // brand-new app number ipoji has never told this portal about. The
+        // fallback matched their stale cancelled row, treated the new
+        // (actually-approved) bid as "already applied," and silently dropped
+        // it — the cancelled mandate then never gets a mandate-update either,
+        // since toUpdateMandate only ever moves PENDING -> decided, not
+        // CANCELLED -> decided (that guard exists for genuine admin overrides,
+        // which a stale ipoji-sourced CANCELLED row isn't). A CANCELLED
+        // existing match is treated as "not really there" here, same
+        // reasoning the Dashboard's own applied-count uses — so this creates
+        // a fresh row for the new bid instead of swallowing it.
+        const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}`)
         const existing =
           matchedIpo && matchedDemat
-            ? (r.appNumber && existingByAppNumber.get(`${matchedIpo.id}_${matchedDemat.id}_${r.appNumber}`)) ||
-              existingByKey.get(`${matchedIpo.id}_${matchedDemat.id}_${matchedBank?.id ?? 'self'}`)
+            ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
             : undefined
         return {
           ...r,
