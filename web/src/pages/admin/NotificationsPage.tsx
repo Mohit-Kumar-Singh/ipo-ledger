@@ -590,7 +590,11 @@ export function NotificationsPage() {
                       {c.funderName}
                     </p>
                     <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · sold at {rupees(c.sellPricePerShare)}/share
+                      {/* Total sold amount (per-share price × lot size ×
+                          total lots), not the per-share figure — "sold at
+                          ₹X/share" made someone do that multiplication
+                          themselves to know what actually changed hands. */}
+                      {c.ipoName} · sold for {rupees(c.sellPricePerShare * c.lotSize * c.totalLots)}
                     </p>
                   </div>
                   <button

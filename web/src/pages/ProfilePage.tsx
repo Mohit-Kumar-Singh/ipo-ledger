@@ -977,10 +977,22 @@ export function ProfilePage() {
         </div>
       </div>
 
+      {/* -mb-4 (lg:mb-0, since AppShell's extra bottom clearance is phone/
+          tablet-only — see its own comment on <main>'s paddingBottom) pulls
+          this closer to the floating tab bar below it, so the gap reads
+          closer to the tight space-y-2 used inside "More" above, instead
+          of the much larger ~4.5rem AppShell reserves site-wide so that
+          fixed-position bar never covers a page's last content. Kept
+          deliberately modest (1rem, not a literal match to the 8px "More"
+          section gap) — AppShell's own clearance is sized to the tab bar's
+          actual rendered height, not empty space, so pulling much further
+          risks this button ending up partly under the bar. Scoped to this
+          page only, not AppShell itself, which every other page also
+          depends on for the same protection. */}
       <button
         type="button"
         onClick={signOut}
-        className="flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold"
+        className="-mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold lg:mb-0"
         style={{ borderColor: 'var(--critical-tint)', background: 'var(--critical-tint)', color: 'var(--critical-text)' }}
       >
         <SignOutIcon size={16} fill="var(--critical-text)" />

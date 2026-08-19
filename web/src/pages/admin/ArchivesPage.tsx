@@ -49,6 +49,15 @@ export function ArchivesPage() {
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [unarchiving, setUnarchiving] = useState<string | null>(null)
+  // The last IPO unarchived this visit — an accidental tap on "Unarchive"
+  // otherwise meant hunting it back down on the IPOs page (Live/Upcoming/
+  // Closed, wherever it landed) to archive it again. A quick "Re-archive"
+  // right where the mistake happened instead. Cleared once re-archived, or
+  // just left stale/ignored if the user moves on — not persisted, so a
+  // page reload naturally forgets it (nothing to accidentally undo days
+  // later from a stale banner).
+  const [justUnarchived, setJustUnarchived] = useState<Ipo | null>(null)
+  const [reArchiving, setReArchiving] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -82,6 +91,19 @@ export function ArchivesPage() {
       showToast(error.message, 'critical')
       return
     }
+    setJustUnarchived(ipo)
+    load()
+  }
+
+  async function reArchive(ipo: Ipo) {
+    setReArchiving(true)
+    const { error } = await supabase.from('ipos').update({ is_archived: true }).eq('id', ipo.id)
+    setReArchiving(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    setJustUnarchived(null)
     load()
   }
 
@@ -123,6 +145,33 @@ export function ArchivesPage() {
           </p>
         )}
       </div>
+
+      {justUnarchived && (
+        <div
+          className="card flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+          style={{ borderColor: 'var(--accent-tint)', background: 'var(--accent-tint)' }}
+        >
+          <span style={{ color: 'var(--ink-primary)' }}>
+            Unarchived <span className="font-medium">{justUnarchived.company_name}</span>.
+          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => reArchive(justUnarchived)}
+              disabled={reArchiving}
+              className="link-accent text-xs font-medium disabled:opacity-50"
+            >
+              {reArchiving ? 'Re-archiving…' : 'Re-archive'}
+            </button>
+            <button
+              onClick={() => setJustUnarchived(null)}
+              className="text-xs font-medium hover:underline"
+              style={{ color: 'var(--ink-muted)' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <InlineSpinner />
