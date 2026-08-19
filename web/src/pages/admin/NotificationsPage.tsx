@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { PaperAirplaneIcon } from '@primer/octicons-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -601,10 +602,11 @@ export function NotificationsPage() {
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    title={c.phone ? 'Send' : 'No phone number on file for this bank/UPI account'}
+                    aria-label="Send"
+                    className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send
+                    <PaperAirplaneIcon size={14} />
                   </button>
                 </div>
               )
@@ -686,10 +688,11 @@ export function NotificationsPage() {
                       type="button"
                       onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                       disabled={!c.phone}
-                      title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                      className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                      title={c.phone ? 'Send' : 'No phone number on file for this bank/UPI account'}
+                      aria-label="Send"
+                      className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Send
+                      <PaperAirplaneIcon size={14} />
                     </button>
                   ) : (
                     profit != null && (
@@ -733,10 +736,11 @@ export function NotificationsPage() {
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    title={c.phone ? 'Send' : 'No phone number on file for this account'}
+                    aria-label="Send"
+                    className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send
+                    <PaperAirplaneIcon size={14} />
                   </button>
                 </div>
               )
@@ -794,10 +798,11 @@ export function NotificationsPage() {
                     type="button"
                     onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
                     disabled={!c.phone}
-                    title={c.phone ? undefined : 'No phone number on file for this bank/UPI account'}
-                    className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    title={c.phone ? 'Send' : 'No phone number on file for this bank/UPI account'}
+                    aria-label="Send"
+                    className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Send
+                    <PaperAirplaneIcon size={14} />
                   </button>
                 </div>
               )
@@ -864,10 +869,20 @@ function SellReminderSection({
               type="button"
               onClick={() => send(c)}
               disabled={!c.phone || sending === c.key}
-              title={c.phone ? undefined : 'No phone number on file for this account'}
-              className="btn-secondary shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              title={sending === c.key ? 'Preparing…' : c.phone ? 'Send' : 'No phone number on file for this account'}
+              aria-label={sending === c.key ? 'Preparing' : 'Send'}
+              className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {sending === c.key ? 'Preparing…' : 'Send'}
+              {sending === c.key ? (
+                <span
+                  className="inline-block animate-spin rounded-full border-2"
+                  style={{ width: 14, height: 14, borderColor: 'var(--border-strong)', borderTopColor: 'var(--accent)' }}
+                  role="status"
+                  aria-hidden="true"
+                />
+              ) : (
+                <PaperAirplaneIcon size={14} />
+              )}
             </button>
           </div>
         ))}

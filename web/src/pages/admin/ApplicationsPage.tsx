@@ -1075,7 +1075,6 @@ export function ApplicationsPage() {
                             )}
                           </div>
                         )}
-                        {a.status !== 'APPLIED' && <StatusBadge status={a.status} />}
                       </div>
                       </div>
                       {/* Dedicated IPO name + app number column, desktop
@@ -1093,8 +1092,12 @@ export function ApplicationsPage() {
                         {a.ipoji_app_number && <p className="truncate">#{a.ipoji_app_number}</p>}
                       </div>
 
+                      {/* Phone: this now shows inline on the mandate row
+                          itself (see the mandate block below) instead of
+                          its own separate row — hidden here, desktop-only
+                          column unchanged. */}
                       {a.sell_price != null && (
-                        <div className="w-full shrink-0 text-xs sm:w-24" style={{ color: 'var(--good)' }}>
+                        <div className="hidden shrink-0 text-xs sm:block sm:w-24" style={{ color: 'var(--good)' }}>
                           Sold ₹{a.sell_price.toLocaleString('en-IN')}
                         </div>
                       )}
@@ -1123,52 +1126,71 @@ export function ApplicationsPage() {
                           above). truncate stays as a safety net for the
                           rare genuinely-long ipoji status string — full text
                           is still in the title attribute either way. */}
-                      <div
-                        className="w-full border-t pt-2.5 text-xs sm:w-56 sm:shrink-0 sm:border-t-0 sm:pt-0"
-                        style={{ borderColor: 'var(--border)' }}
-                        id={`mandate-${a.id}`}
-                      >
-                        {a.mandate_status === 'PENDING' ? (
-                          canMarkMandate ? (
-                            <div className="flex items-center gap-2">
-                              <button
-                                onClick={() => setMandateStatus(a.id, 'APPROVED')}
-                                disabled={mandateSaving === a.id}
-                                className="link-accent font-medium disabled:opacity-50"
-                              >
-                                Mandate approved
-                              </button>
-                              <button
-                                onClick={() => setMandateStatus(a.id, 'CANCELLED')}
-                                disabled={mandateSaving === a.id}
-                                className="font-medium hover:underline disabled:opacity-50"
-                                style={{ color: 'var(--ink-muted)' }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <span style={{ color: 'var(--warning)' }}>Awaiting mandate approval</span>
-                          )
-                        ) : (
-                          <div>
-                            <span className="inline-flex items-center gap-1" style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
-                              Mandate {a.mandate_status === 'APPROVED' ? 'approved' : 'cancelled'}
-                              {/* The sync's own guess at the mandate status
-                                  (from ipoji's status text), not a reviewed
-                                  human decision — same ipoji-logo symbol used
-                                  elsewhere for "this came from the sync," so
-                                  it reads consistently at a glance instead of
-                                  needing the "by ipoji" text spelled out. */}
-                              {a.mandate_marked_by_ipoji && (
-                                <img src="/ipoji-logo.png" alt="Set by the ipoji sync" title="Set by the ipoji sync" width={13} height={13} />
+                      {/* Phone only — status/sold-amount shown inline on the
+                          mandate row's own top line (right-aligned) instead
+                          of its own separate row near the identity block
+                          above. Desktop keeps the dedicated Sold/StatusBadge
+                          columns unchanged (both hidden here, sm:hidden). */}
+                      {(() => {
+                        const mobileStatus = a.status !== 'APPLIED' && (
+                          <span className="sm:hidden">
+                            {a.status === 'SOLD' && a.sell_price != null ? (
+                              <span className="font-medium" style={{ color: 'var(--good)' }}>
+                                Sold ₹{a.sell_price.toLocaleString('en-IN')}
+                              </span>
+                            ) : (
+                              <StatusBadge status={a.status} />
+                            )}
+                          </span>
+                        )
+                        return (
+                          <div
+                            className="w-full border-t pt-2.5 text-xs sm:w-56 sm:shrink-0 sm:border-t-0 sm:pt-0"
+                            style={{ borderColor: 'var(--border)' }}
+                            id={`mandate-${a.id}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              {a.mandate_status === 'PENDING' ? (
+                                canMarkMandate ? (
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => setMandateStatus(a.id, 'APPROVED')}
+                                      disabled={mandateSaving === a.id}
+                                      className="link-accent font-medium disabled:opacity-50"
+                                    >
+                                      Mandate approved
+                                    </button>
+                                    <button
+                                      onClick={() => setMandateStatus(a.id, 'CANCELLED')}
+                                      disabled={mandateSaving === a.id}
+                                      className="font-medium hover:underline disabled:opacity-50"
+                                      style={{ color: 'var(--ink-muted)' }}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--warning)' }}>Awaiting mandate approval</span>
+                                )
+                              ) : (
+                                <span className="inline-flex items-center gap-1" style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
+                                  Mandate {a.mandate_status === 'APPROVED' ? 'approved' : 'cancelled'}
+                                  {/* The sync's own guess at the mandate status
+                                      (from ipoji's status text), not a reviewed
+                                      human decision — same ipoji-logo symbol used
+                                      elsewhere for "this came from the sync," so
+                                      it reads consistently at a glance instead of
+                                      needing the "by ipoji" text spelled out. */}
+                                  {a.mandate_marked_by_ipoji && (
+                                    <img src="/ipoji-logo.png" alt="Set by the ipoji sync" title="Set by the ipoji sync" width={13} height={13} />
+                                  )}
+                                </span>
                               )}
-                            </span>
-                            {!a.mandate_marked_by_ipoji && mandateMarkerName && (
+                              {mobileStatus}
+                            </div>
+                            {a.mandate_status !== 'PENDING' && !a.mandate_marked_by_ipoji && mandateMarkerName && (
                               <p style={{ color: 'var(--ink-muted)' }}>by {mandateMarkerName}</p>
                             )}
-                          </div>
-                        )}
                         {/* ipoji's own words, not just our 3-state PENDING/
                             APPROVED/CANCELLED simplification — "Request
                             Accepted By Sponsor Bank" and "Bid placed
@@ -1176,12 +1198,14 @@ export function ApplicationsPage() {
                             bucket, but they're not the same thing and the
                             portal previously had no way to show that
                             distinction at all. */}
-                        {a.ipoji_status_text && (
-                          <p className="mt-0.5 truncate" style={{ color: 'var(--ink-muted)' }} title={a.ipoji_status_text}>
-                            ipoji: {a.ipoji_status_text}
-                          </p>
-                        )}
-                      </div>
+                            {a.ipoji_status_text && (
+                              <p className="mt-0.5 truncate" style={{ color: 'var(--ink-muted)' }} title={a.ipoji_status_text}>
+                                ipoji: {a.ipoji_status_text}
+                              </p>
+                            )}
+                          </div>
+                        )
+                      })()}
 
                       <div
                         className="flex w-full items-center justify-between gap-2 border-t pt-2.5 sm:w-auto sm:shrink-0 sm:flex-wrap sm:border-t-0 sm:pt-0"
