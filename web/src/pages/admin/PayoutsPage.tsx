@@ -14,6 +14,8 @@ import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
+import { sameIdentity } from '../../lib/applicationAttribution'
+import { buildFunderAllottedCards, expectedProfitBreakdown, type ProfitProjectionRow } from '../../lib/expectedProfit'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -252,6 +254,30 @@ function groupSettlementByParty(
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
 
+// Same SettlementPartyGroup shape as groupSettlementByParty above (so it
+// can reuse the same SettlementPartyList component) but for the ESTIMATED
+// allotted-not-yet-sold projection instead of the real settlement ledger —
+// amountToReturn is expectedProfitBreakdown's "principal + this funder's
+// own profit share," i.e. the same total groupSettlementByParty's
+// remainingToFunder represents, just projected instead of confirmed.
+function groupExpectedByFunder(
+  cards: ReturnType<typeof buildFunderAllottedCards>,
+  livePriceBySymbol: Record<string, number | null>,
+): SettlementPartyGroup[] {
+  const byName = new Map<string, SettlementPartyGroup>()
+  for (const c of cards) {
+    const livePrice = c.symbol ? (livePriceBySymbol[c.symbol] ?? null) : null
+    const amount = expectedProfitBreakdown(c, livePrice).amountToReturn
+    if (amount <= 0) continue
+    if (!byName.has(c.funderName)) byName.set(c.funderName, { name: c.funderName, phone: c.phone, total: 0, ipos: [] })
+    const g = byName.get(c.funderName)!
+    if (!g.phone && c.phone) g.phone = c.phone
+    g.total += amount
+    g.ipos.push({ ipoName: c.ipoName, amount })
+  }
+  return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
 // Both directions of an application's own obligations done — the holder's
 // side (if there was one to begin with) and the funder's side (ditto). A
 // self-funded or self-held application is trivially "settled" on the side
@@ -294,6 +320,17 @@ export function PayoutsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  // Admin-only, separate from the SOLD settlement ledger above — allotted
+  // applications that haven't been marked SOLD yet still have real money
+  // owed to whoever funded them once they do sell, and there was no way to
+  // see who/how much until that point without checking every IPO by hand.
+  // Estimated (live price when the IPO's listed and its symbol is on file,
+  // GMP-based projection otherwise, same fallback expectedProfitBreakdown
+  // already uses for Dashboard's "Expected profit" tile) — never a
+  // confirmed figure, so kept entirely separate from the real settlement
+  // cards above rather than blended into the same total.
+  const [expectedCards, setExpectedCards] = useState<ReturnType<typeof buildFunderAllottedCards>>([])
+  const [livePriceBySymbol, setLivePriceBySymbol] = useState<Record<string, number | null>>({})
 
   async function load() {
     setLoading(true)
@@ -301,9 +338,26 @@ export function PayoutsPage() {
     // No per-IPO filter — v_allotment_board is already RLS-scoped per
     // viewer, this just doesn't narrow it down to one selected IPO the way
     // AllotmentBoardPage does.
-    const [boardRes, paymentsRes] = await Promise.all([
+    const [boardRes, paymentsRes, expectedRes] = await Promise.all([
       supabase.from('v_allotment_board').select('*').eq('status', 'SOLD'),
       supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
+      // Same shape/query NotificationsPage's admin funder query and
+      // Dashboard's profit-projection query already use — admin-only
+      // conceptually (this section only ever renders for isAdmin below),
+      // but not client-gated on the fetch itself per this app's own
+      // convention of letting RLS do the scoping rather than an
+      // isAdmin ? ... : [] branch pretending to be the security boundary.
+      supabase
+        .from('applications')
+        .select(
+          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+            'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+        )
+        .eq('status', 'ALLOTTED')
+        .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
     ])
     if (boardRes.error) {
       setLoadError(boardRes.error.message)
@@ -316,6 +370,29 @@ export function PayoutsPage() {
     // figures on each settlement card.
     if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
     setPayments((paymentsRes.data as SettlementPayment[]) ?? [])
+
+    if (expectedRes.error) {
+      showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
+      setExpectedCards([])
+      setLivePriceBySymbol({})
+    } else {
+      const expectedRowsBase = ((expectedRes.data ?? []) as unknown as ProfitProjectionRow[]).filter(
+        (r) => !r.ipos?.is_archived,
+      )
+      const cards = buildFunderAllottedCards(expectedRowsBase, sameIdentity).filter((c) => c.priceHigh)
+      setExpectedCards(cards)
+      const symbols = Array.from(new Set(cards.map((c) => c.symbol).filter((s): s is string => !!s)))
+      if (symbols.length > 0) {
+        const { data: priceData } = await supabase.functions.invoke<{
+          prices?: Record<string, { price: number | null; stale: boolean }>
+        }>('fetch-stock-price', { body: { symbols } })
+        const prices: Record<string, number | null> = {}
+        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) prices[sym] = p.price
+        setLivePriceBySymbol(prices)
+      } else {
+        setLivePriceBySymbol({})
+      }
+    }
     setLoading(false)
   }
 
@@ -337,11 +414,52 @@ export function PayoutsPage() {
     load()
   }
 
+  const paymentsByApp = new Map<string, SettlementPayment[]>()
+  for (const p of payments) {
+    if (!paymentsByApp.has(p.application_id)) paymentsByApp.set(p.application_id, [])
+    paymentsByApp.get(p.application_id)!.push(p)
+  }
+  // profitPersonName is '' for a non-admin, not their own name — see the
+  // long comment on Dashboard's equivalent buildPendingPayouts call for
+  // why: computeProfitSplit (inside buildSettlementCards) uses this to
+  // detect "is the funder ALSO the profit-taking admin," and a funder's
+  // own name here would spuriously match their own row, zeroing what
+  // they're owed. A non-admin viewer is never the profit-taking admin by
+  // construction.
+  const settlementCards = buildSettlementCards(rows, isAdmin ? (profile?.full_name ?? '') : '', paymentsByApp)
+  const ipoSettlementGroups = groupCardsByIpo(settlementCards)
+
   if (!isAdmin) {
+    // rows (v_allotment_board, SOLD only) is already RLS-scoped to just
+    // this funder's own applications — no separate fetch/filter needed,
+    // same settlementCards/ipoSettlementGroups the admin view uses, just
+    // read-only (no log-a-payment control — settlement_payments writes are
+    // genuinely admin-only at the RLS level) and without the cross-funder
+    // "You need to send"/old boolean-flag sections that are an admin's own
+    // management concern, not something a funder needs.
     return (
-      <div className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-        Payouts is an admin-only page — it covers funding credit and payout obligations across every account, not
-        just your own.
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+            Your payouts
+          </h1>
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            What you're owed on applications you've funded that have already sold.
+          </p>
+        </div>
+        {loading ? (
+          <InlineSpinner />
+        ) : ipoSettlementGroups.length === 0 ? (
+          <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Nothing sold yet on an application you've funded.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {ipoSettlementGroups.map((g) => (
+              <IpoSettlementCard key={g.ipoName} group={g} onLogged={load} readOnly />
+            ))}
+          </div>
+        )}
       </div>
     )
   }
@@ -354,12 +472,6 @@ export function PayoutsPage() {
   const paidGroups = groupByRecipient(paidLines).filter(searchFilter)
   const outstandingTotal = outstandingLines.reduce((s, l) => s + l.amount, 0)
 
-  const paymentsByApp = new Map<string, SettlementPayment[]>()
-  for (const p of payments) {
-    if (!paymentsByApp.has(p.application_id)) paymentsByApp.set(p.application_id, [])
-    paymentsByApp.get(p.application_id)!.push(p)
-  }
-  const settlementCards = buildSettlementCards(rows, profile?.full_name ?? '', paymentsByApp)
   // Live figures — what's ACTUALLY still outstanding right now, after every
   // logged settlement_payments row, not the gross pre-payment totals. This
   // is the headline "how much do I still need to send to funders" number.
@@ -368,7 +480,7 @@ export function PayoutsPage() {
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
   const owedToFunders = groupSettlementByParty(settlementCards, 'funder')
   const owedFromHolders = groupSettlementByParty(settlementCards, 'holder')
-  const ipoSettlementGroups = groupCardsByIpo(settlementCards)
+  const expectedByFunder = groupExpectedByFunder(expectedCards, livePriceBySymbol)
 
   return (
     <div className="space-y-6">
@@ -440,6 +552,33 @@ export function PayoutsPage() {
         </div>
       )}
 
+      {/* Allotted but not yet sold — nothing confirmed to owe here, but
+          knowing roughly who to prepare to pay (and how much) before it
+          actually sells is the whole point: same math Dashboard's own
+          "Expected profit" tile uses (live price once listed, GMP estimate
+          before that), just grouped by funder like the confirmed section
+          above instead of by IPO. Kept visually and structurally separate
+          from "You need to send" — this is never a real, actionable
+          obligation the way that section is. */}
+      {expectedByFunder.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Expected — not yet sold
+          </h2>
+          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Estimated from the live share price where the IPO's listed and its symbol is on file, or the GMP
+            projection otherwise — not a confirmed amount until it's actually marked sold.
+          </p>
+          <SettlementPartyList
+            title="Expected to send"
+            groups={expectedByFunder}
+            amountColor="var(--ink-secondary)"
+            emptyLabel="Nothing allotted-and-unsold with a funder right now."
+            isEstimate
+          />
+        </div>
+      )}
+
       {ipoSettlementGroups.length > 0 && (
         <section className="space-y-3">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
@@ -507,11 +646,18 @@ function SettlementPartyList({
   groups,
   amountColor,
   emptyLabel,
+  isEstimate,
 }: {
   title: string
   groups: SettlementPartyGroup[]
   amountColor: string
   emptyLabel: string
+  // Changes the "Message" button's WhatsApp text from "current outstanding"
+  // (a confirmed figure) to "expected, once sold" — sending someone a real
+  // money message that implies a settled amount when it's actually just a
+  // live-price/GMP projection would be actively misleading, not just
+  // imprecise wording.
+  isEstimate?: boolean
 }) {
   return (
     <div className="card space-y-3 p-4">
@@ -548,7 +694,9 @@ function SettlementPartyList({
                       onClick={() =>
                         sendCustomWhatsapp(
                           g.phone!,
-                          `Hi ${g.name}, current outstanding across ${g.ipos.length} IPO${g.ipos.length === 1 ? '' : 's'}: ${rupees(g.total)}.`,
+                          isEstimate
+                            ? `Hi ${g.name}, rough estimate of what's expected across ${g.ipos.length} IPO${g.ipos.length === 1 ? '' : 's'} once sold: ${rupees(g.total)} — not confirmed yet.`
+                            : `Hi ${g.name}, current outstanding across ${g.ipos.length} IPO${g.ipos.length === 1 ? '' : 's'}: ${rupees(g.total)}.`,
                         )
                       }
                       className="link-accent text-xs font-medium"
@@ -588,7 +736,21 @@ const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
 // sides (holder owed you, you owed the funder) are fully paid — the whole
 // point of grouping this way is that IPO-level state ("is this one done")
 // is exactly what used to require scanning every application card by eye.
-function IpoSettlementCard({ group, onLogged }: { group: IpoSettlementGroup; onLogged: () => void }) {
+function IpoSettlementCard({
+  group,
+  onLogged,
+  readOnly,
+}: {
+  group: IpoSettlementGroup
+  onLogged: () => void
+  // Funder's own view of their own settlement data — same cards, same
+  // math, but no "+Log a payment" control: settlement_payments is
+  // genuinely admin-only at the RLS level (p_settlement_payments_admin),
+  // so a funder attempting to log one would just get a permission error.
+  // Hiding the control is the correct read-only affordance, not a
+  // workaround for a write that would fail anyway.
+  readOnly?: boolean
+}) {
   return (
     <div className="card stagger-item p-4">
       <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -599,7 +761,7 @@ function IpoSettlementCard({ group, onLogged }: { group: IpoSettlementGroup; onL
       </div>
       <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
         {group.cards.map((c) => (
-          <SettlementCardView key={c.applicationId} c={c} onLogged={onLogged} />
+          <SettlementCardView key={c.applicationId} c={c} onLogged={onLogged} readOnly={readOnly} />
         ))}
       </div>
     </div>
@@ -615,7 +777,15 @@ function IpoSettlementCard({ group, onLogged }: { group: IpoSettlementGroup; onL
 // applications on the same IPO that meant scrolling through a wall of
 // identical-looking math to find the one number that mattered (who to pay,
 // how much), which is what this collapsed-by-default summary fixes.
-function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () => void }) {
+function SettlementCardView({
+  c,
+  onLogged,
+  readOnly,
+}: {
+  c: SettlementCard
+  onLogged: () => void
+  readOnly?: boolean
+}) {
   const cutRemainder = c.profitTotal - c.dematCutAmount
   const [showDetails, setShowDetails] = useState(false)
   const [showLog, setShowLog] = useState(false)
@@ -788,7 +958,8 @@ function SettlementCardView({ c, onLogged }: { c: SettlementCard; onLogged: () =
         </div>
       )}
 
-      {(c.amountFromHolder > 0 || c.amountToFunder > 0) &&
+      {!readOnly &&
+        (c.amountFromHolder > 0 || c.amountToFunder > 0) &&
         (showLog ? (
           <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
             <select value={kind} onChange={(e) => selectKind(e.target.value as SettlementPaymentKind)} className="input text-xs">

@@ -428,13 +428,12 @@ export function ApplicationsPage() {
     () => visibleApplications.filter((a) => a.mandate_status === 'CANCELLED').length,
     [visibleApplications],
   )
-  // "Did not get approved" — PENDING (still awaiting a decision) or
-  // CANCELLED, i.e. anything short of an actual APPROVED mandate. Broader
-  // than the "Canceled" filter above (which is CANCELLED only); this is
-  // the full "still needs attention" set rather than just the rejected
-  // subset of it.
+  // "Did not get approved" — PENDING only, still awaiting a decision.
+  // Deliberately excludes CANCELLED (that's already its own "Canceled"
+  // filter above) — this one is for what still needs action, not what
+  // already fell through.
   const notApprovedCount = useMemo(
-    () => visibleApplications.filter((a) => a.mandate_status !== 'APPROVED').length,
+    () => visibleApplications.filter((a) => a.mandate_status === 'PENDING').length,
     [visibleApplications],
   )
   // More than one active (non-cancelled) application for the same
@@ -480,7 +479,7 @@ export function ApplicationsPage() {
         : sortMode === 'cancelled'
           ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
           : sortMode === 'not_approved'
-            ? visibleApplications.filter((a) => a.mandate_status !== 'APPROVED')
+            ? visibleApplications.filter((a) => a.mandate_status === 'PENDING')
             : sortMode === 'duplicates'
               ? visibleApplications.filter((a) => duplicateAppIds.has(a.id))
               : visibleApplications
@@ -710,10 +709,11 @@ export function ApplicationsPage() {
                 ['funder', 'Funded'],
                 ['upi', 'UPI ID'],
                 ['cancelled', `Canceled (${cancelledCount})`],
-                // A FILTER, not a sort — every mandate short of an actual
-                // APPROVED (still PENDING, or CANCELLED) — the full "still
-                // needs a decision or already fell through" set, broader
-                // than "Canceled" above (CANCELLED only).
+                // A FILTER, not a sort — PENDING only, still awaiting a
+                // decision. CANCELLED is deliberately excluded — that's
+                // already its own "Canceled" filter above, and mixing it
+                // in here would surface mandates nothing further can be
+                // done about alongside the ones that actually need action.
                 ['not_approved', `Not approved (${notApprovedCount})`],
                 // A FILTER, not a sort — see groupedApplications — restricted
                 // to rows never confirmed against ipoji at all, for spotting

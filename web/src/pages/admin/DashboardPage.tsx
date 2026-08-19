@@ -339,28 +339,33 @@ export function DashboardPage() {
         supabase.from('v_allotment_board').select('*'),
         supabase.from('v_application_attribution').select('*'),
         // Same row shape/query NotificationsPage's admin-only funder query
-        // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — admin
-        // only, same reasoning as pendingPayouts below (funder/profit-split
-        // data across every account, not just the viewer's own).
-        isAdmin
-          ? supabase
-              .from('applications')
-              .select(
-                'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-                  'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-                  'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
-                  'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-                  'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-              )
-              .in('status', ['ALLOTTED', 'SOLD'])
-              .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
-          : Promise.resolve({ data: [], error: null }),
+        // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
+        // client-side role gate: RLS (p_apps_member_funder_select,
+        // migration 0032) already scopes this correctly per viewer — admin
+        // gets every funded application, a funder-only member gets just
+        // the ones where their own bank/UPI account is the funder. Letting
+        // RLS do the scoping (instead of an isAdmin ? ... : [] gate
+        // pretending to be the security boundary) is what actually lets a
+        // funder see their own expected profit on their own Dashboard.
+        supabase
+          .from('applications')
+          .select(
+            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+          )
+          .in('status', ['ALLOTTED', 'SOLD'])
+          .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
         // Live remaining-to-funder figures for pendingPayouts below (same
-        // ledger PayoutsPage's settlement cards read) — admin-only RLS
-        // (migration 0078), same gate as the applications query above.
-        isAdmin
-          ? supabase.from('settlement_payments').select('*')
-          : Promise.resolve({ data: [], error: null }),
+        // ledger PayoutsPage's settlement cards read) — genuinely
+        // admin-only at the RLS level (p_settlement_payments_admin,
+        // migration 0078), so fetching this unconditionally is harmless: a
+        // non-admin viewer just always gets back zero rows here, same as
+        // if this were still client-gated, just without a client-side
+        // branch pretending to be the actual security boundary.
+        supabase.from('settlement_payments').select('*'),
       ])
 
       if (cancelled) return
@@ -625,13 +630,28 @@ export function DashboardPage() {
         highGmpAlerts,
         expectedProfitTotal,
         expectedProfitByIpo,
-        pendingPayouts: isAdmin
-          ? buildPendingPayouts(
-              boardRows.filter((r) => r.status === 'SOLD'),
-              profile?.full_name ?? '',
-              settlementPaymentsByApp,
-            )
-          : [],
+        // boardRows (v_allotment_board) is already RLS-scoped per viewer —
+        // a funder-only member only ever sees rows they're associated
+        // with, so this naturally comes back as just their own entry (or
+        // entries, if they fund via more than one bank/UPI account) rather
+        // than needing a separate computation path.
+        //
+        // profitPersonName is empty for a non-admin, NOT profile.full_name
+        // — computeProfitSplit (inside buildPendingPayouts) uses this name
+        // to detect "is the funder ALSO the profit-taking admin" (isFunderSelf),
+        // which zeroes their payout when true. Passing a funder's OWN name
+        // here would make that comparison match their own funder row,
+        // spuriously zeroing what they're owed — a non-admin viewer is
+        // never the profit-taking admin by construction (they'd see the
+        // admin view instead if they were), and profiles RLS doesn't even
+        // let them look up the real admin's name to compare against
+        // correctly, so forcing this comparison to never match is the
+        // correct behavior here, not a workaround.
+        pendingPayouts: buildPendingPayouts(
+          boardRows.filter((r) => r.status === 'SOLD'),
+          isAdmin ? (profile?.full_name ?? '') : '',
+          settlementPaymentsByApp,
+        ),
         // A CANCELLED mandate means the funder never actually approved the
         // UPI block — no money moved, so it's not really "applied" in any
         // sense worth counting here (same reasoning as the accounts-left
@@ -739,12 +759,12 @@ export function DashboardPage() {
         </p>
       </div>
 
-      {/* Sized down (smaller padding/icon/text in StatTile itself) so all of
-          them fit in one row instead of wrapping to a second — a fixed
-          3-col grid wrapped 6 admin tiles to two rows; this scales the
-          column count to however many tiles actually render for the
-          viewer's role instead. */}
-      <div className={`grid grid-cols-2 gap-3 sm:grid-cols-3 ${isAdmin ? 'lg:grid-cols-6' : 'lg:grid-cols-4'}`}>
+      {/* Sized down (smaller padding/icon/text in StatTile itself) so all
+          6 tiles fit in one row instead of wrapping to a second. Both
+          roles get 6 now — "Owed to you"/"Expected profit" used to be
+          admin-only (4 tiles for a funder), but they're RLS-scoped to the
+          viewer's own data either way, so a funder gets the same count. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {/* Every application whose mandate isn't CANCELLED — a cancelled
             one never actually had money move, so it's not really "applied"
             in any sense worth counting (same reasoning as the accounts-left
@@ -781,7 +801,7 @@ export function DashboardPage() {
           to="/allotment"
           panel={<AllottedNotSoldPanel rows={data.allottedNotSold} />}
         />
-        {isAdmin && (
+        {isAdmin ? (
           <StatTile
             icon={CreditCardIcon}
             label="Payouts pending"
@@ -790,20 +810,39 @@ export function DashboardPage() {
             format={(n) => `₹${n.toLocaleString('en-IN')}`}
             // Where the money's owed actually gets marked paid.
             to="/payouts"
+            panel={<PendingPayoutsPanel payouts={data.pendingPayouts} showExpectedNote />}
+          />
+        ) : (
+          // Funder-facing mirror of the tile above — same underlying data
+          // (already RLS-scoped to just their own funded/sold applications,
+          // see pendingPayouts), just framed as "what's owed to me" instead
+          // of admin's "what do I still need to pay out." No /payouts link
+          // — that page's own ledger (settlement_payments) is genuinely
+          // admin-only, not something a funder can drill into further.
+          <StatTile
+            icon={CreditCardIcon}
+            label="Owed to you"
+            value={data.pendingPayouts.reduce((sum, p) => sum + p.amount, 0)}
+            tone="good"
+            format={(n) => `₹${n.toLocaleString('en-IN')}`}
             panel={<PendingPayoutsPanel payouts={data.pendingPayouts} />}
           />
         )}
-        {isAdmin && (
-          <StatTile
-            icon={GraphIcon}
-            label="Expected profit"
-            value={data.expectedProfitTotal}
-            tone="good"
-            format={(n) => `₹${n.toLocaleString('en-IN')}`}
-            to="/notifications"
-            panel={<ExpectedProfitPanel blocks={data.expectedProfitByIpo} />}
-          />
-        )}
+        {/* No longer admin-only — expectedProfitTotal/expectedProfitByIpo
+            are now built from an RLS-scoped fetch (see load()), so a
+            funder viewer already only ever sees their own applications'
+            projection here, same as the tile above. Links to the same
+            "Allotment updates" cards on Notifications, which show this
+            same figure per-IPO for either role. */}
+        <StatTile
+          icon={GraphIcon}
+          label="Expected profit"
+          value={data.expectedProfitTotal}
+          tone="good"
+          format={(n) => `₹${n.toLocaleString('en-IN')}`}
+          to="/notifications"
+          panel={<ExpectedProfitPanel blocks={data.expectedProfitByIpo} />}
+        />
       </div>
 
       {data.ipoProgress.length > 0 && (
@@ -1084,7 +1123,18 @@ function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
   )
 }
 
-function PendingPayoutsPanel({ payouts }: { payouts: PendingPayout[] }) {
+function PendingPayoutsPanel({
+  payouts,
+  showExpectedNote,
+}: {
+  payouts: PendingPayout[]
+  // Admin-tile-only — points at Payouts' own "Expected — not yet sold"
+  // section (allotted applications with a live-price/GMP projection),
+  // since this panel only ever lists CONFIRMED sold-application amounts
+  // and there was previously no hint that a funder still worth preparing
+  // to pay might not show up here yet just because it hasn't sold.
+  showExpectedNote?: boolean
+}) {
   if (payouts.length === 0) return <PanelEmpty>Nothing owed right now.</PanelEmpty>
   return (
     <div className="space-y-1.5">
@@ -1098,6 +1148,12 @@ function PendingPayoutsPanel({ payouts }: { payouts: PendingPayout[] }) {
           </span>
         </div>
       ))}
+      {showExpectedNote && (
+        <p className="border-t pt-1.5 text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--ink-muted)' }}>
+          Confirmed (sold) amounts only — see Payouts' "Expected — not yet sold" section for allotted applications
+          still awaiting a sale.
+        </p>
+      )}
     </div>
   )
 }
