@@ -673,7 +673,6 @@ export function NotificationsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
               const message = buildFunderAllottedMessage(c)
-              const profit = isAdmin && c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
               return (
                 <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">

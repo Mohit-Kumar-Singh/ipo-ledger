@@ -63,7 +63,7 @@ function sortGroupKeyFor(mode: SortMode, a: ApplicationRow, resolvedBankNames: M
   return funderNameFor(a, resolvedBankNames)
 }
 
-type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled' | 'not_on_ipoji' | 'duplicates'
+type SortMode = 'recent' | 'funder' | 'upi' | 'cancelled' | 'not_approved' | 'not_on_ipoji' | 'duplicates'
 
 // Same eligibility rule the existing single-row "Not allotted" button
 // already used (owner + still APPLIED + allotment_date actually passed) —
@@ -428,6 +428,15 @@ export function ApplicationsPage() {
     () => visibleApplications.filter((a) => a.mandate_status === 'CANCELLED').length,
     [visibleApplications],
   )
+  // "Did not get approved" — PENDING (still awaiting a decision) or
+  // CANCELLED, i.e. anything short of an actual APPROVED mandate. Broader
+  // than the "Canceled" filter above (which is CANCELLED only); this is
+  // the full "still needs attention" set rather than just the rejected
+  // subset of it.
+  const notApprovedCount = useMemo(
+    () => visibleApplications.filter((a) => a.mandate_status !== 'APPROVED').length,
+    [visibleApplications],
+  )
   // More than one active (non-cancelled) application for the same
   // (ipo_id, demat_id) — legitimate as of migration 0070 (each funded via a
   // different bank/UPI account, e.g. two different people funded the same
@@ -470,9 +479,11 @@ export function ApplicationsPage() {
         ? visibleApplications.filter((a) => !a.imported_from_ipoji)
         : sortMode === 'cancelled'
           ? visibleApplications.filter((a) => a.mandate_status === 'CANCELLED')
-          : sortMode === 'duplicates'
-            ? visibleApplications.filter((a) => duplicateAppIds.has(a.id))
-            : visibleApplications
+          : sortMode === 'not_approved'
+            ? visibleApplications.filter((a) => a.mandate_status !== 'APPROVED')
+            : sortMode === 'duplicates'
+              ? visibleApplications.filter((a) => duplicateAppIds.has(a.id))
+              : visibleApplications
     // Free-text search — matches holder name, IPO name, or funder name.
     // Applied after the sort-mode filter above, so e.g. searching within
     // "Not on ipoji" still only searches that already-narrowed set.
@@ -699,6 +710,11 @@ export function ApplicationsPage() {
                 ['funder', 'Funded'],
                 ['upi', 'UPI ID'],
                 ['cancelled', `Canceled (${cancelledCount})`],
+                // A FILTER, not a sort — every mandate short of an actual
+                // APPROVED (still PENDING, or CANCELLED) — the full "still
+                // needs a decision or already fell through" set, broader
+                // than "Canceled" above (CANCELLED only).
+                ['not_approved', `Not approved (${notApprovedCount})`],
                 // A FILTER, not a sort — see groupedApplications — restricted
                 // to rows never confirmed against ipoji at all, for spotting
                 // ones created by mistake and cleaning them up.
