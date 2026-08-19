@@ -431,7 +431,9 @@ export function AllotmentBoardPage() {
                   </td>
                   <td className="px-4 py-2.5">{row.bank_account_holder_name ?? '—'}</td>
                   <td className="px-4 py-2.5">
-                    <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
+                    <span className={`badge ${statusBadgeClass[row.status]}`} title={row.status.replace('_', ' ')}>
+                      {row.status === 'SOLD' ? '💰' : row.status.replace('_', ' ')}
+                    </span>
                   </td>
                   <td className="px-4 py-2.5">
                     {notif ? (
@@ -680,7 +682,9 @@ function SoldPayoutsSection({
                       cramped into one row was the thing getting clipped/
                       unreadable on a narrow screen. */}
                   <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-                    <span className={`badge ${statusBadgeClass[row.status]}`}>{row.status.replace('_', ' ')}</span>
+                    <span className={`badge ${statusBadgeClass[row.status]}`} title={row.status.replace('_', ' ')}>
+                      {row.status === 'SOLD' ? '💰' : row.status.replace('_', ' ')}
+                    </span>
                     {!isEditing && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
                         {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
@@ -959,8 +963,8 @@ function PayoutLine({
     <div className="flex items-center gap-2">
       <span style={{ color: paid ? 'var(--good)' : 'var(--ink-primary)' }}>{label}</span>
       {onMessage && phone && (
-        <button onClick={onMessage} className="link-accent font-medium">
-          Message
+        <button onClick={onMessage} className="link-accent font-medium" aria-label="Message" title="Message">
+          💬
         </button>
       )}
       {paid ? (
