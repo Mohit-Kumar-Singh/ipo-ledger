@@ -780,7 +780,7 @@ function SoldForm({
     dematHolderName: row.holder_name,
     funderName: row.bank_account_holder_name,
     profitPersonName,
-    splitWithFunder: form.split,
+    splitWithFunder: effectiveSplitWithFunder(row, form.split),
   })
   const hasEntry = form.mode === 'total' ? Number(form.totalPayout) > 0 : Number(form.sellPrice) > 0
 
@@ -796,6 +796,7 @@ function SoldForm({
         shares={shares}
         invested={Math.round(row.bid_amount ?? 0)}
         extra={
+          row.account_manager_case_type !== 'CASE_2' &&
           preview.hasFunder &&
           !preview.isFunderSelf && (
             <label className="flex items-center gap-2 pb-2 text-xs" style={{ color: 'var(--ink-secondary)' }}>
@@ -815,7 +816,7 @@ function SoldForm({
           <Stat label="Total sold" value={preview.totalSoldAmount} />
           <Stat label="Gross profit" value={preview.grossProfit} />
           <Stat
-            label={`${row.holder_name}'s cut (${row.profit_share_percent ?? 25}%)`}
+            label={`${payoutCutContact(row).name}'s cut (${row.profit_share_percent ?? 25}%)`}
             value={preview.dematCutAmount}
             note={preview.isDematHolderSelf ? 'self' : undefined}
           />
@@ -842,6 +843,26 @@ function SoldForm({
 // Exported — the new /payouts page reuses this verbatim so an outstanding
 // payout's WhatsApp message reads identically whether it's sent from here
 // or from there, instead of a second, silently-drifting copy.
+// A shared account (migration 0079) forces splitWithFunder=false when its
+// manager is CASE_2 — that person already covers both the account-holder
+// and funder roles in their own cut, so there's no separate 50/50 with a
+// third-party funder to compute. CASE_1 (and non-shared rows) keep whatever
+// the caller/form asked for.
+export function effectiveSplitWithFunder(row: AllotmentBoardRow, requested: boolean): boolean {
+  return row.account_manager_case_type === 'CASE_2' ? false : requested
+}
+
+// Who actually receives the demat-side cut/message for this row — the
+// shared-account manager (Person X/Y) when one's assigned, since they
+// manage the relationship end-to-end and the real PAN holder isn't the
+// point of contact for these accounts (migration 0079). Falls back to the
+// literal holder for every normal, non-shared account.
+export function payoutCutContact(row: AllotmentBoardRow): { name: string; phone: string | null } {
+  return row.account_manager_id
+    ? { name: row.account_manager_name ?? row.holder_name, phone: row.account_manager_phone }
+    : { name: row.holder_name, phone: row.phone_e164 }
+}
+
 export function payoutMessage(
   row: AllotmentBoardRow,
   result: ReturnType<typeof computeProfitSplit>,
@@ -916,7 +937,7 @@ function SoldBreakdown({
     dematHolderName: row.holder_name,
     funderName: row.bank_account_holder_name,
     profitPersonName,
-    splitWithFunder: row.split_profit_with_funder,
+    splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
   })
 
   return (
@@ -930,12 +951,12 @@ function SoldBreakdown({
         <div className="flex flex-col gap-2">
           {!result.isDematHolderSelf && result.dematCutAmount > 0 && (
             <PayoutLine
-              label={`${row.holder_name} — ₹${Math.round(result.dematCutAmount).toLocaleString('en-IN')} cut`}
+              label={`${payoutCutContact(row).name} — ₹${Math.round(result.dematCutAmount).toLocaleString('en-IN')} cut`}
               paid={row.demat_cut_paid}
               onMarkPaid={() => onMarkPaid('demat_cut_paid')}
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
-              phone={row.phone_e164}
-              onMessage={() => sendCustomWhatsapp(row.phone_e164, payoutMessage(row, result, 'cut'))}
+              phone={payoutCutContact(row).phone}
+              onMessage={() => sendCustomWhatsapp(payoutCutContact(row).phone!, payoutMessage(row, result, 'cut'))}
             />
           )}
           {result.funderShare > 0 && (

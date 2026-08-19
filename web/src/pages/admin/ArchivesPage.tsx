@@ -4,6 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
+import { effectiveSplitWithFunder } from './AllotmentBoardPage'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo } from '../../types/database'
 
@@ -211,7 +212,7 @@ export function ArchivesPage() {
                   dematHolderName: r.holder_name,
                   funderName: r.bank_account_holder_name,
                   profitPersonName: profile?.full_name ?? '',
-                  splitWithFunder: r.split_profit_with_funder,
+                  splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
                 })
                 return sum + result.profitPersonShare
               }, 0)

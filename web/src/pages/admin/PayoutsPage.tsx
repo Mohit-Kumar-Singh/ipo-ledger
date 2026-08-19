@@ -13,7 +13,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
-import { payoutMessage } from './AllotmentBoardPage'
+import { payoutMessage, effectiveSplitWithFunder, payoutCutContact } from './AllotmentBoardPage'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { buildFunderAllottedCards, expectedProfitBreakdown, type ProfitProjectionRow } from '../../lib/expectedProfit'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
@@ -58,15 +58,16 @@ function buildPayoutLines(rows: AllotmentBoardRow[], profitPersonName: string): 
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
-      splitWithFunder: r.split_profit_with_funder,
+      splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
     })
     if (!result.isDematHolderSelf && result.dematCutAmount > 0) {
+      const cutContact = payoutCutContact(r)
       lines.push({
         applicationId: r.application_id,
         field: 'demat_cut_paid',
         kind: 'cut',
-        recipient: r.holder_name,
-        phone: r.phone_e164,
+        recipient: cutContact.name,
+        phone: cutContact.phone,
         ipoName: r.company_name,
         amount: result.dematCutAmount,
         paid: r.demat_cut_paid,
@@ -165,11 +166,24 @@ function buildSettlementCards(
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
-      splitWithFunder: r.split_profit_with_funder,
+      splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
     })
     const bidAmount = r.bid_amount ?? 0
     const amountFromHolder = result.isDematHolderSelf ? 0 : result.totalSoldAmount - result.dematCutAmount
-    const amountToFunder = result.hasFunder && !result.isFunderSelf ? bidAmount + result.funderShare : 0
+    // A CASE_2 shared account's "funder" IS its manager (same person as the
+    // holder-side cut recipient, migration 0079) — their bidAmount return is
+    // already folded into amountFromHolder above (bidAmount + their share of
+    // the remainder, via effectiveSplitWithFunder forcing funderShare to 0).
+    // Without this, hasFunder/isFunderSelf would still see a distinct bank
+    // account and wrongly add a SECOND "owed to funder" line for the same
+    // bidAmount that's already inside amountFromHolder.
+    const amountToFunder =
+      r.account_manager_case_type === 'CASE_2'
+        ? 0
+        : result.hasFunder && !result.isFunderSelf
+          ? bidAmount + result.funderShare
+          : 0
+    const cutContact = payoutCutContact(r)
     const payments = paymentsByApp.get(r.application_id) ?? []
     // A holder_to_funder payment reduces BOTH sides at once — it's money
     // that left the holder's pocket (counts against what they still owe)
@@ -194,8 +208,8 @@ function buildSettlementCards(
       // fallback as the computeProfitSplit call above, so the number shown
       // always matches what dematCutAmount was actually computed from.
       cutPercent: r.profit_share_percent ?? 25,
-      holderName: r.holder_name,
-      holderPhone: r.phone_e164,
+      holderName: cutContact.name,
+      holderPhone: cutContact.phone,
       isDematHolderSelf: result.isDematHolderSelf,
       dematCutAmount: result.dematCutAmount,
       amountFromHolder,
@@ -355,7 +369,7 @@ export function PayoutsPage() {
     // No per-IPO filter — v_allotment_board is already RLS-scoped per
     // viewer, this just doesn't narrow it down to one selected IPO the way
     // AllotmentBoardPage does.
-    const [boardRes, paymentsRes, expectedRes] = await Promise.all([
+    const [boardRes, paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
       supabase.from('v_allotment_board').select('*').eq('status', 'SOLD'),
       supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
       // Same shape/query NotificationsPage's admin funder query and
@@ -369,12 +383,16 @@ export function PayoutsPage() {
         .select(
           'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
             'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-            'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+            'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
             'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
         )
         .eq('status', 'ALLOTTED')
         .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
+      // See DashboardPage's matching query — CASE_2 shared-account managers
+      // shouldn't have their expected remainder halved with a nonexistent
+      // third-party funder.
+      supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
     ])
     if (boardRes.error) {
       setLoadError(boardRes.error.message)
@@ -396,7 +414,8 @@ export function PayoutsPage() {
       const expectedRowsBase = ((expectedRes.data ?? []) as unknown as ProfitProjectionRow[]).filter(
         (r) => !r.ipos?.is_archived,
       )
-      const cards = buildFunderAllottedCards(expectedRowsBase, sameIdentity).filter((c) => c.priceHigh)
+      const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
+      const cards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
       setExpectedCards(cards)
       const symbols = Array.from(new Set(cards.map((c) => c.symbol).filter((s): s is string => !!s)))
       if (symbols.length > 0) {

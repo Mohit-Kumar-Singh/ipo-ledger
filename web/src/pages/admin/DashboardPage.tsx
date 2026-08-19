@@ -10,6 +10,7 @@ import { bidCutoffMs, isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
+import { effectiveSplitWithFunder } from './AllotmentBoardPage'
 import { computeIpoAttribution, sameIdentity, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
 import {
@@ -176,9 +177,13 @@ function buildPendingPayouts(
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
-      splitWithFunder: r.split_profit_with_funder,
+      splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
     })
-    if (!result.hasFunder || result.isFunderSelf) continue
+    // A CASE_2 shared account's manager IS its funder (migration 0079) —
+    // there's no separate third-party funder owed anything for it; their
+    // bidAmount return already flows through the holder-side settlement
+    // (PayoutsPage's amountFromHolder), not this funder-owed ledger.
+    if (!result.hasFunder || result.isFunderSelf || r.account_manager_case_type === 'CASE_2') continue
     const amountToFunder = (r.bid_amount ?? 0) + result.funderShare
     if (amountToFunder <= 0) continue
     // A holder_to_funder payment counts too — it's money that reached the
@@ -340,7 +345,7 @@ export function DashboardPage() {
       // Link requests moved off the Dashboard entirely (review now lives on
       // Profile, with a toast on arrival instead of a permanent tile/list
       // here — see ToastHost) — no longer fetched on this page at all.
-      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows, settlementPaymentsRes] = await Promise.all([
+      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
         // Exact close_date match, not a 7-day window — "closing today" is
         // the thing that actually needs same-day action; a 7-day-out IPO
         // isn't urgent yet and just crowded out the tile/list with noise.
@@ -363,7 +368,7 @@ export function DashboardPage() {
           .select(
             'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
           )
@@ -377,6 +382,12 @@ export function DashboardPage() {
         // if this were still client-gated, just without a client-side
         // branch pretending to be the actual security boundary.
         supabase.from('settlement_payments').select('*'),
+        // Shared-account CASE_2 managers (migration 0079) — their remaining
+        // profit share shouldn't get halved with a nonexistent third-party
+        // funder in the projections below. Admin sees every manager;
+        // a funder-only viewer who happens to BE a linked manager sees just
+        // their own row via p_account_managers_self, which is all this needs.
+        supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
       ])
 
       if (cancelled) return
@@ -590,11 +601,13 @@ export function DashboardPage() {
       const profitRowsBase = ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
         (r) => !r.ipos?.is_archived,
       )
+      const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
       const profitCards = buildFunderAllottedCards(
         profitRowsBase.filter((r) => r.status === 'ALLOTTED'),
         sameIdentity,
+        case2ManagerIds,
       ).filter((c) => c.priceHigh)
-      const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '')
+      const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '', case2ManagerIds)
 
       // Once an IPO actually lists, its GMP-based profit estimate is frozen
       // at whatever the grey-market premium read pre-listing — a real share

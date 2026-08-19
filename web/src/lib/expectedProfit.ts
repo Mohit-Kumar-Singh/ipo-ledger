@@ -44,6 +44,10 @@ export type ProfitProjectionRow = {
         holder_name: string
         profit_share_percent: number
         phone_e164: string | null
+        // Shared account (migration 0079) — used to tell a genuine funder
+        // apart from a CASE_2 manager (who IS the funder, no separate 50/50
+        // split applies). See buildFunderAllottedCards' case2ManagerIds.
+        account_manager_id?: string | null
         platform?: string | null
         dp_client_id?: string | null
         application_name?: string | null
@@ -98,11 +102,18 @@ export interface FunderAllottedCard {
   // ended up in for this IPO — see buildFunderAllottedCards.
   cutPercent: number
   _cutWeightedSum: number
+  // False when this "funder" identity is actually a CASE_2 shared-account
+  // manager (migration 0079) — they already ARE the funder, so
+  // expectedProfitBreakdown shouldn't additionally halve the remainder with
+  // a third party that doesn't exist for this card. True (the historical
+  // default) for every normal funder and CASE_1 manager.
+  splitWithFunder: boolean
 }
 
 export function buildFunderAllottedCards(
   rows: ProfitProjectionRow[],
   sameIdentity: (a: string, b: string) => boolean,
+  case2ManagerIds: Set<string> = new Set(),
 ): FunderAllottedCard[] {
   const cardsByIpo = new Map<string, FunderAllottedCard[]>()
   for (const r of rows) {
@@ -129,6 +140,7 @@ export function buildFunderAllottedCards(
         totalLots: 0,
         cutPercent: 25,
         _cutWeightedSum: 0,
+        splitWithFunder: true,
       }
       cardsForIpo.push(card)
     } else if (name.length > card.funderName.length) {
@@ -142,6 +154,9 @@ export function buildFunderAllottedCards(
     else if (isOverride) existingHolder.isOverride = true
     card.totalLots += r.lots
     card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
+    if (r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)) {
+      card.splitWithFunder = false
+    }
   }
   const cards = Array.from(cardsByIpo.values()).flat()
   for (const c of cards) {
@@ -170,7 +185,9 @@ export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerSh
       : Math.round(lotAmount * (1 + gmpPercent / 100))
   const profitPerLot = soldPrice - lotAmount
   const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
-  const yourProfitPerLot = Math.round(netProfitPerLot / 2)
+  // A CASE_2 shared account's manager IS the funder — nothing left to halve
+  // with a separate third party, they just get the whole remainder.
+  const yourProfitPerLot = card.splitWithFunder ? Math.round(netProfitPerLot / 2) : netProfitPerLot
   const netYourProfit = yourProfitPerLot * card.totalLots
   const investedTotal = lotAmount * card.totalLots
   const amountToReturn = investedTotal + netYourProfit
@@ -209,13 +226,18 @@ export interface BookedProfitLine {
   soldAmount: number
 }
 
-export function buildBookedProfitLines(rows: ProfitProjectionRow[], profitPersonName: string): BookedProfitLine[] {
+export function buildBookedProfitLines(
+  rows: ProfitProjectionRow[],
+  profitPersonName: string,
+  case2ManagerIds: Set<string> = new Set(),
+): BookedProfitLine[] {
   const lines: BookedProfitLine[] = []
   for (const r of rows) {
     if (r.status !== 'SOLD' || !r.ipos || r.ipos.is_archived) continue
     if (r.sell_price == null || r.bid_amount == null) continue
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
+    const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
     const result = computeProfitSplit({
       sellPricePerShare: r.sell_price,
       lotSize: r.ipos.lot_size,
@@ -225,7 +247,7 @@ export function buildBookedProfitLines(rows: ProfitProjectionRow[], profitPerson
       dematHolderName: holderName,
       funderName: funder?.account_holder_name ?? null,
       profitPersonName,
-      splitWithFunder: r.split_profit_with_funder ?? false,
+      splitWithFunder: isCase2 ? false : (r.split_profit_with_funder ?? false),
     })
     lines.push({
       ipoName: r.ipos.company_name,

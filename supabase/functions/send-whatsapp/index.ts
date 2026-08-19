@@ -168,7 +168,8 @@ async function queueForApplication(applicationId: string, templateKind: Template
   const { data: app, error: appError } = await admin
     .from('applications')
     .select(
-      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), demat_accounts(holder_name, phone_e164), ' +
+      'id, demat_id, lots, bid_amount, ipos(company_name, listing_date), ' +
+        'demat_accounts(holder_name, phone_e164, account_manager_id, account_managers(full_name, phone_e164)), ' +
         'bank_accounts!bank_account_id(account_holder_name, bank_name, last4, upi_id, phone_e164), ' +
         'funder_override:bank_accounts!funder_override_id(account_holder_name, bank_name, last4, upi_id, phone_e164)',
     )
@@ -186,7 +187,20 @@ async function queueForApplication(applicationId: string, templateKind: Template
   // Funder override wins when set — same "who gets funding credit" rule
   // every other funder-facing consumer in the app already follows.
   const b = (app.funder_override ?? app.bank_accounts) as BankRow | null
-  const funder = resolveFunder(holderName, holderPhone, b)
+  // Shared account (migration 0079) — the manager (Person X/Y) gets the
+  // applied/allotted message instead of the resolveFunder() result, since
+  // they manage the relationship end-to-end and the literal holder/funder
+  // identity isn't who's actually watching this account. sameAsHolder=false
+  // unconditionally here so the template still names them as a third party
+  // ("for <holder>'s account"), same as any other non-self funder message.
+  const manager = app.demat_accounts.account_managers as
+    | { full_name: string; phone_e164: string | null }
+    | null
+    | undefined
+  const funder =
+    manager && manager.phone_e164
+      ? { phone: manager.phone_e164, name: manager.full_name, sameAsHolder: false }
+      : resolveFunder(holderName, holderPhone, b)
   const bankDetail = formatBankDetail(b)
   const bankLabel = funder.sameAsHolder ? bankDetail || 'your linked bank' : bankDetail || 'their bank/UPI'
 

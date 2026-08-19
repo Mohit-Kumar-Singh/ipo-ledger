@@ -40,6 +40,9 @@ export interface DematAccount {
   profit_share_percent: number
   is_active: boolean
   created_at: string
+  // Shared-account manager (Person X/Y) this account is assigned to, if any
+  // — see migration 0079.
+  account_manager_id: string | null
   // Broker-app login details — plaintext by design (no reveal step, unlike
   // PAN), all optional. Visible only to the account's own linked owner and
   // admin (same RLS grant as the rest of the row).
@@ -224,6 +227,35 @@ export interface AllotmentBoardRow {
   // The demat holder's trading platform — drives which how-to-sell PDF a
   // listing-day sell reminder attaches. See migration 0074.
   platform: import('../lib/platforms').DematPlatform | null
+  // Shared-account manager (Person X/Y) this account is assigned to, if any
+  // — see migration 0079. When set, this account's profit-share cut and
+  // applied/allotted messages route to this person instead of the literal
+  // PAN holder.
+  account_manager_id: string | null
+  account_manager_name: string | null
+  account_manager_phone: string | null
+  account_manager_case_type: AccountManagerCaseType | null
+}
+
+// "Shared accounts" — a demat account sourced by someone else (Person X/Y),
+// who gets a cut of the profit and receives the applied/allotted messages
+// for it instead of the account's literal PAN holder. See migration 0079
+// and CLAUDE.md-adjacent reasoning in that migration file.
+export type AccountManagerCaseType = 'CASE_1' | 'CASE_2'
+
+export interface AccountManager {
+  id: string
+  full_name: string
+  phone_e164: string | null
+  upi_id: string | null
+  case_type: AccountManagerCaseType
+  cut_percent: number
+  // Sub-portion of cut_percent that's tax, bookkeeping display only.
+  tax_percent: number | null
+  linked_user_id: string | null
+  notes: string | null
+  is_active: boolean
+  created_at: string
 }
 
 export interface RegistrarLink {

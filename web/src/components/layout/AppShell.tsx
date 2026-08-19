@@ -10,6 +10,7 @@ import {
   HomeIcon,
   LawIcon,
   GraphIcon,
+  PeopleIcon,
   ScreenFullIcon,
   ScreenNormalIcon,
   SidebarCollapseIcon,
@@ -44,6 +45,7 @@ const links = [
   // obligations across every account, the same admin-only scope Dashboard's
   // "Payouts pending" tile already has.
   { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, adminOnly: true },
+  { to: '/shared-accounts', label: 'Shared accounts', icon: PeopleIcon, adminOnly: true },
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
 ]
