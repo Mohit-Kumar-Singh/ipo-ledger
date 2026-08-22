@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { ArchiveIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { InfoTooltip } from '../../components/HoverCard'
@@ -24,20 +25,24 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
 // viewer may see), and renders nothing at all when there's none — so it only
 // appears at the bottom of Profile once there's actually history to show.
 export function ArchivedApplicationsCard() {
-  const [rows, setRows] = useState<ArchivedRow[]>([])
-  const [loading, setLoading] = useState(true)
+  // Was a local useState + fetch-once-on-mount — the collapsed-by-default
+  // card visibly flashed away and back (the `if (loading ...) return null`
+  // below) on every single visit to Profile, even seconds after it had
+  // already shown the same rows. One useQuery instead, same fix as every
+  // other page this pass.
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    supabase
-      .from('applications')
-      .select('id, status, demat_accounts(holder_name), ipos!inner(company_name, is_archived)')
-      .eq('ipos.is_archived', true)
-      .then(({ data }) => {
-        setRows((data ?? []) as unknown as ArchivedRow[])
-        setLoading(false)
-      })
-  }, [])
+  const archivedQuery = useQuery<ArchivedRow[]>({
+    queryKey: ['archived-applications'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('applications')
+        .select('id, status, demat_accounts(holder_name), ipos!inner(company_name, is_archived)')
+        .eq('ipos.is_archived', true)
+      return (data ?? []) as unknown as ArchivedRow[]
+    },
+  })
+  const rows = archivedQuery.data ?? []
+  const loading = archivedQuery.isPending
 
   const byIpo = useMemo(() => {
     const map = new Map<string, ArchivedRow[]>()

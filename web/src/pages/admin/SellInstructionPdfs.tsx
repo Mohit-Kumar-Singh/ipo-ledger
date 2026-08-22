@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
@@ -27,29 +28,43 @@ function extensionFor(file: File): string | null {
 // for holders on it. RLS (migration 0075) is the real boundary; this section
 // is simply hidden for non-admins by its caller.
 export function SellInstructionPdfsSection() {
-  const [rows, setRows] = useState<Record<string, PdfRow>>({})
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
   const [busy, setBusy] = useState<DematPlatform | null>(null)
   // Collapsed by default — a rarely-touched library that sits at the very
   // bottom of Profile, so it shouldn't take up room until opened.
   const [open, setOpen] = useState(false)
 
-  async function load() {
-    const { data, error } = await supabase.from('sell_instruction_pdfs').select('platform, storage_path, updated_at')
-    if (error) {
-      showToast(`Couldn't load sell-instruction PDFs: ${error.message}`, 'critical')
-      setLoading(false)
-      return
-    }
-    const map: Record<string, PdfRow> = {}
-    for (const r of (data ?? []) as PdfRow[]) map[r.platform] = r
-    setRows(map)
-    setLoading(false)
-  }
+  // Was a local useState + fetch-once-on-mount — the uploaded-count badge
+  // in the (always-visible, even collapsed) header briefly went blank on
+  // every single visit to Profile, same symptom as ArchivedApplicationsCard
+  // right above it. One useQuery instead, same fix as every other page
+  // this pass.
+  const sellPdfsQueryKey = ['sell-instruction-pdfs'] as const
+  const sellPdfsQuery = useQuery<Record<string, PdfRow>>({
+    queryKey: sellPdfsQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('sell_instruction_pdfs').select('platform, storage_path, updated_at')
+      if (error) throw error
+      const map: Record<string, PdfRow> = {}
+      for (const r of (data ?? []) as PdfRow[]) map[r.platform] = r
+      return map
+    },
+  })
+  const rows = sellPdfsQuery.data ?? {}
+  const loading = sellPdfsQuery.isPending
 
+  // Same toast the old inline fetch showed on failure — fires once per
+  // distinct Error instance, not on every re-render while it persists.
   useEffect(() => {
-    load()
-  }, [])
+    if (sellPdfsQuery.error) {
+      showToast(`Couldn't load sell-instruction PDFs: ${(sellPdfsQuery.error as Error).message}`, 'critical')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sellPdfsQuery.error])
+
+  function load() {
+    queryClient.invalidateQueries({ queryKey: sellPdfsQueryKey })
+  }
 
   async function handleUpload(platform: DematPlatform, file: File) {
     const ext = extensionFor(file)
