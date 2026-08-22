@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchIpos, fetchDematAccounts, fetchAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
@@ -277,8 +277,24 @@ export function DashboardPage() {
   const { profile } = useAuth()
   const queryClient = useQueryClient()
   const isAdmin = profile?.role === 'admin'
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
+  // Includes profile?.id (not just isAdmin) so the cache key changes the
+  // instant a DIFFERENT signed-in user's data would need to be shown —
+  // isAdmin alone can't distinguish two different funder-only members, and
+  // TanStack's cache is keyed on this array, not on "whoever happens to be
+  // signed in right now."
+  // useMemo, not a plain array literal — this is listed in the realtime
+  // effect's dependency array below, and a fresh array object on every
+  // render (React compares array deps by reference, not by value) would
+  // have torn down and rebuilt the realtime channel + 5-minute poll on
+  // every single re-render of this page (e.g. every time markingPaid or
+  // expandedIpoIds changes), not just when the viewer actually changes.
+  // useQuery's own queryKey option doesn't have this problem — TanStack
+  // hashes it by value internally — but this same array is reused there
+  // too, so memoizing it once covers both.
+  const dashboardQueryKey = useMemo(
+    () => ['dashboard', profile?.id ?? null, isAdmin] as const,
+    [profile?.id, isAdmin],
+  )
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   // A Set, not a single "currently expanded" id — each IpoDashboardCard
   // owns its own expand state and several can be open across the grid at
@@ -321,7 +337,10 @@ export function DashboardPage() {
       showToast(error.message, 'critical')
       return
     }
-    setData((d) => {
+    // queryClient.setQueryData, not a local setData — data now lives in
+    // the dashboardQuery cache (below), not component state, so this has
+    // to patch the SAME place a background refetch would write to.
+    queryClient.setQueryData(dashboardQueryKey, (d: DashboardData | undefined) => {
       if (!d) return d
       const pendingPayouts = d.pendingPayouts
         .map((p) => ({
@@ -334,377 +353,400 @@ export function DashboardPage() {
     })
   }
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      // IST, not the device/browser/server's own local date — a plain
-      // `new Date().toISOString().slice(0, 10)` reads UTC, which is still
-      // "yesterday" for the first 5.5 hours of every IST day (00:00-05:29
-      // IST = the previous UTC date). That's exactly what made an IPO that
-      // actually closed the day before still show up under "closing today."
-      const todayStr = nowIst().dateStr
+  // dashboardQueryKey (defined above, next to isAdmin) is what makes
+  // this stale-while-revalidate instead of a spinner-on-every-visit:
+  // navigating back to Dashboard within staleTime reuses the SAME cache
+  // entry TanStack already has, rendering the previous numbers
+  // immediately (isPending stays false) while a background refetch (if
+  // the entry is actually stale) updates them in place once it lands —
+  // no full-page skeleton on a revisit, only on a genuinely first-ever
+  // load this session. Previously `data`/`loading` were plain component
+  // state, wiped to null/true on every mount because this route fully
+  // unmounts on navigation (React Router) — that's what forced the
+  // skeleton to render on every single visit regardless of how recently
+  // the same data had already been fetched.
+  const dashboardQuery = useQuery({
+    queryKey: dashboardQueryKey,
+    queryFn: async (): Promise<DashboardData> => {
+    // IST, not the device/browser/server's own local date — a plain
+    // `new Date().toISOString().slice(0, 10)` reads UTC, which is still
+    // "yesterday" for the first 5.5 hours of every IST day (00:00-05:29
+    // IST = the previous UTC date). That's exactly what made an IPO that
+    // actually closed the day before still show up under "closing today."
+    const todayStr = nowIst().dateStr
 
-      // Link requests moved off the Dashboard entirely (review now lives on
-      // Profile, with a toast on arrival instead of a permanent tile/list
-      // here — see ToastHost) — no longer fetched on this page at all.
-      // ipos/demat_accounts/v_allotment_board now come from the shared
-      // cache (lib/queries.ts) via fetchQuery — resolves from cache
-      // instantly if another page (or Dashboard's own last load) already
-      // fetched it within the staleTime window, or fetches and populates
-      // the shared cache if not. Previously this fired TWO separate ipos
-      // queries in the same Promise.all (closingToday AND allIpos, both
-      // full/near-full table reads) plus its own independent
-      // demat_accounts and v_allotment_board queries, none of which were
-      // shared with any other page. closingToday/activeAccounts are
-      // derived client-side from the same fetched lists rather than their
-      // own filtered network query.
-      const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
-        queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
-        queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
-        queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
-        supabase.from('v_application_attribution').select('*'),
-        // Same row shape/query NotificationsPage's admin-only funder query
-        // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
-        // client-side role gate: RLS (p_apps_member_funder_select,
-        // migration 0032) already scopes this correctly per viewer — admin
-        // gets every funded application, a funder-only member gets just
-        // the ones where their own bank/UPI account is the funder. Letting
-        // RLS do the scoping (instead of an isAdmin ? ... : [] gate
-        // pretending to be the security boundary) is what actually lets a
-        // funder see their own expected profit on their own Dashboard.
-        supabase
-          .from('applications')
-          .select(
-            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-          )
-          .in('status', ['ALLOTTED', 'SOLD'])
-          .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
-        // Live remaining-to-funder figures for pendingPayouts below (same
-        // ledger PayoutsPage's settlement cards read) — genuinely
-        // admin-only at the RLS level (p_settlement_payments_admin,
-        // migration 0078), so fetching this unconditionally is harmless: a
-        // non-admin viewer just always gets back zero rows here, same as
-        // if this were still client-gated, just without a client-side
-        // branch pretending to be the actual security boundary.
-        supabase.from('settlement_payments').select('*'),
-        // Shared-account CASE_2 managers (migration 0079) — their remaining
-        // profit share shouldn't get halved with a nonexistent third-party
-        // funder in the projections below. Admin sees every manager;
-        // a funder-only viewer who happens to BE a linked manager sees just
-        // their own row via p_account_managers_self, which is all this needs.
-        supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
-      ])
+    // Link requests moved off the Dashboard entirely (review now lives on
+    // Profile, with a toast on arrival instead of a permanent tile/list
+    // here — see ToastHost) — no longer fetched on this page at all.
+    // ipos/demat_accounts/v_allotment_board now come from the shared
+    // cache (lib/queries.ts) via fetchQuery — resolves from cache
+    // instantly if another page (or Dashboard's own last load) already
+    // fetched it within the staleTime window, or fetches and populates
+    // the shared cache if not. Previously this fired TWO separate ipos
+    // queries in the same Promise.all (closingToday AND allIpos, both
+    // full/near-full table reads) plus its own independent
+    // demat_accounts and v_allotment_board queries, none of which were
+    // shared with any other page. closingToday/activeAccounts are
+    // derived client-side from the same fetched lists rather than their
+    // own filtered network query.
+    const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
+      queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
+      queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
+      queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
+      supabase.from('v_application_attribution').select('*'),
+      // Same row shape/query NotificationsPage's admin-only funder query
+      // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
+      // client-side role gate: RLS (p_apps_member_funder_select,
+      // migration 0032) already scopes this correctly per viewer — admin
+      // gets every funded application, a funder-only member gets just
+      // the ones where their own bank/UPI account is the funder. Letting
+      // RLS do the scoping (instead of an isAdmin ? ... : [] gate
+      // pretending to be the security boundary) is what actually lets a
+      // funder see their own expected profit on their own Dashboard.
+      supabase
+        .from('applications')
+        .select(
+          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+            'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+        )
+        .in('status', ['ALLOTTED', 'SOLD'])
+        .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
+      // Live remaining-to-funder figures for pendingPayouts below (same
+      // ledger PayoutsPage's settlement cards read) — genuinely
+      // admin-only at the RLS level (p_settlement_payments_admin,
+      // migration 0078), so fetching this unconditionally is harmless: a
+      // non-admin viewer just always gets back zero rows here, same as
+      // if this were still client-gated, just without a client-side
+      // branch pretending to be the actual security boundary.
+      supabase.from('settlement_payments').select('*'),
+      // Shared-account CASE_2 managers (migration 0079) — their remaining
+      // profit share shouldn't get halved with a nonexistent third-party
+      // funder in the projections below. Admin sees every manager;
+      // a funder-only viewer who happens to BE a linked manager sees just
+      // their own row via p_account_managers_self, which is all this needs.
+      supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
+    ])
 
-      if (cancelled) return
+    // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
+    // same ordering) — resolving names is a second round trip since it
+    // depends on which ids show up in that scoped set.
+    const scopedRows = topRecentIpoAttributionRows((attributionRes.data ?? []) as ApplicationAttributionRow[], 8)
+    const nameById = await resolveAttributionNames(scopedRows)
 
-      // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
-      // same ordering) — resolving names is a second round trip since it
-      // depends on which ids show up in that scoped set.
-      const scopedRows = topRecentIpoAttributionRows((attributionRes.data ?? []) as ApplicationAttributionRow[], 8)
-      const nameById = await resolveAttributionNames(scopedRows)
-      if (cancelled) return
+    // Archived IPOs (settled + moved to /archives) shouldn't keep showing
+    // up in "Awaiting mandate approval," "Allotted, not sold," or
+    // "Payouts pending" — those tiles are for what's still live, not a
+    // running history of everything that ever happened.
+    const boardRows = boardData.filter((r) => !r.ipo_is_archived)
 
-      // Archived IPOs (settled + moved to /archives) shouldn't keep showing
-      // up in "Awaiting mandate approval," "Allotted, not sold," or
-      // "Payouts pending" — those tiles are for what's still live, not a
-      // running history of everything that ever happened.
-      const boardRows = boardData.filter((r) => !r.ipo_is_archived)
+    const settlementPaymentsByApp = new Map<string, SettlementPayment[]>()
+    for (const p of (settlementPaymentsRes.data ?? []) as SettlementPayment[]) {
+      if (!settlementPaymentsByApp.has(p.application_id)) settlementPaymentsByApp.set(p.application_id, [])
+      settlementPaymentsByApp.get(p.application_id)!.push(p)
+    }
 
-      const settlementPaymentsByApp = new Map<string, SettlementPayment[]>()
-      for (const p of (settlementPaymentsRes.data ?? []) as SettlementPayment[]) {
-        if (!settlementPaymentsByApp.has(p.application_id)) settlementPaymentsByApp.set(p.application_id, [])
-        settlementPaymentsByApp.get(p.application_id)!.push(p)
-      }
+    // Applied-per-IPO accounts come from the board rows already fetched above
+    // (one row per application) rather than a separate query — v_allotment_board
+    // already covers every IPO, not just the top-8-by-open-date attribution set.
+    const appliedDematIdsByIpo = new Map<string, Set<string>>()
+    for (const r of boardRows) {
+      // A CANCELLED mandate means the funder never actually approved the
+      // UPI block — no money moved, so this account hasn't really applied
+      // in any way that should block it from the "accounts left" list.
+      // Same reasoning as Settings' "Cancelled mandates — can reapply"
+      // section; this is that same account showing up as still-available
+      // here instead of silently counting as done.
+      if (r.mandate_status === 'CANCELLED') continue
+      if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
+      appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
+    }
+    // Distinct demat accounts marked ALLOTTED (or already SOLD — still
+    // allotted, just further along) per IPO — feeds the Dashboard card's
+    // "N allotted" badge that deep-links into that IPO's allotment board.
+    const allottedCountByIpo = new Map<string, number>()
+    for (const r of boardRows) {
+      if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+      allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
+    }
+    // An IPO drops out of the progress cards once EVERY row of it this
+    // viewer can see (their own rows only, for a funder-only viewer —
+    // RLS scopes boardRows that way already; every row, for admin) came
+    // back NOT_ALLOTTED more than a day ago — rather than sitting there
+    // until the IPO's own listing date (isLiveIpo's window). Real case
+    // this fixes: Dhoot Transmission funded by several different people,
+    // some allotted and some not — a funder whose OWN application was
+    // rejected shouldn't keep seeing this IPO's progress card a day
+    // later just because someone else's application under it is still
+    // live, and the same viewer-scoped check correctly keeps it visible
+    // for the funders whose applications DID get allotted.
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000
+    const rowsByIpo = new Map<string, AllotmentBoardRow[]>()
+    for (const r of boardRows) {
+      if (!rowsByIpo.has(r.ipo_id)) rowsByIpo.set(r.ipo_id, [])
+      rowsByIpo.get(r.ipo_id)!.push(r)
+    }
+    const staleNotAllottedIpoIds = new Set(
+      Array.from(rowsByIpo.entries())
+        .filter(([, ipoRows]) =>
+          ipoRows.every(
+            (r) => r.status === 'NOT_ALLOTTED' && Date.now() - new Date(r.status_changed_at).getTime() > ONE_DAY_MS,
+          ),
+        )
+        .map(([ipoId]) => ipoId),
+    )
 
-      // Applied-per-IPO accounts come from the board rows already fetched above
-      // (one row per application) rather than a separate query — v_allotment_board
-      // already covers every IPO, not just the top-8-by-open-date attribution set.
-      const appliedDematIdsByIpo = new Map<string, Set<string>>()
-      for (const r of boardRows) {
-        // A CANCELLED mandate means the funder never actually approved the
-        // UPI block — no money moved, so this account hasn't really applied
-        // in any way that should block it from the "accounts left" list.
-        // Same reasoning as Settings' "Cancelled mandates — can reapply"
-        // section; this is that same account showing up as still-available
-        // here instead of silently counting as done.
-        if (r.mandate_status === 'CANCELLED') continue
-        if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
-        appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
-      }
-      // Distinct demat accounts marked ALLOTTED (or already SOLD — still
-      // allotted, just further along) per IPO — feeds the Dashboard card's
-      // "N allotted" badge that deep-links into that IPO's allotment board.
-      const allottedCountByIpo = new Map<string, number>()
-      for (const r of boardRows) {
-        if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
-        allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
-      }
-      // An IPO drops out of the progress cards once EVERY row of it this
-      // viewer can see (their own rows only, for a funder-only viewer —
-      // RLS scopes boardRows that way already; every row, for admin) came
-      // back NOT_ALLOTTED more than a day ago — rather than sitting there
-      // until the IPO's own listing date (isLiveIpo's window). Real case
-      // this fixes: Dhoot Transmission funded by several different people,
-      // some allotted and some not — a funder whose OWN application was
-      // rejected shouldn't keep seeing this IPO's progress card a day
-      // later just because someone else's application under it is still
-      // live, and the same viewer-scoped check correctly keeps it visible
-      // for the funders whose applications DID get allotted.
-      const ONE_DAY_MS = 24 * 60 * 60 * 1000
-      const rowsByIpo = new Map<string, AllotmentBoardRow[]>()
-      for (const r of boardRows) {
-        if (!rowsByIpo.has(r.ipo_id)) rowsByIpo.set(r.ipo_id, [])
-        rowsByIpo.get(r.ipo_id)!.push(r)
-      }
-      const staleNotAllottedIpoIds = new Set(
-        Array.from(rowsByIpo.entries())
-          .filter(([, ipoRows]) =>
-            ipoRows.every(
-              (r) => r.status === 'NOT_ALLOTTED' && Date.now() - new Date(r.status_changed_at).getTime() > ONE_DAY_MS,
-            ),
-          )
-          .map(([ipoId]) => ipoId),
-      )
-
-      const activeDematAccounts = dematAccountsData.filter((a) => a.is_active) as Pick<DematAccount, 'id' | 'holder_name'>[]
-      const totalActive = activeDematAccounts.length
-      const ipoProgress: IpoProgress[] = allIposData
-        .filter(isLiveIpo)
-        .map((ipo) => {
-          const appliedIds = appliedDematIdsByIpo.get(ipo.id) ?? new Set<string>()
-          const remainingHolderNames = activeDematAccounts
-            .filter((d) => !appliedIds.has(d.id))
-            .map((d) => d.holder_name)
-            .sort((a, b) => a.localeCompare(b))
-          return {
-            ipoId: ipo.id,
-            companyName: ipo.company_name,
-            openDate: ipo.open_date,
-            endDate: ipo.listing_date ?? ipo.close_date,
-            closeDate: ipo.close_date,
-            allotmentDate: ipo.allotment_date,
-            listingDate: ipo.listing_date,
-            applied: appliedIds.size,
-            totalActive,
-            gmpNotes: ipo.gmp_notes,
-            subscriptionRate: ipo.retail_subscription_rate,
-            remainingHolderNames,
-            allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
-            shareholderIssueSize: ipo.shareholder_issue_size,
-            parentCompanyName: ipo.parent_company_name,
-            parentCompanySymbol: ipo.parent_company_symbol,
-          }
-        })
-        // No point showing a progress tile for an IPO nobody has applied to
-        // yet — it's not "in progress," there's nothing to track. Nor for
-        // one this viewer's own visible applications have already settled
-        // as NOT_ALLOTTED a day or more ago (see staleNotAllottedIpoIds).
-        .filter((p) => p.applied > 0 && !staleNotAllottedIpoIds.has(p.ipoId))
-        // Most recently opened first, not soonest-closing first — the
-        // latest IPO is what someone's actually here to check on.
-        .sort((a, b) => b.openDate.localeCompare(a.openDate))
-
-      // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
-      // heads-up (2 days / 1 day before open) — shown here so it's visible
-      // in the UI too, not just via WhatsApp.
-      const todayForGmp = todayStr
-      // +2 days off the already-IST-correct todayStr, not off a fresh
-      // UTC-based Date.now() — same rollover bug as the closingToday fix
-      // above would otherwise sneak back in here.
-      const in2DaysForGmp = new Date(`${todayStr}T00:00:00Z`)
-      in2DaysForGmp.setUTCDate(in2DaysForGmp.getUTCDate() + 2)
-      const in2DaysForGmpStr = in2DaysForGmp.toISOString().slice(0, 10)
-      const highGmpAlerts: HighGmpAlert[] = allIposData
-        .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmpStr)
-        .map((ipo) => ({ ipo, gmpPercent: parseGmpPercent(ipo.gmp_notes) }))
-        .filter((x): x is { ipo: Ipo; gmpPercent: number } => x.gmpPercent !== null && x.gmpPercent > HIGH_GMP_THRESHOLD)
-        .map(({ ipo, gmpPercent }) => ({
+    const activeDematAccounts = dematAccountsData.filter((a) => a.is_active) as Pick<DematAccount, 'id' | 'holder_name'>[]
+    const totalActive = activeDematAccounts.length
+    const ipoProgress: IpoProgress[] = allIposData
+      .filter(isLiveIpo)
+      .map((ipo) => {
+        const appliedIds = appliedDematIdsByIpo.get(ipo.id) ?? new Set<string>()
+        const remainingHolderNames = activeDematAccounts
+          .filter((d) => !appliedIds.has(d.id))
+          .map((d) => d.holder_name)
+          .sort((a, b) => a.localeCompare(b))
+        return {
           ipoId: ipo.id,
           companyName: ipo.company_name,
           openDate: ipo.open_date,
-          gmpPercent,
-          gmpNotes: ipo.gmp_notes ?? '',
-        }))
-        .sort((a, b) => a.openDate.localeCompare(b.openDate))
+          endDate: ipo.listing_date ?? ipo.close_date,
+          closeDate: ipo.close_date,
+          allotmentDate: ipo.allotment_date,
+          listingDate: ipo.listing_date,
+          applied: appliedIds.size,
+          totalActive,
+          gmpNotes: ipo.gmp_notes,
+          subscriptionRate: ipo.retail_subscription_rate,
+          remainingHolderNames,
+          allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
+          shareholderIssueSize: ipo.shareholder_issue_size,
+          parentCompanyName: ipo.parent_company_name,
+          parentCompanySymbol: ipo.parent_company_symbol,
+        }
+      })
+      // No point showing a progress tile for an IPO nobody has applied to
+      // yet — it's not "in progress," there's nothing to track. Nor for
+      // one this viewer's own visible applications have already settled
+      // as NOT_ALLOTTED a day or more ago (see staleNotAllottedIpoIds).
+      .filter((p) => p.applied > 0 && !staleNotAllottedIpoIds.has(p.ipoId))
+      // Most recently opened first, not soonest-closing first — the
+      // latest IPO is what someone's actually here to check on.
+      .sort((a, b) => b.openDate.localeCompare(a.openDate))
 
-      if (!hasShownGmpToast.current && highGmpAlerts.length > 0) {
-        hasShownGmpToast.current = true
-        localStorage.setItem('gmpToastShownDate', todayForGmp)
-        for (const a of highGmpAlerts) {
-          const daysOut = Math.round(
-            (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(todayForGmp + 'T00:00:00Z').getTime()) / 86400000,
-          )
+    // Same 15% line the gmp-alert-notify cron uses for the WhatsApp
+    // heads-up (2 days / 1 day before open) — shown here so it's visible
+    // in the UI too, not just via WhatsApp.
+    const todayForGmp = todayStr
+    // +2 days off the already-IST-correct todayStr, not off a fresh
+    // UTC-based Date.now() — same rollover bug as the closingToday fix
+    // above would otherwise sneak back in here.
+    const in2DaysForGmp = new Date(`${todayStr}T00:00:00Z`)
+    in2DaysForGmp.setUTCDate(in2DaysForGmp.getUTCDate() + 2)
+    const in2DaysForGmpStr = in2DaysForGmp.toISOString().slice(0, 10)
+    const highGmpAlerts: HighGmpAlert[] = allIposData
+      .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmpStr)
+      .map((ipo) => ({ ipo, gmpPercent: parseGmpPercent(ipo.gmp_notes) }))
+      .filter((x): x is { ipo: Ipo; gmpPercent: number } => x.gmpPercent !== null && x.gmpPercent > HIGH_GMP_THRESHOLD)
+      .map(({ ipo, gmpPercent }) => ({
+        ipoId: ipo.id,
+        companyName: ipo.company_name,
+        openDate: ipo.open_date,
+        gmpPercent,
+        gmpNotes: ipo.gmp_notes ?? '',
+      }))
+      .sort((a, b) => a.openDate.localeCompare(b.openDate))
+
+    if (!hasShownGmpToast.current && highGmpAlerts.length > 0) {
+      hasShownGmpToast.current = true
+      localStorage.setItem('gmpToastShownDate', todayForGmp)
+      for (const a of highGmpAlerts) {
+        const daysOut = Math.round(
+          (new Date(`${a.openDate}T00:00:00Z`).getTime() - new Date(todayForGmp + 'T00:00:00Z').getTime()) / 86400000,
+        )
+        showToast(
+          `${a.companyName} opens ${daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`} (${a.openDate}) with GMP running high at ${a.gmpPercent}% (${a.gmpNotes}).`,
+          'warning',
+        )
+      }
+    }
+
+    // Listing-day reminder — fires both the day BEFORE (so there's still
+    // time to plan) and the day OF (the actual moment to go check the
+    // opening price and decide whether to sell) an allotted-not-sold
+    // application's IPO listing — not just the day-of, which only gave a
+    // few hours' notice. isAdmin-gated the same as the other
+    // funder/payout-facing toasts below — a member's own listing-day
+    // holdings still show on the Dashboard tile itself either way.
+    if (isAdmin && !hasShownListingToast.current) {
+      const tomorrow = new Date(`${todayStr}T00:00:00Z`)
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+      const tomorrowStr = tomorrow.toISOString().slice(0, 10)
+
+      const listingTodayRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === todayStr)
+      const listingTomorrowRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === tomorrowStr)
+
+      if (listingTodayRows.length > 0 || listingTomorrowRows.length > 0) {
+        hasShownListingToast.current = true
+        localStorage.setItem('listingToastShownDate', todayStr)
+        if (listingTodayRows.length > 0) {
+          const names = Array.from(new Set(listingTodayRows.map((r) => r.holder_name))).join(', ')
+          const ipoNames = Array.from(new Set(listingTodayRows.map((r) => r.company_name))).join(', ')
+          showToast(`${ipoNames} lists today — ${names} still need to be marked sold once you have a price.`, 'info')
+        }
+        if (listingTomorrowRows.length > 0) {
+          const names = Array.from(new Set(listingTomorrowRows.map((r) => r.holder_name))).join(', ')
+          const ipoNames = Array.from(new Set(listingTomorrowRows.map((r) => r.company_name))).join(', ')
+          showToast(`${ipoNames} lists tomorrow — ${names} will need to be marked sold once it opens.`, 'info')
+        }
+      }
+    }
+
+    // Mandate-cutoff warning — a mandate still PENDING as the 4:50pm IST
+    // cutoff approaches (within the last hour of the window) needs a
+    // human to go approve it NOW, not just quietly drop out of the
+    // "Awaiting mandate approval" count once the window closes. Fires
+    // once the same-day window is actually close (not the whole day),
+    // so it means something when it shows up.
+    if (isAdmin && !hasShownMandateCutoffToast.current) {
+      const { dateStr, hour, minute } = nowIst()
+      const minutesToCutoff = 16 * 60 + 50 - (hour * 60 + minute)
+      if (minutesToCutoff > 0 && minutesToCutoff <= 60) {
+        const stillPending = boardRows.filter((r) => r.mandate_status === 'PENDING' && r.close_date === dateStr)
+        if (stillPending.length > 0) {
+          hasShownMandateCutoffToast.current = true
+          localStorage.setItem('mandateCutoffToastShownDate', dateStr)
+          const names = Array.from(new Set(stillPending.map((r) => r.holder_name))).join(', ')
           showToast(
-            `${a.companyName} opens ${daysOut <= 0 ? 'today' : `in ${daysOut} day${daysOut === 1 ? '' : 's'}`} (${a.openDate}) with GMP running high at ${a.gmpPercent}% (${a.gmpNotes}).`,
+            `Bidding closes at 4:50 PM — ${names} still ${stillPending.length === 1 ? 'has' : 'have'} a mandate awaiting approval.`,
             'warning',
           )
         }
       }
-
-      // Listing-day reminder — fires both the day BEFORE (so there's still
-      // time to plan) and the day OF (the actual moment to go check the
-      // opening price and decide whether to sell) an allotted-not-sold
-      // application's IPO listing — not just the day-of, which only gave a
-      // few hours' notice. isAdmin-gated the same as the other
-      // funder/payout-facing toasts below — a member's own listing-day
-      // holdings still show on the Dashboard tile itself either way.
-      if (isAdmin && !hasShownListingToast.current) {
-        const tomorrow = new Date(`${todayStr}T00:00:00Z`)
-        tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
-        const tomorrowStr = tomorrow.toISOString().slice(0, 10)
-
-        const listingTodayRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === todayStr)
-        const listingTomorrowRows = boardRows.filter((r) => r.status === 'ALLOTTED' && r.listing_date === tomorrowStr)
-
-        if (listingTodayRows.length > 0 || listingTomorrowRows.length > 0) {
-          hasShownListingToast.current = true
-          localStorage.setItem('listingToastShownDate', todayStr)
-          if (listingTodayRows.length > 0) {
-            const names = Array.from(new Set(listingTodayRows.map((r) => r.holder_name))).join(', ')
-            const ipoNames = Array.from(new Set(listingTodayRows.map((r) => r.company_name))).join(', ')
-            showToast(`${ipoNames} lists today — ${names} still need to be marked sold once you have a price.`, 'info')
-          }
-          if (listingTomorrowRows.length > 0) {
-            const names = Array.from(new Set(listingTomorrowRows.map((r) => r.holder_name))).join(', ')
-            const ipoNames = Array.from(new Set(listingTomorrowRows.map((r) => r.company_name))).join(', ')
-            showToast(`${ipoNames} lists tomorrow — ${names} will need to be marked sold once it opens.`, 'info')
-          }
-        }
-      }
-
-      // Mandate-cutoff warning — a mandate still PENDING as the 4:50pm IST
-      // cutoff approaches (within the last hour of the window) needs a
-      // human to go approve it NOW, not just quietly drop out of the
-      // "Awaiting mandate approval" count once the window closes. Fires
-      // once the same-day window is actually close (not the whole day),
-      // so it means something when it shows up.
-      if (isAdmin && !hasShownMandateCutoffToast.current) {
-        const { dateStr, hour, minute } = nowIst()
-        const minutesToCutoff = 16 * 60 + 50 - (hour * 60 + minute)
-        if (minutesToCutoff > 0 && minutesToCutoff <= 60) {
-          const stillPending = boardRows.filter((r) => r.mandate_status === 'PENDING' && r.close_date === dateStr)
-          if (stillPending.length > 0) {
-            hasShownMandateCutoffToast.current = true
-            localStorage.setItem('mandateCutoffToastShownDate', dateStr)
-            const names = Array.from(new Set(stillPending.map((r) => r.holder_name))).join(', ')
-            showToast(
-              `Bidding closes at 4:50 PM — ${names} still ${stillPending.length === 1 ? 'has' : 'have'} a mandate awaiting approval.`,
-              'warning',
-            )
-          }
-        }
-      }
-
-      // Skip archived IPOs (fully settled — not worth projecting profit on
-      // anymore), cards with no price band on file (same guard the WhatsApp
-      // message itself uses — nothing sane to project without one), AND
-      // anything already SOLD — those are priced separately below via
-      // buildBookedProfitLines (the REAL sell_price, not a GMP/live
-      // estimate), then merged back into the same total/panel tagged
-      // "booked" so they still show and still count, just off the correct
-      // number instead of a frozen pre-sale guess.
-      const profitRowsBase = ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
-        (r) => !r.ipos?.is_archived,
-      )
-      const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
-      const profitCards = buildFunderAllottedCards(
-        profitRowsBase.filter((r) => r.status === 'ALLOTTED'),
-        sameIdentity,
-        case2ManagerIds,
-      ).filter((c) => c.priceHigh)
-      const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '', case2ManagerIds)
-
-      // Once an IPO actually lists, its GMP-based profit estimate is frozen
-      // at whatever the grey-market premium read pre-listing — a real share
-      // price that keeps moving daily until someone marks the application
-      // SOLD. Resolving each card's own symbol against the same live-quote
-      // mechanism the parent-company badge uses keeps "Expected profit"
-      // tracking that movement instead of showing a stale number.
-      const profitSymbols = Array.from(new Set(profitCards.map((c) => c.symbol).filter((s): s is string => !!s)))
-      const livePriceBySymbol: Record<string, number | null> = {}
-      if (profitSymbols.length > 0) {
-        const { data: priceData } = await supabase.functions.invoke<{
-          prices?: Record<string, { price: number | null; stale: boolean }>
-        }>('fetch-stock-price', { body: { symbols: profitSymbols } })
-        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
-      }
-
-      const expectedProfitTotal =
-        profitCards.reduce(
-          (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
-          0,
-        ) + bookedProfitLines.reduce((sum, l) => sum + l.profit, 0)
-      const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines)
-
-      // Real mandate_status (0047/0048), not the previous proxy of "every
-      // still-APPLIED application" — that counted plenty of applications
-      // whose mandate was already approved and were just waiting on
-      // allotment, nothing to do with mandate status at all. Further
-      // narrowed to only mandates that can STILL actually be approved —
-      // approval on the sponsor bank's side has to happen before bidding
-      // itself cuts off (4:50pm IST on the IPO's close_date, same cutoff
-      // isOpenForBidding/hasBiddingClosed enforce for applying); a mandate
-      // still PENDING after that point isn't "awaiting action" anymore,
-      // there's no window left to act in.
-      const actionablePendingMandate = boardRows.filter(
-        (r) => r.mandate_status === 'PENDING' && Date.now() <= bidCutoffMs(r.close_date),
-      )
-
-      setData({
-        // Derived client-side instead of its own `.eq('close_date', todayStr)`
-        // network query — same source array as ipoProgress/highGmpAlerts above.
-        closingToday: allIposData.filter((i) => i.close_date === todayStr).sort((a, b) => a.company_name.localeCompare(b.company_name)),
-        pendingMandate: actionablePendingMandate,
-        allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
-        attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
-        ipoProgress,
-        highGmpAlerts,
-        expectedProfitTotal,
-        expectedProfitByIpo,
-        // boardRows (v_allotment_board) is already RLS-scoped per viewer —
-        // a funder-only member only ever sees rows they're associated
-        // with, so this naturally comes back as just their own entry (or
-        // entries, if they fund via more than one bank/UPI account) rather
-        // than needing a separate computation path.
-        //
-        // profitPersonName is empty for a non-admin, NOT profile.full_name
-        // — computeProfitSplit (inside buildPendingPayouts) uses this name
-        // to detect "is the funder ALSO the profit-taking admin" (isFunderSelf),
-        // which zeroes their payout when true. Passing a funder's OWN name
-        // here would make that comparison match their own funder row,
-        // spuriously zeroing what they're owed — a non-admin viewer is
-        // never the profit-taking admin by construction (they'd see the
-        // admin view instead if they were), and profiles RLS doesn't even
-        // let them look up the real admin's name to compare against
-        // correctly, so forcing this comparison to never match is the
-        // correct behavior here, not a workaround.
-        pendingPayouts: buildPendingPayouts(
-          boardRows.filter((r) => r.status === 'SOLD'),
-          isAdmin ? (profile?.full_name ?? '') : '',
-          settlementPaymentsByApp,
-        ),
-        // A CANCELLED mandate means the funder never actually approved the
-        // UPI block — no money moved, so it's not really "applied" in any
-        // sense worth counting here (same reasoning as the accounts-left
-        // fix above). boardRows is already RLS-scoped per viewer (every
-        // account for admin, just this member's own for a member), so this
-        // reads as "how many IPOs has admin/this member applied to" either
-        // way, matching the section's own "across all accounts"/"your
-        // accounts" framing. NOT_ALLOTTED is excluded too — once an IPO's
-        // allotment result is out, an application that didn't get shares
-        // isn't a "current" application anymore, just a closed-out record
-        // (still visible on the Applications page, just not counted here).
-        totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED' && r.status !== 'NOT_ALLOTTED').length,
-      })
-      setLoading(false)
     }
-    load()
 
+    // Skip archived IPOs (fully settled — not worth projecting profit on
+    // anymore), cards with no price band on file (same guard the WhatsApp
+    // message itself uses — nothing sane to project without one), AND
+    // anything already SOLD — those are priced separately below via
+    // buildBookedProfitLines (the REAL sell_price, not a GMP/live
+    // estimate), then merged back into the same total/panel tagged
+    // "booked" so they still show and still count, just off the correct
+    // number instead of a frozen pre-sale guess.
+    const profitRowsBase = ((profitRows.data ?? []) as unknown as ProfitProjectionRow[]).filter(
+      (r) => !r.ipos?.is_archived,
+    )
+    const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
+    const profitCards = buildFunderAllottedCards(
+      profitRowsBase.filter((r) => r.status === 'ALLOTTED'),
+      sameIdentity,
+      case2ManagerIds,
+    ).filter((c) => c.priceHigh)
+    const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '', case2ManagerIds)
+
+    // Once an IPO actually lists, its GMP-based profit estimate is frozen
+    // at whatever the grey-market premium read pre-listing — a real share
+    // price that keeps moving daily until someone marks the application
+    // SOLD. Resolving each card's own symbol against the same live-quote
+    // mechanism the parent-company badge uses keeps "Expected profit"
+    // tracking that movement instead of showing a stale number.
+    const profitSymbols = Array.from(new Set(profitCards.map((c) => c.symbol).filter((s): s is string => !!s)))
+    const livePriceBySymbol: Record<string, number | null> = {}
+    if (profitSymbols.length > 0) {
+      const { data: priceData } = await supabase.functions.invoke<{
+        prices?: Record<string, { price: number | null; stale: boolean }>
+      }>('fetch-stock-price', { body: { symbols: profitSymbols } })
+      for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
+    }
+
+    const expectedProfitTotal =
+      profitCards.reduce(
+        (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
+        0,
+      ) + bookedProfitLines.reduce((sum, l) => sum + l.profit, 0)
+    const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines)
+
+    // Real mandate_status (0047/0048), not the previous proxy of "every
+    // still-APPLIED application" — that counted plenty of applications
+    // whose mandate was already approved and were just waiting on
+    // allotment, nothing to do with mandate status at all. Further
+    // narrowed to only mandates that can STILL actually be approved —
+    // approval on the sponsor bank's side has to happen before bidding
+    // itself cuts off (4:50pm IST on the IPO's close_date, same cutoff
+    // isOpenForBidding/hasBiddingClosed enforce for applying); a mandate
+    // still PENDING after that point isn't "awaiting action" anymore,
+    // there's no window left to act in.
+    const actionablePendingMandate = boardRows.filter(
+      (r) => r.mandate_status === 'PENDING' && Date.now() <= bidCutoffMs(r.close_date),
+    )
+
+    return {
+      // Derived client-side instead of its own `.eq('close_date', todayStr)`
+      // network query — same source array as ipoProgress/highGmpAlerts above.
+      closingToday: allIposData.filter((i) => i.close_date === todayStr).sort((a, b) => a.company_name.localeCompare(b.company_name)),
+      pendingMandate: actionablePendingMandate,
+      allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
+      attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
+      ipoProgress,
+      highGmpAlerts,
+      expectedProfitTotal,
+      expectedProfitByIpo,
+      // boardRows (v_allotment_board) is already RLS-scoped per viewer —
+      // a funder-only member only ever sees rows they're associated
+      // with, so this naturally comes back as just their own entry (or
+      // entries, if they fund via more than one bank/UPI account) rather
+      // than needing a separate computation path.
+      //
+      // profitPersonName is empty for a non-admin, NOT profile.full_name
+      // — computeProfitSplit (inside buildPendingPayouts) uses this name
+      // to detect "is the funder ALSO the profit-taking admin" (isFunderSelf),
+      // which zeroes their payout when true. Passing a funder's OWN name
+      // here would make that comparison match their own funder row,
+      // spuriously zeroing what they're owed — a non-admin viewer is
+      // never the profit-taking admin by construction (they'd see the
+      // admin view instead if they were), and profiles RLS doesn't even
+      // let them look up the real admin's name to compare against
+      // correctly, so forcing this comparison to never match is the
+      // correct behavior here, not a workaround.
+      pendingPayouts: buildPendingPayouts(
+        boardRows.filter((r) => r.status === 'SOLD'),
+        isAdmin ? (profile?.full_name ?? '') : '',
+        settlementPaymentsByApp,
+      ),
+      // A CANCELLED mandate means the funder never actually approved the
+      // UPI block — no money moved, so it's not really "applied" in any
+      // sense worth counting here (same reasoning as the accounts-left
+      // fix above). boardRows is already RLS-scoped per viewer (every
+      // account for admin, just this member's own for a member), so this
+      // reads as "how many IPOs has admin/this member applied to" either
+      // way, matching the section's own "across all accounts"/"your
+      // accounts" framing. NOT_ALLOTTED is excluded too — once an IPO's
+      // allotment result is out, an application that didn't get shares
+      // isn't a "current" application anymore, just a closed-out record
+      // (still visible on the Applications page, just not counted here).
+      totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED' && r.status !== 'NOT_ALLOTTED').length,
+    }
+    },
+    // Same reasoning as v_allotment_board's own staleTime (lib/queries.ts)
+    // — this is backed by the same realtime-tracked applications table
+    // (plus several tables that aren't realtime-tracked at all), and is
+    // ALSO explicitly invalidated by the realtime handler and the
+    // 5-minute poll below, so this mainly governs "how stale can it get
+    // if neither of those two things has fired yet."
+    staleTime: 15_000,
+  })
+  const data = dashboardQuery.data ?? null
+  // isPending, not isLoading/isFetching — true only when this query has
+  // NEVER successfully resolved in this session (no cached data to show
+  // at all), which is the one case that actually needs a full-page
+  // skeleton. A background refetch (stale entry, realtime event, the
+  // 5-min poll) leaves isPending false and data holding the previous
+  // values the whole time it runs.
+  const loading = dashboardQuery.isPending
+
+  useEffect(() => {
     // Live-refresh whenever an application changes — e.g. a member's
     // dashboard should reflect the instant an admin creates/edits an
     // application funded by that member's linked bank/UPI account, with no
@@ -712,16 +754,13 @@ export function DashboardPage() {
     const channel = supabase
       .channel('dashboard-applications')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
-        if (cancelled) return
-        // Explicit invalidate before load() re-runs — v_allotment_board's
-        // shared cache entry has its own 15s staleTime, and without this a
-        // load() triggered by this exact realtime event could still read a
-        // technically-fresh-but-now-stale cached value if it happens to
-        // fire before RealtimeCacheSync's own (separate) invalidation of
-        // the same key lands. Redundant on many events (RealtimeCacheSync
-        // often gets there first), never harmful.
+        // v_allotment_board's own shared cache entry has a 15s staleTime
+        // (RealtimeCacheSync, App.tsx, invalidates it independently on the
+        // same event) — invalidating it here too, right before the
+        // dashboard query, means THIS reload never races ahead of that on
+        // timing. Redundant on many events, never harmful.
         queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
-        load()
+        queryClient.invalidateQueries({ queryKey: dashboardQueryKey })
       })
       .subscribe()
 
@@ -732,21 +771,14 @@ export function DashboardPage() {
     // while the tab's open, without hammering the underlying quote API
     // (fetch-stock-price's own 15-minute cache absorbs the rest).
     const priceRefreshInterval = setInterval(() => {
-      if (!cancelled) load()
+      queryClient.invalidateQueries({ queryKey: dashboardQueryKey })
     }, 5 * 60 * 1000)
 
     return () => {
-      cancelled = true
       supabase.removeChannel(channel)
       clearInterval(priceRefreshInterval)
     }
-    // isAdmin is captured by load() for pendingPayouts — now that
-    // ProtectedRoute no longer blocks rendering until the profile row has
-    // loaded (see AuthContext), isAdmin can still be false on the very
-    // first run of this effect for an actual admin whose profile hasn't
-    // arrived yet. Re-running once it flips to true avoids Payouts pending
-    // getting stuck empty until a manual refresh.
-  }, [isAdmin])
+  }, [isAdmin, profile?.id, queryClient, dashboardQueryKey])
 
   // One batched call for every distinct parent-company symbol currently in
   // view, not one call per card — mirrors IposPage's admin-side equivalent.
