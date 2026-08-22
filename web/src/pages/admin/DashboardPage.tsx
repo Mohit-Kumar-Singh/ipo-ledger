@@ -11,7 +11,7 @@ import { HoverCard } from '../../components/HoverCard'
 import { bidCutoffMs, isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { showToast } from '../../lib/toast'
-import { computeProfitSplit } from '../../lib/profitSplit'
+import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
 import { effectiveSplitWithFunder } from './AllotmentBoardPage'
 import { computeIpoAttribution, sameIdentity, type IpoAttribution } from '../../lib/applicationAttribution'
 import { resolveAttributionNames, topRecentIpoAttributionRows } from '../../lib/dashboardAttribution'
@@ -1152,16 +1152,33 @@ function PendingMandatePanel({ rows }: { rows: AllotmentBoardRow[] }) {
   if (rows.length === 0) return <PanelEmpty>Nothing awaiting approval right now.</PanelEmpty>
   return (
     <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.application_id} className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {r.holder_name}
-          </span>
-          <span className="min-w-0 shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-            {r.company_name.split(' ')[0]} · {formatShortDate(r.close_date)}, 4:50 PM
-          </span>
-        </div>
-      ))}
+      {rows.map((r) => {
+        // Same "via <funder>" convention AllotmentBoardPage's own row uses
+        // — only shown when there's actually a separate funder to name
+        // (self-funded rows have bank_account_holder_name null or equal to
+        // the holder's own name, and don't need "via themselves").
+        const funderDiffers = r.bank_account_holder_name && !namesMatch(r.bank_account_holder_name, r.holder_name)
+        return (
+          <div key={r.application_id} className="flex items-center justify-between gap-3">
+            <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+              {r.holder_name}
+              {funderDiffers && (
+                <span className="font-normal" style={{ color: 'var(--ink-muted)' }}>
+                  {' '}
+                  · via {r.bank_account_holder_name}
+                </span>
+              )}
+            </span>
+            {/* IPO first name + close date only, no time — by request; the
+                4:50 PM cutoff itself is unchanged everywhere else (the
+                mandate-cutoff toast, isOpenForBidding, etc.), just not
+                repeated on every row of this specific panel. */}
+            <span className="min-w-0 shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
+              {r.company_name.split(' ')[0]} · {formatShortDate(r.close_date)}
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }
