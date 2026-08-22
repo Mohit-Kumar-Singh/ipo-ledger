@@ -282,9 +282,10 @@ function buildSoldFunderMessage(card: SoldFunderCard): string {
   // right below it only ever shows each half separately, not the combined
   // total the holder actually has to pay out.
   const holderPays = b.netProfitPerLot * card.totalLots
+  const totalSoldAmount = b.soldPrice * card.totalLots
   const intro =
     `Hi ${card.funderName}, your *${card.ipoName}* application(s) have been *sold* at ` +
-    `${rupees(card.sellPricePerShare)}/share ${PARTY}:\n\n${list}`
+    `${rupees(card.sellPricePerShare)}/share for a total of ${rupees(totalSoldAmount)} ${PARTY}:\n\n${list}`
   return (
     `${intro}\n\n` +
     `_Profit_\n` +
