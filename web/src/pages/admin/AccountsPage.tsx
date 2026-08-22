@@ -491,24 +491,32 @@ function AccountSection({
                         </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    {/* gap-2.5 (up from gap-1.5) — confirmed by report that
+                        Copy and WhatsApp were both firing off what read as
+                        one tap. DOM click events only ever target one
+                        element, so this was never two handlers genuinely
+                        firing together — it's a touch-target problem: at
+                        the old spacing/size, one real touch's contact area
+                        covered both 26px buttons at once, and either the
+                        browser's own hit-testing or (more likely) two
+                        quick taps in immediate succession each landing on
+                        a different one of the two adjacent targets read as
+                        "both happened." Every button in this row also grew
+                        (p-1.5 -> p-2, icons 14/16 -> 15/16). */}
+                    <div className="flex shrink-0 items-center gap-2.5">
                       <ShareDetailsButton account={a} onGetPan={onGetPan} />
-                      {/* ml-1.5 on top of the row's own gap-1.5 — an extra
-                          beat of space between the share pair and the
-                          manage pair (Edit/expand), not just uniform
-                          spacing throughout. The whatsapp/edit boundary is
-                          where a tap meant for one was landing on the
-                          other; a same-size gap everywhere didn't read as
-                          two separate groups on a touchscreen the way this
-                          does. */}
+                      {/* ml-2.5 on top of the row's own gap-2.5 — extra
+                          separation between the share pair and the manage
+                          pair (Edit/expand), not just uniform spacing
+                          throughout. */}
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
                         aria-label={`Edit ${a.holder_name}`}
-                        className="ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                        className="ml-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--ink-muted)' }}
                       >
-                        <PencilIcon size={14} />
+                        <PencilIcon size={15} />
                       </button>
                       {/* Where Delete used to sit. Delete moved into the edit
                           form — it's destructive and irreversible, so it
@@ -519,7 +527,7 @@ function AccountSection({
                         aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${a.holder_name}`}
                         aria-expanded={isExpanded}
                         title={isExpanded ? 'Hide details' : 'Show PAN and login details'}
-                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                        className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)]"
                         style={{ color: 'var(--ink-muted)' }}
                       >
                         <span
@@ -671,9 +679,10 @@ function ShareDetailsButton({
     sendCustomWhatsapp(account.phone_e164, text)
   }
 
-  // Two icon-only buttons, same shape as the Edit/expand controls they sit
-  // beside — a full-text pair would put this card back to the height the
-  // icon-only version was introduced to claw back.
+  // Two icon-only buttons, same size as the rest of the row (p-2, 15px
+  // icons) plus mr-2.5 between them on top of the row's own gap-2.5 — this
+  // was the pair reported as both firing off what read as one tap, so it
+  // gets real separation, not just a hairline gap.
   return (
     <>
       <button
@@ -682,10 +691,10 @@ function ShareDetailsButton({
         disabled={busy !== null}
         aria-label={`Copy ${account.holder_name}'s details`}
         title={copied ? 'Copied!' : 'Copy the details'}
-        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        className="mr-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
         style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
       >
-        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+        {copied ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
       </button>
       <button
         type="button"
@@ -693,10 +702,10 @@ function ShareDetailsButton({
         disabled={busy !== null}
         aria-label={`Share ${account.holder_name}'s details on WhatsApp`}
         title="Share on WhatsApp"
-        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
         style={{ color: 'var(--ink-muted)' }}
       >
-        <CommentDiscussionIcon size={14} />
+        <CommentDiscussionIcon size={15} />
       </button>
     </>
   )
