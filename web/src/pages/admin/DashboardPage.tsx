@@ -1119,6 +1119,18 @@ function ClosingTodayPanel({ ipos }: { ipos: Ipo[] }) {
 // "17th Aug", not the raw "2026-08-17" — every other date-facing spot in
 // this app (WhatsApp messages, IpoDashboardCard) already reads this way;
 // the panel's plain ISO string was the odd one out.
+// "20 Aug" — day + short month, no ordinal suffix. Same shape as
+// AllotmentBoardPage's own formatShortDate (kept as a separate local copy
+// rather than a cross-page import for one three-line function) — used
+// where a compact panel needs a date without formatOrdinalDate's extra
+// "th"/"nd"/"rd" width.
+function formatShortDate(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`)
+  const day = d.getUTCDate()
+  const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
+  return `${day} ${month}`
+}
+
 function formatOrdinalDate(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`)
   const day = d.getUTCDate()
@@ -1127,6 +1139,15 @@ function formatOrdinalDate(dateStr: string): string {
   return `${day}${suffix} ${month}`
 }
 
+// Compact by request — this used to show the FULL company name plus
+// "closes <ordinal date>, 4:50 PM," which for a long name (e.g. "Lalithaa
+// Jewellery Mart") was also the panel HoverCard.tsx warns about: a
+// shrink-0+truncate right column that's wider than the panel itself just
+// clips mid-word ("...ellery Mart") instead of reading as anything. First
+// word only (company_name.split(' ')[0], the same convention
+// AllotmentBoardPage's own compact summary line already uses) plus a
+// terser date — no "closes"/comma, no ordinal suffix — fixes both the
+// truncation bug and the length at once.
 function PendingMandatePanel({ rows }: { rows: AllotmentBoardRow[] }) {
   if (rows.length === 0) return <PanelEmpty>Nothing awaiting approval right now.</PanelEmpty>
   return (
@@ -1136,8 +1157,8 @@ function PendingMandatePanel({ rows }: { rows: AllotmentBoardRow[] }) {
           <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
             {r.holder_name}
           </span>
-          <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-            {r.company_name} · closes {formatOrdinalDate(r.close_date)}, 4:50 PM
+          <span className="min-w-0 shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
+            {r.company_name.split(' ')[0]} · {formatShortDate(r.close_date)}, 4:50 PM
           </span>
         </div>
       ))}
