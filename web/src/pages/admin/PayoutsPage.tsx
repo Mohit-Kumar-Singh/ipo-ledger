@@ -15,6 +15,7 @@ import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage, effectiveSplitWithFunder, payoutCutContact } from './AllotmentBoardPage'
 import { sameIdentity } from '../../lib/applicationAttribution'
+import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { buildFunderAllottedCards, expectedProfitBreakdown, type ProfitProjectionRow } from '../../lib/expectedProfit'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -113,6 +114,10 @@ function rupees(n: number): string {
 // clamped to 0, since an overpayment is worth noticing, not hiding.
 interface SettlementCard {
   applicationId: string
+  // Needed to re-run the auto-archive check after a payment settles the
+  // last outstanding side of this application — an IPO archives only once
+  // nothing is left pending across all of its rows.
+  ipoId: string
   ipoName: string
   lots: number
   lotSize: number
@@ -197,6 +202,7 @@ function buildSettlementCards(
       .reduce((s, p) => s + p.amount, 0)
     cards.push({
       applicationId: r.application_id,
+      ipoId: r.ipo_id,
       ipoName: r.company_name,
       lots: r.lots,
       lotSize: r.lot_size,
@@ -317,6 +323,37 @@ function isCardFullySettled(c: SettlementCard): boolean {
   const holderDone = c.isDematHolderSelf || c.amountFromHolder <= 0 || c.remainingFromHolder <= SETTLED_EPSILON
   const funderDone = !c.hasFunder || c.isFunderSelf || c.amountToFunder <= 0 || c.remainingToFunder <= SETTLED_EPSILON
   return holderDone && funderDone
+}
+
+// Which of the two legacy paid-flags on `applications` a settlement state
+// implies. The flags predate the settlement_payments ledger (0078 replaced
+// the "one lump payment, all-or-nothing" model they encode) but are still
+// what the Dashboard's "Payouts pending" tile, this page's Outstanding/Paid
+// sections, and auto-archive all read — so logging enough payments to clear
+// a side has to flip the matching flag, or those three keep insisting money
+// is owed that the ledger already shows as received.
+//
+// Deliberately only ever reports true. Payments are append-only (there's no
+// delete in the UI), so a remaining balance only ever decreases and a flag
+// only ever needs to go unpaid -> paid; nothing here should un-mark a flag
+// an admin set by hand.
+//
+// Takes the remaining amounts as arguments rather than reading them off the
+// card, so the caller can pass post-payment figures for a payment that
+// hasn't been re-fetched yet.
+function settledPaidFlags(
+  c: SettlementCard,
+  remainingFromHolder: number,
+  remainingToFunder: number,
+): { demat_cut_paid?: true; funder_share_paid?: true } {
+  const flags: { demat_cut_paid?: true; funder_share_paid?: true } = {}
+  if (!c.isDematHolderSelf && c.amountFromHolder > 0 && remainingFromHolder <= SETTLED_EPSILON) {
+    flags.demat_cut_paid = true
+  }
+  if (c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && remainingToFunder <= SETTLED_EPSILON) {
+    flags.funder_share_paid = true
+  }
+  return flags
 }
 
 interface IpoSettlementGroup {
@@ -850,11 +887,45 @@ function SettlementCardView({
     const { error } = await supabase
       .from('settlement_payments')
       .insert({ application_id: c.applicationId, kind, amount: amt, note: note.trim() || null })
-    setSaving(false)
     if (error) {
+      setSaving(false)
       showToast(error.message, 'critical')
       return
     }
+
+    // What this payment leaves outstanding. Mirrors buildSettlementCards'
+    // own two reducers: a holder_to_funder payment counts against BOTH
+    // sides at once (it left the holder and reached the funder, it just
+    // never passed through the admin), which is why these aren't exclusive.
+    const nextFromHolder =
+      c.remainingFromHolder - (kind === 'holder_to_admin' || kind === 'holder_to_funder' ? amt : 0)
+    const nextToFunder =
+      c.remainingToFunder - (kind === 'admin_to_funder' || kind === 'holder_to_funder' ? amt : 0)
+
+    // Flip the legacy paid-flags for any side this payment just cleared, so
+    // the Dashboard tile / Outstanding list / auto-archive stop reporting a
+    // debt the ledger shows as settled. Done here rather than in a DB
+    // trigger on settlement_payments because the amounts owed come out of
+    // computeProfitSplit on the client — the database has no idea what
+    // amountFromHolder/amountToFunder are, and reimplementing that split in
+    // SQL is exactly the kind of duplicated math that drifts.
+    const flags = settledPaidFlags(c, nextFromHolder, nextToFunder)
+    if (Object.keys(flags).length > 0) {
+      const { error: flagError } = await supabase.from('applications').update(flags).eq('id', c.applicationId)
+      if (flagError) {
+        // The payment itself is already saved and is the authoritative
+        // record — surface the flag failure without discarding it, rather
+        // than reporting the whole thing as failed.
+        showToast(`Payment logged, but couldn't update paid status: ${flagError.message}`, 'warning')
+      } else {
+        // Settling the last side of the last unsettled row can be what makes
+        // the whole IPO archivable, same check the Allotment board runs
+        // after its own "Mark paid".
+        await maybeAutoArchiveIpo(c.ipoId)
+      }
+    }
+
+    setSaving(false)
     setAmount('')
     setNote('')
     setShowLog(false)
@@ -866,11 +937,14 @@ function SettlementCardView({
   // the funder directly (both count, same reasoning as remainingFromHolder
   // itself). Independent of whether the funder side is settled — a holder
   // can finish paying before you've forwarded it on, and this only ever
-  // reflects the holder's own obligation.
-  const holderSettled = !c.isDematHolderSelf && c.amountFromHolder > 0 && c.remainingFromHolder <= SETTLED_EPSILON
-  // Mirror of holderSettled for the funder side — used the same way, just
-  // for the "To {funder} — need to send" summary line's own settled state.
-  const funderSettled = c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && c.remainingToFunder <= SETTLED_EPSILON
+  // reflects the holder's own obligation. The funder mirror is the same
+  // idea for the "To {funder} — need to send" line.
+  //
+  // Same helper logPayment writes the paid-flags from, so the "Settled ✓"
+  // badge here and the flag the rest of the portal reads can't disagree.
+  const settled = settledPaidFlags(c, c.remainingFromHolder, c.remainingToFunder)
+  const holderSettled = settled.demat_cut_paid === true
+  const funderSettled = settled.funder_share_paid === true
 
   return (
     <div className="stagger-item space-y-2 py-3 first:pt-0 last:pb-0">

@@ -9,7 +9,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, TagIcon, PencilIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -103,22 +103,23 @@ export function AllotmentBoardPage() {
     // Deep-link from the Dashboard's "N allotted" badge (?ipo=<id>) —
     // auto-select that IPO's board the moment the dropdown's own options
     // have loaded, instead of leaving the visitor to pick it again by hand.
-    // Otherwise default to whichever listed IPO needs selling soonest: the
-    // dropdown is already scoped to allotment-out, not-yet-archived IPOs
-    // (an IPO auto-archives once nothing's left pending on it), so the
-    // earliest listing date in that list is the one most overdue to sell —
-    // the visitor can still switch to any other IPO from the dropdown as
-    // usual.
+    // Otherwise default to the most RECENT allotment, which is loadIpos'
+    // first row (it already orders by allotment_date desc).
+    //
+    // This used to pick the earliest listing_date instead, on the theory
+    // that it's the one most overdue to sell. In practice that pins the
+    // board to the oldest IPO still hanging around — an IPO only
+    // auto-archives once every row on it is settled, so one stuck row keeps
+    // it unarchived and permanently first. Whichever allotment just came
+    // out is the one there's actually work to do on; older ones are still a
+    // dropdown pick away.
     const ipoIdParam = searchParams.get('ipo')
     loadIpos((loaded) => {
       if (ipoIdParam && loaded.some((i) => i.id === ipoIdParam)) {
         loadBoard(ipoIdParam)
         return
       }
-      const withListing = loaded.filter((i) => i.listing_date)
-      const earliest = [...withListing].sort((a, b) => (a.listing_date! < b.listing_date! ? -1 : 1))[0]
-      const fallback = earliest ?? loaded[0]
-      if (fallback) loadBoard(fallback.id)
+      if (loaded[0]) loadBoard(loaded[0].id)
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -691,19 +692,34 @@ function SoldPayoutsSection({
                     >
                       {row.status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : row.status.replace('_', ' ')}
                     </span>
+                    {/* Icon-only (same pattern as the Message/Paid controls
+                        further down) — three text links plus a status badge
+                        on one row was the bulk that made this wrap awkwardly
+                        on phone. aria-label carries the name the visible text
+                        used to, so this stays readable to a screen reader. */}
                     {!isEditing && (
-                      <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
-                        {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                      <button
+                        onClick={() => onOpenForm(row)}
+                        className="link-accent inline-flex items-center"
+                        aria-label={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                        title={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                      >
+                        {row.status === 'SOLD' ? <PencilIcon size={15} /> : <TagIcon size={15} />}
                       </button>
                     )}
                     {row.status === 'ALLOTTED' && (
                       <button
                         onClick={() => notifyHolder(row)}
                         disabled={notifying === row.application_id}
-                        className="link-accent text-xs font-medium disabled:opacity-50"
-                        title="WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF"
+                        className="link-accent inline-flex items-center disabled:opacity-50"
+                        aria-label="Notify holder"
+                        title={
+                          notifying === row.application_id
+                            ? 'Preparing…'
+                            : 'WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF'
+                        }
                       >
-                        {notifying === row.application_id ? 'Preparing…' : 'Notify holder'}
+                        <CommentDiscussionIcon size={15} />
                       </button>
                     )}
                     {row.status === 'ALLOTTED' && (
