@@ -376,6 +376,19 @@ function AccountSection({
   onDelete: (id: string, name: string) => void
 }) {
   const [open, setOpen] = useState(!collapsedByDefault || accounts.length > 0)
+  // Per-card expansion for the PAN/credentials panel. A Set rather than a
+  // single id — these are independent disclosures, so opening one shouldn't
+  // collapse another the user already opened to read off.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set())
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   if (accounts.length === 0 && collapsedByDefault) return null
 
@@ -411,6 +424,7 @@ function AccountSection({
           <div className="flex flex-col gap-3">
             {accounts.map((a) => {
               const pan = revealed[a.id] ?? a.pan_masked
+              const isExpanded = expandedIds.has(a.id)
 
               if (editingAccount?.id === a.id) {
                 return (
@@ -424,6 +438,7 @@ function AccountSection({
                     onUnlinkMember={onUnlinkMember}
                     onCancel={onCancelEdit}
                     onDone={onSavedEdit}
+                    onDelete={onDelete}
                   />
                 )
               }
@@ -454,24 +469,13 @@ function AccountSection({
                             <span className="badge badge-critical shrink-0">duplicate PAN</span>
                           )}
                         </div>
-                        {/* PAN + profit cut on one compact line instead of
-                            two — this card was creeping taller every time a
-                            new field got added; folding these two together
-                            (they're both short) claws back a full row. */}
-                        <div className="flex items-center gap-1 text-xs" style={{ color: 'var(--ink-secondary)' }}>
-                          <span className="font-mono">{pan}</span>
-                          {revealed[a.id] ? (
-                            <CopyButton value={pan} label="PAN" />
-                          ) : (
-                            <button
-                              onClick={() => onRevealPan(a.id)}
-                              disabled={revealing === a.id}
-                              className="link-accent font-medium disabled:opacity-50"
-                            >
-                              {revealing === a.id ? 'Revealing…' : 'Reveal'}
-                            </button>
-                          )}
-                          <span style={{ color: 'var(--ink-muted)' }}>· {a.profit_share_percent}% cut</span>
+                        {/* Just the cut now — PAN moved into the expandable
+                            details below. It's the one number worth seeing on
+                            every card at a glance; the PAN was both the
+                            longest thing on this line and the one that needed
+                            a Reveal round trip to be useful at all. */}
+                        <div className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          {a.profit_share_percent}% cut
                         </div>
                       </div>
                     </div>
@@ -486,13 +490,24 @@ function AccountSection({
                       >
                         <PencilIcon size={14} />
                       </button>
+                      {/* Where Delete used to sit. Delete moved into the edit
+                          form — it's destructive and irreversible, so it
+                          shouldn't be one stray tap away from Edit on a
+                          crowded row. */}
                       <button
-                        onClick={() => onDelete(a.id, a.holder_name)}
-                        aria-label={`Delete ${a.holder_name}`}
-                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--critical-tint)]"
-                        style={{ color: 'var(--critical)' }}
+                        onClick={() => toggleExpanded(a.id)}
+                        aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${a.holder_name}`}
+                        aria-expanded={isExpanded}
+                        title={isExpanded ? 'Hide details' : 'Show PAN and login details'}
+                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                        style={{ color: 'var(--ink-muted)' }}
                       >
-                        <TrashIcon size={14} />
+                        <span
+                          className="inline-flex transition-transform duration-200"
+                          style={{ transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                        >
+                          <ChevronDownIcon size={16} />
+                        </span>
                       </button>
                     </div>
                   </div>
@@ -506,11 +521,40 @@ function AccountSection({
                       regardless of how short it was, so 3-4 fields routinely
                       wrapped to 2-3 rows; the grid packs 2-3 per row based on
                       actual available width. */}
-                  {hasCredentials && (
+                  {/* Collapsed by default now, behind the chevron above.
+                      Everything sensitive or long-form lives here — PAN
+                      (moved off the name line) plus the broker-app
+                      credentials, which used to sit open on every card at
+                      once. Rendered only while open rather than hidden with
+                      CSS, so a collapsed card isn't quietly holding a
+                      revealed PAN in the DOM. */}
+                  {isExpanded && (
                     <div
                       className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-2 text-xs sm:grid-cols-3"
                       style={{ borderColor: 'var(--border)' }}
                     >
+                      {/* PAN keeps its own reveal-then-copy treatment rather
+                          than becoming a CredentialField — it's the one
+                          value here that isn't already in plaintext on the
+                          client (reveal-pan decrypts it server-side and
+                          writes an access-log row). */}
+                      <div className="col-span-2 sm:col-span-1">
+                        <p style={{ color: 'var(--ink-muted)' }}>PAN</p>
+                        <div className="flex items-center gap-1" style={{ color: 'var(--ink-secondary)' }}>
+                          <span className="font-mono">{pan}</span>
+                          {revealed[a.id] ? (
+                            <CopyButton value={pan} label="PAN" />
+                          ) : (
+                            <button
+                              onClick={() => onRevealPan(a.id)}
+                              disabled={revealing === a.id}
+                              className="link-accent font-medium disabled:opacity-50"
+                            >
+                              {revealing === a.id ? 'Revealing…' : 'Reveal'}
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       {a.platform ? (
                         <CredentialField label="Platform" value={platformLabel(a.platform)} />
                       ) : (
@@ -525,6 +569,11 @@ function AccountSection({
                       )}
                       {a.t_pin && <CredentialField label="T-PIN" value={a.t_pin} mono copyLabel="T-PIN" />}
                       {a.logged_in_notes && <CredentialField label="Logged in" value={a.logged_in_notes} />}
+                      {!hasCredentials && (
+                        <p className="col-span-2 sm:col-span-3" style={{ color: 'var(--ink-muted)' }}>
+                          No login details saved — add them from Edit.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -648,6 +697,7 @@ function AccountForm({
   onUnlinkMember,
   onCancel,
   onDone,
+  onDelete,
 }: {
   existing?: EditingAccount
   isAdmin?: boolean
@@ -657,6 +707,8 @@ function AccountForm({
   onUnlinkMember?: (dematId: string) => void
   onCancel: () => void
   onDone: () => void
+  // Absent when adding — there's nothing to delete yet.
+  onDelete?: (id: string, name: string) => void
 }) {
   const draftKey = existing ? `draft:edit-demat:${existing.id}` : ADD_DRAFT_KEY
   // A stale draft must never silently win over the real fetched value for an
@@ -947,6 +999,23 @@ function AccountForm({
         <button type="button" onClick={handleCancel} className="btn-secondary">
           Cancel
         </button>
+        {/* Moved here from the card's own action row, where it sat directly
+            beside Edit. Still behind the same confirmDialog it always was —
+            this only changes how far you have to go to reach it, not what it
+            does. type="button" matters: inside a <form>, an unqualified
+            button submits it. */}
+        {existing && onDelete && (
+          <button
+            type="button"
+            onClick={() => onDelete(existing.id, existing.holderName)}
+            aria-label={`Delete ${existing.holderName}`}
+            title={`Delete ${existing.holderName}`}
+            className="rounded-lg p-2 transition-colors hover:bg-[var(--critical-tint)]"
+            style={{ color: 'var(--critical)' }}
+          >
+            <TrashIcon size={16} />
+          </button>
+        )}
       </div>
     </form>
   )
