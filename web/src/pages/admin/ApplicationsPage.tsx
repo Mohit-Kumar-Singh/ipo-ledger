@@ -145,7 +145,6 @@ export function ApplicationsPage() {
   // bank/UPI funded an application on.
   const [revealedPans, setRevealedPans] = useState<Record<string, string>>({})
   const [revealingPan, setRevealingPan] = useState<string | null>(null)
-  const [mandateSaving, setMandateSaving] = useState<string | null>(null)
   // full_name for whoever last marked a mandate (mandate_marked_by is just a
   // uuid) — resolved the same narrow way as the funder-only demat rows
   // above (resolve_profile_names, already granted broadly since a display
@@ -377,23 +376,6 @@ export function ApplicationsPage() {
     if (failed > 0) showToast(`${failed} of ${ids.length} couldn't be updated.`, 'critical')
     setSelectedForNotAllotted(new Set())
     await Promise.all(affectedIpoIds.map((id) => maybeAutoArchiveIpo(id)))
-    loadApplications()
-  }
-
-  // Goes through the set_mandate_status RPC (migration 0047), not a direct
-  // table update — a funder only has SELECT on applications, and granting
-  // funders a raw UPDATE just for the 3 mandate_* columns isn't possible
-  // with RLS alone (row-level, not column-level: they'd get every other
-  // column too). The RPC checks admin-or-funder internally and only ever
-  // touches mandate_status/mandate_marked_by/mandate_marked_at.
-  async function setMandateStatus(id: string, status: Application['mandate_status']) {
-    setMandateSaving(id)
-    const { error } = await supabase.rpc('set_mandate_status', { p_application_id: id, p_status: status })
-    setMandateSaving(null)
-    if (error) {
-      showToast(error.message, 'critical')
-      return
-    }
     loadApplications()
   }
 
@@ -916,10 +898,6 @@ export function ApplicationsPage() {
 
                   const funderName = funderNameFor(a, resolvedBankInfo)
                   const funderDiffersFromHolder = funderName !== holderName
-                  // "Me and the funder can mark it" — admin, or whoever's
-                  // linked bank/UPI account actually funded this application
-                  // (mirrors set_mandate_status's own server-side check).
-                  const canMarkMandate = isAdmin || a.bank_accounts?.linked_user_id === profile?.id
                   // "ipoji" when the mandate was set from the sync's guess
                   // at ipoji's own status text (not a reviewed human
                   // decision) — showing the admin who happened to run the
@@ -1180,28 +1158,14 @@ export function ApplicationsPage() {
                             id={`mandate-${a.id}`}
                           >
                             <div className="flex items-center justify-between gap-2">
+                              {/* Read-only for everyone, including admin —
+                                  marking a mandate now happens only inside
+                                  the edit form (see MandateField there), so
+                                  approving/cancelling is a deliberate step
+                                  rather than a one-click action sitting on
+                                  every pending card. */}
                               {a.mandate_status === 'PENDING' ? (
-                                canMarkMandate ? (
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      onClick={() => setMandateStatus(a.id, 'APPROVED')}
-                                      disabled={mandateSaving === a.id}
-                                      className="link-accent font-medium disabled:opacity-50"
-                                    >
-                                      Mandate approved
-                                    </button>
-                                    <button
-                                      onClick={() => setMandateStatus(a.id, 'CANCELLED')}
-                                      disabled={mandateSaving === a.id}
-                                      className="font-medium hover:underline disabled:opacity-50"
-                                      style={{ color: 'var(--ink-muted)' }}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <span style={{ color: 'var(--warning)' }}>Awaiting mandate approval</span>
-                                )
+                                <span style={{ color: 'var(--warning)' }}>Awaiting mandate approval</span>
                               ) : (
                                 <span className="inline-flex items-center gap-1" style={{ color: a.mandate_status === 'APPROVED' ? 'var(--good)' : 'var(--critical)' }}>
                                   Mandate {a.mandate_status === 'APPROVED' ? 'approved' : 'cancelled'}
@@ -1361,6 +1325,8 @@ function NewApplicationForm({
   onCancel?: () => void
   onDone: () => void
 }) {
+  const { profile } = useAuth()
+  const isAdmin = profile?.role === 'admin'
   const existingIpo = existing ? ipos.find((i) => i.id === existing.ipo_id) : undefined
   const [ipoId, setIpoId] = useState(existing?.ipo_id ?? '')
   const dematId = existing?.demat_id ?? ''
@@ -1422,6 +1388,12 @@ function NewApplicationForm({
   }, [bankAccountId, funderOverrideId, banks])
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
+  // Mandate is only settable while editing an existing application — a
+  // brand-new row starts PENDING by default (migration 0047) and there's
+  // nothing to approve yet at creation time.
+  const [mandateStatus, setMandateStatus] = useState<Application['mandate_status']>(
+    existing?.mandate_status ?? 'PENDING',
+  )
   const [saleMode, setSaleMode] = useState<SaleEntryMode>('total')
   const [sellPrice, setSellPrice] = useState(existing?.sell_price != null ? String(existing.sell_price) : '')
   const [totalPayout, setTotalPayout] = useState(
@@ -1478,11 +1450,31 @@ function NewApplicationForm({
           status: existing.status,
         })
         .eq('id', existing.id)
-      setSubmitting(false)
       if (error) {
+        setSubmitting(false)
         setError(error.message)
         return
       }
+
+      // Separate round trip, and deliberately not part of the .update() above:
+      // mandate_* is written only by the set_mandate_status RPC (0047, locked
+      // to admin in 0080), which also stamps who marked it and when. Skipped
+      // entirely when the value didn't change, so re-saving an unrelated edit
+      // doesn't rewrite mandate_marked_by/_at and claim the admin re-decided
+      // something they never touched.
+      if (mandateStatus !== existing.mandate_status) {
+        const { error: mandateError } = await supabase.rpc('set_mandate_status', {
+          p_application_id: existing.id,
+          p_status: mandateStatus,
+        })
+        if (mandateError) {
+          setSubmitting(false)
+          setError(mandateError.message)
+          return
+        }
+      }
+
+      setSubmitting(false)
       onDone()
       return
     }
@@ -1624,6 +1616,22 @@ function NewApplicationForm({
       <Field label="Lots">
         <input required type="number" min={1} value={lots} onChange={(e) => setLots(e.target.value)} className="input" />
       </Field>
+      {/* Admin-only, and only when editing — the set_mandate_status RPC
+          rejects a non-admin caller outright (0080), so this is the label
+          matching the real boundary rather than the boundary itself. */}
+      {existing && isAdmin && (
+        <Field label="Mandate">
+          <select
+            value={mandateStatus}
+            onChange={(e) => setMandateStatus(e.target.value as Application['mandate_status'])}
+            className="input"
+          >
+            <option value="PENDING">Awaiting approval</option>
+            <option value="APPROVED">Approved</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </Field>
+      )}
       <Field label="Bid amount (auto)">
         <input
           readOnly
