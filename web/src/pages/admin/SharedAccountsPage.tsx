@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PeopleIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useDematAccounts, queryKeys } from '../../lib/queries'
@@ -24,7 +24,6 @@ import { InlineSpinner } from '../../components/PageSpinner'
 //   bigger cut covering both roles combined, e.g. 70% / 30% (manager / you).
 export function SharedAccountsPage() {
   const queryClient = useQueryClient()
-  const [managers, setManagers] = useState<AccountManager[]>([])
   // Shared cache (lib/queries.ts) — demat_accounts is also read in full by
   // Accounts/Applications/BankAccounts/Dashboard; this page's own mutations
   // (assign/unassign a manager) write demat_accounts rows, so they need to
@@ -34,30 +33,42 @@ export function SharedAccountsPage() {
     () => [...(dematAccountsQuery.data ?? [])].sort((a, b) => a.holder_name.localeCompare(b.holder_name)),
     [dematAccountsQuery.data],
   )
-  const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
-  const [managersLoaded, setManagersLoaded] = useState(false)
-  const loading = dematAccountsQuery.isPending || !managersLoaded
   const [showForm, setShowForm] = useState<AccountManagerCaseType | null>(null)
   const [editing, setEditing] = useState<AccountManager | null>(null)
 
   // managers/linkableMembers are page-local (account_managers and the
   // unfiltered profiles list aren't read anywhere else) — only the
   // demat_accounts half of what used to be one Promise.all moves to the
-  // shared cache.
-  async function load() {
-    const [managersRes, membersRes] = await Promise.all([
-      supabase.from('account_managers').select('*').order('full_name'),
-      supabase.from('profiles').select('*'),
-      queryClient.invalidateQueries({ queryKey: queryKeys.dematAccounts }),
-    ])
-    setManagers((managersRes.data ?? []) as AccountManager[])
-    setLinkableMembers((membersRes.data ?? []) as Profile[])
-    setManagersLoaded(true)
+  // shared cache. Was a manual load() run once on mount (managersLoaded
+  // flag standing in for a loading state) — one useQuery instead, so
+  // revisiting this page within staleTime renders the previous lists
+  // instantly rather than a spinner over data that was already on screen.
+  interface SharedAccountsLocalData {
+    managers: AccountManager[]
+    linkableMembers: Profile[]
   }
+  const sharedAccountsLocalQueryKey = ['shared-accounts-local'] as const
+  const localQuery = useQuery<SharedAccountsLocalData>({
+    queryKey: sharedAccountsLocalQueryKey,
+    queryFn: async () => {
+      const [managersRes, membersRes] = await Promise.all([
+        supabase.from('account_managers').select('*').order('full_name'),
+        supabase.from('profiles').select('*'),
+      ])
+      return {
+        managers: (managersRes.data ?? []) as AccountManager[],
+        linkableMembers: (membersRes.data ?? []) as Profile[],
+      }
+    },
+  })
+  const managers = localQuery.data?.managers ?? []
+  const linkableMembers = localQuery.data?.linkableMembers ?? []
+  const loading = dematAccountsQuery.isPending || localQuery.isPending
 
-  useEffect(() => {
-    load()
-  }, [])
+  function load() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.dematAccounts })
+    queryClient.invalidateQueries({ queryKey: sharedAccountsLocalQueryKey })
+  }
 
   async function deleteManager(id: string) {
     if (

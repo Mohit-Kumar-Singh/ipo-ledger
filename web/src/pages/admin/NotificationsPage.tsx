@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PaperAirplaneIcon } from '@primer/octicons-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
@@ -435,96 +436,124 @@ function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean
 export function NotificationsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [funderCards, setFunderCards] = useState<FunderIpoCard[]>([])
-  const [allottedCards, setAllottedCards] = useState<FunderAllottedCard[]>([])
-  const [holderAllottedCards, setHolderAllottedCards] = useState<HolderAllottedCard[]>([])
-  const [sellTodayCards, setSellTodayCards] = useState<SellReminderCard[]>([])
-  const [sellTomorrowCards, setSellTomorrowCards] = useState<SellReminderCard[]>([])
-  const [soldCards, setSoldCards] = useState<SoldFunderCard[]>([])
-  const [loading, setLoading] = useState(true)
-  // Surfaced instead of silently swallowed — the funders query previously
-  // just fell back to an empty array on any error (data ?? []), so a real
-  // failure here looked identical to "nobody's funded anything live," no
-  // visible sign anything was actually wrong.
-  const [fundersError, setFundersError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
   // Filters the funder cards below to only the applications entered today —
   // for the common case of "I just added a batch of applications this
   // morning, tell the funder about those specifically" instead of resending
   // the full running total every time.
   const [todayOnly, setTodayOnly] = useState(false)
-  // Non-admin only — a funder-only viewer has no funder/holder cards to
-  // show at all (those sections are admin-only above), which used to leave
-  // them looking at a completely blank page once the old flat 'Messages'
-  // table was removed. RLS already scopes this to just their own
-  // notifications either way, same as the old table did.
-  const [myNotifications, setMyNotifications] = useState<Notification[]>([])
   const [openingId, setOpeningId] = useState<string | null>(null)
 
-  async function load() {
-    setLoading(true)
-    const [fundersRes, myNotifsRes] = await Promise.all([
-      // Not admin-gated — RLS already scopes this to "every application" for
-      // admin and "just what I funded" for a funder-only viewer, which is
-      // exactly what the (now non-admin-visible-too) 'Allotment updates'
-      // card below needs: a funder's own 'this IPO is allotted, funded by
-      // you' card.
-      supabase
-        .from('applications')
-        .select(
-          // Explicit FK on both bank_accounts embeds — applications now
-          // has two relationships into that table (bank_account_id, the
-          // literal paying UPI, and funder_override_id, migration 0063)
-          // — and funder cards/messages prefer the override when set
-          // (see effectiveFunder()).
-          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
-            'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
-            'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
-            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-        )
-        // No .or(bank_account_id/funder_override_id not null) filter —
-        // that used to drop genuinely self-funded applications (no
-        // bank/UPI account tracked at all) from every card below
-        // entirely, including "my own" IPOs. effectiveFunder() falls
-        // back to the demat holder identity when neither is set, same
-        // as the attribution pie chart already does — this just needs
-        // the row to actually be fetched for that fallback to run.
-        .order('applied_at', { ascending: false }),
-      !isAdmin
-        ? supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50)
-        : Promise.resolve({ data: [], error: null }),
-    ])
-    setFundersError(fundersRes.error ? fundersRes.error.message : null)
-    // Archived filtered out HERE, once, for every card built below — was
-    // previously never checked in this file at all (ipos.is_archived
-    // wasn't even selected), so an IPO that auto-archived because every
-    // application on it settled (e.g. all marked NOT_ALLOTTED) could still
-    // show up in the "Funders" overview: buildFunderIpoCards gates on
-    // isLiveIpo() (a pure date-range check, open_date..listing_date) which
-    // has no idea an IPO was archived — confirmed live: Behari Lal
-    // Engineering, is_archived=true, still within its listing_date window,
-    // kept appearing there.
-    const funderRows = ((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]).filter(
-      (r) => !r.ipos?.is_archived,
-    )
-    const todayStr = nowIst().dateStr
-    // Already sold — nothing left to project (it's real now) or remind the
-    // holder about (they already sold), regardless of exactly which day it
-    // listed on. NOT date-gated to "listed today" — a sale entered a day or
-    // two after listing (the realistic common case, not same-day) still
-    // needs to drop out of the pre-sale projection and show up in the real
-    // "Sold" section below instead of lingering there forever with a stale
-    // GMP-based guess.
-    const isSold = (r: ApplicationForFunderRow) => r.status === 'SOLD'
-    setFunderCards(buildFunderIpoCards(funderRows))
-    setAllottedCards(buildFunderAllottedCards(funderRows.filter((r) => !isSold(r)), sameIdentity))
-    setHolderAllottedCards(buildHolderAllottedCards(funderRows))
-    setSellTodayCards(buildSellReminderCards(funderRows, todayStr))
-    setSellTomorrowCards(buildSellReminderCards(funderRows, tomorrowIstDateStr()))
-    setSoldCards(buildSoldFunderCards(funderRows.filter((r) => isSold(r) && r.sell_price != null), sameIdentity))
-    setMyNotifications((myNotifsRes.data ?? []) as Notification[])
-    setLoading(false)
+  interface NotificationsData {
+    funderCards: FunderIpoCard[]
+    allottedCards: FunderAllottedCard[]
+    holderAllottedCards: HolderAllottedCard[]
+    sellTodayCards: SellReminderCard[]
+    sellTomorrowCards: SellReminderCard[]
+    soldCards: SoldFunderCard[]
+    // Non-admin only — a funder-only viewer has no funder/holder cards to
+    // show at all (those sections are admin-only above), which used to leave
+    // them looking at a completely blank page once the old flat 'Messages'
+    // table was removed. RLS already scopes this to just their own
+    // notifications either way, same as the old table did.
+    myNotifications: Notification[]
+  }
+  // isAdmin in the key — the query genuinely fetches different things per
+  // role (myNotifications is only ever fetched for a non-admin), so a
+  // change in isAdmin has to land on a different cache entry, not just
+  // silently keep serving whichever role fetched first.
+  const notificationsQueryKey = ['notifications-page', isAdmin] as const
+  // Was a local useState + manual load() run once on mount (and again
+  // whenever isAdmin flipped) — one useQuery instead, so revisiting this
+  // page within staleTime renders the previous cards instantly rather than
+  // a spinner over data that was already on screen a moment ago.
+  const notificationsQuery = useQuery<NotificationsData>({
+    queryKey: notificationsQueryKey,
+    queryFn: async () => {
+      const [fundersRes, myNotifsRes] = await Promise.all([
+        // Not admin-gated — RLS already scopes this to "every application" for
+        // admin and "just what I funded" for a funder-only viewer, which is
+        // exactly what the (now non-admin-visible-too) 'Allotment updates'
+        // card below needs: a funder's own 'this IPO is allotted, funded by
+        // you' card.
+        supabase
+          .from('applications')
+          .select(
+            // Explicit FK on both bank_accounts embeds — applications now
+            // has two relationships into that table (bank_account_id, the
+            // literal paying UPI, and funder_override_id, migration 0063)
+            // — and funder cards/messages prefer the override when set
+            // (see effectiveFunder()).
+            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
+              'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+          )
+          // No .or(bank_account_id/funder_override_id not null) filter —
+          // that used to drop genuinely self-funded applications (no
+          // bank/UPI account tracked at all) from every card below
+          // entirely, including "my own" IPOs. effectiveFunder() falls
+          // back to the demat holder identity when neither is set, same
+          // as the attribution pie chart already does — this just needs
+          // the row to actually be fetched for that fallback to run.
+          .order('applied_at', { ascending: false }),
+        !isAdmin
+          ? supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50)
+          : Promise.resolve({ data: [], error: null }),
+      ])
+      // Surfaced instead of silently swallowed — the funders query used to
+      // just fall back to an empty array on any error (data ?? []), so a
+      // real failure here looked identical to "nobody's funded anything
+      // live," no visible sign anything was actually wrong. Thrown, not
+      // returned as a field, so it goes through the query's own isError/
+      // error state like every other query in this app.
+      if (fundersRes.error) throw fundersRes.error
+      // Archived filtered out HERE, once, for every card built below — was
+      // previously never checked in this file at all (ipos.is_archived
+      // wasn't even selected), so an IPO that auto-archived because every
+      // application on it settled (e.g. all marked NOT_ALLOTTED) could still
+      // show up in the "Funders" overview: buildFunderIpoCards gates on
+      // isLiveIpo() (a pure date-range check, open_date..listing_date) which
+      // has no idea an IPO was archived — confirmed live: Behari Lal
+      // Engineering, is_archived=true, still within its listing_date window,
+      // kept appearing there.
+      const funderRows = ((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]).filter(
+        (r) => !r.ipos?.is_archived,
+      )
+      const todayStr = nowIst().dateStr
+      // Already sold — nothing left to project (it's real now) or remind the
+      // holder about (they already sold), regardless of exactly which day it
+      // listed on. NOT date-gated to "listed today" — a sale entered a day or
+      // two after listing (the realistic common case, not same-day) still
+      // needs to drop out of the pre-sale projection and show up in the real
+      // "Sold" section below instead of lingering there forever with a stale
+      // GMP-based guess.
+      const isSold = (r: ApplicationForFunderRow) => r.status === 'SOLD'
+      return {
+        funderCards: buildFunderIpoCards(funderRows),
+        allottedCards: buildFunderAllottedCards(funderRows.filter((r) => !isSold(r)), sameIdentity),
+        holderAllottedCards: buildHolderAllottedCards(funderRows),
+        sellTodayCards: buildSellReminderCards(funderRows, todayStr),
+        sellTomorrowCards: buildSellReminderCards(funderRows, tomorrowIstDateStr()),
+        soldCards: buildSoldFunderCards(funderRows.filter((r) => isSold(r) && r.sell_price != null), sameIdentity),
+        myNotifications: (myNotifsRes.data ?? []) as Notification[],
+      }
+    },
+  })
+  const funderCards = notificationsQuery.data?.funderCards ?? []
+  const allottedCards = notificationsQuery.data?.allottedCards ?? []
+  const holderAllottedCards = notificationsQuery.data?.holderAllottedCards ?? []
+  const sellTodayCards = notificationsQuery.data?.sellTodayCards ?? []
+  const sellTomorrowCards = notificationsQuery.data?.sellTomorrowCards ?? []
+  const soldCards = notificationsQuery.data?.soldCards ?? []
+  const myNotifications = notificationsQuery.data?.myNotifications ?? []
+  const loading = notificationsQuery.isPending
+  const fundersError = notificationsQuery.error instanceof Error ? notificationsQuery.error.message : null
+
+  function load() {
+    queryClient.invalidateQueries({ queryKey: notificationsQueryKey })
   }
 
   async function openMyNotification(n: Notification) {
@@ -533,14 +562,6 @@ export function NotificationsPage() {
     setOpeningId(null)
     load()
   }
-
-  useEffect(() => {
-    // isAdmin depends on `profile`, which loads in parallel with (not
-    // before) this page mounting — re-running load() when it flips from
-    // false to true is what makes the funders query actually fire, instead
-    // of permanently reading the isAdmin-false snapshot from first render.
-    load()
-  }, [isAdmin])
 
   return (
     <div className="space-y-5">

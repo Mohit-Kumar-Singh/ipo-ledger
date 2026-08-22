@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronDownIcon,
@@ -14,6 +14,7 @@ import {
   PersonIcon,
   XIcon,
 } from '@primer/octicons-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { showToast } from '../lib/toast'
@@ -76,8 +77,7 @@ interface PendingReviewRequest {
 export function ProfilePage() {
   const { session, profile, refreshProfile, signOut } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [pendingReview, setPendingReview] = useState<PendingReviewRequest[]>([])
-  const [loadingReview, setLoadingReview] = useState(true)
+  const queryClient = useQueryClient()
   const [decidingId, setDecidingId] = useState<string | null>(null)
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
   const [phoneDigits, setPhoneDigits] = useState(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
@@ -94,12 +94,8 @@ export function ProfilePage() {
   const [searchedOnce, setSearchedOnce] = useState(false)
   const [requestingId, setRequestingId] = useState<string | null>(null)
   const [requestResult, setRequestResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
-  const [myRequests, setMyRequests] = useState<MyRequestRow[]>([])
-  const [loadingRequests, setLoadingRequests] = useState(true)
   const [cancellingId, setCancellingId] = useState<string | null>(null)
 
-  const [linkedDemat, setLinkedDemat] = useState<Pick<DematAccount, 'id' | 'holder_name'>[]>([])
-  const [linkedBank, setLinkedBank] = useState<Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[]>([])
   const [unlinkingDematId, setUnlinkingDematId] = useState<string | null>(null)
   const [unlinkingBankId, setUnlinkingBankId] = useState<string | null>(null)
 
@@ -110,8 +106,6 @@ export function ProfilePage() {
   const [bankSearchedOnce, setBankSearchedOnce] = useState(false)
   const [requestingBankId, setRequestingBankId] = useState<string | null>(null)
   const [bankRequestResult, setBankRequestResult] = useState<{ tone: 'good' | 'warning' | 'critical'; message: string } | null>(null)
-  const [myBankRequests, setMyBankRequests] = useState<MyBankRequestRow[]>([])
-  const [loadingBankRequests, setLoadingBankRequests] = useState(true)
   const [cancellingBankId, setCancellingBankId] = useState<string | null>(null)
 
   // Which "Your details" row (if any) is inline-editable right now — name
@@ -129,105 +123,139 @@ export function ProfilePage() {
     setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
   }, [profile?.full_name, profile?.phone_e164])
 
-  async function loadMyRequests() {
-    setLoadingRequests(true)
+  // Four independent concerns below, each converted from a local
+  // useState + manual load()-on-mount into its own useQuery — same fix as
+  // Dashboard (v1.183.0) and every other admin page this pass: revisiting
+  // Profile within staleTime now renders the previous lists instantly
+  // instead of a spinner over data that was already on screen.
+
+  const myRequestsQueryKey = ['my-demat-link-requests', session?.user.id ?? null] as const
+  const myRequestsQuery = useQuery<MyRequestRow[]>({
+    queryKey: myRequestsQueryKey,
     // No more demat_accounts(holder_name) embed — RLS no longer grants a
     // requesting member row access to an account before it's approved
     // (migration 0066, closing the same "whole row for a name" gap 0034
     // already fixed on the funder path). Resolve just the name instead.
-    const { data, error } = await supabase
-      .from('demat_link_requests')
-      .select('*')
-      .order('requested_at', { ascending: false })
-    if (error) {
-      showToast(`Couldn't load your link requests: ${error.message}`, 'critical')
-      setLoadingRequests(false)
-      return
-    }
-    const rows = (data ?? []) as DematLinkRequest[]
-    const ids = Array.from(new Set(rows.map((r) => r.demat_id)))
-    const nameById = new Map<string, string>()
-    if (ids.length > 0) {
-      const { data: resolved } = await supabase.rpc('resolve_demat_holder_names', { p_ids: ids })
-      for (const r of (resolved ?? []) as { id: string; holder_name: string }[]) nameById.set(r.id, r.holder_name)
-    }
-    setMyRequests(rows.map((r) => ({ ...r, demat_accounts: nameById.has(r.demat_id) ? { holder_name: nameById.get(r.demat_id)! } : null })))
-    setLoadingRequests(false)
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('demat_link_requests')
+        .select('*')
+        .order('requested_at', { ascending: false })
+      if (error) throw error
+      const rows = (data ?? []) as DematLinkRequest[]
+      const ids = Array.from(new Set(rows.map((r) => r.demat_id)))
+      const nameById = new Map<string, string>()
+      if (ids.length > 0) {
+        const { data: resolved } = await supabase.rpc('resolve_demat_holder_names', { p_ids: ids })
+        for (const r of (resolved ?? []) as { id: string; holder_name: string }[]) nameById.set(r.id, r.holder_name)
+      }
+      return rows.map((r) => ({ ...r, demat_accounts: nameById.has(r.demat_id) ? { holder_name: nameById.get(r.demat_id)! } : null }))
+    },
+    enabled: !!session,
+  })
+  const myRequests = myRequestsQuery.data ?? []
+  const loadingRequests = myRequestsQuery.isPending
+  function loadMyRequests() {
+    queryClient.invalidateQueries({ queryKey: myRequestsQueryKey })
   }
 
-  async function loadMyBankRequests() {
-    setLoadingBankRequests(true)
-    const { data, error } = await supabase
-      .from('bank_link_requests')
-      .select('*')
-      .order('requested_at', { ascending: false })
-    if (error) {
-      showToast(`Couldn't load your bank link requests: ${error.message}`, 'critical')
-      setLoadingBankRequests(false)
-      return
-    }
-    const bankRows = (data ?? []) as BankLinkRequest[]
-    const bankIds = Array.from(new Set(bankRows.map((r) => r.bank_account_id)))
-    const bankNameById = new Map<string, string>()
-    if (bankIds.length > 0) {
-      const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: bankIds })
-      for (const r of (resolvedBanks ?? []) as { id: string; account_holder_name: string | null }[]) {
-        if (r.account_holder_name) bankNameById.set(r.id, r.account_holder_name)
+  const myBankRequestsQueryKey = ['my-bank-link-requests', session?.user.id ?? null] as const
+  const myBankRequestsQuery = useQuery<MyBankRequestRow[]>({
+    queryKey: myBankRequestsQueryKey,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('bank_link_requests')
+        .select('*')
+        .order('requested_at', { ascending: false })
+      if (error) throw error
+      const bankRows = (data ?? []) as BankLinkRequest[]
+      const bankIds = Array.from(new Set(bankRows.map((r) => r.bank_account_id)))
+      const bankNameById = new Map<string, string>()
+      if (bankIds.length > 0) {
+        const { data: resolvedBanks } = await supabase.rpc('resolve_bank_holder_names', { p_ids: bankIds })
+        for (const r of (resolvedBanks ?? []) as { id: string; account_holder_name: string | null }[]) {
+          if (r.account_holder_name) bankNameById.set(r.id, r.account_holder_name)
+        }
       }
-    }
-    setMyBankRequests(
-      bankRows.map((r) => ({
+      return bankRows.map((r) => ({
         ...r,
         bank_accounts: bankNameById.has(r.bank_account_id) ? { account_holder_name: bankNameById.get(r.bank_account_id)! } : null,
-      })),
-    )
-    setLoadingBankRequests(false)
+      }))
+    },
+    enabled: !!session,
+  })
+  const myBankRequests = myBankRequestsQuery.data ?? []
+  const loadingBankRequests = myBankRequestsQuery.isPending
+  function loadMyBankRequests() {
+    queryClient.invalidateQueries({ queryKey: myBankRequestsQueryKey })
   }
 
-  async function loadLinkedAccounts() {
-    if (!session) return
-    const [dematRes, bankRes] = await Promise.all([
-      supabase.from('demat_accounts').select('id, holder_name').eq('linked_user_id', session.user.id),
-      supabase.from('bank_accounts').select('id, account_holder_name, upi_id').eq('linked_user_id', session.user.id),
-    ])
-    setLinkedDemat((dematRes.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[])
-    setLinkedBank((bankRes.data ?? []) as Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[])
+  interface LinkedAccountsData {
+    linkedDemat: Pick<DematAccount, 'id' | 'holder_name'>[]
+    linkedBank: Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[]
+  }
+  const linkedAccountsQueryKey = ['my-linked-accounts', session?.user.id ?? null] as const
+  const linkedAccountsQuery = useQuery<LinkedAccountsData>({
+    queryKey: linkedAccountsQueryKey,
+    queryFn: async () => {
+      const [dematRes, bankRes] = await Promise.all([
+        supabase.from('demat_accounts').select('id, holder_name').eq('linked_user_id', session!.user.id),
+        supabase.from('bank_accounts').select('id, account_holder_name, upi_id').eq('linked_user_id', session!.user.id),
+      ])
+      return {
+        linkedDemat: (dematRes.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[],
+        linkedBank: (bankRes.data ?? []) as Pick<BankAccount, 'id' | 'account_holder_name' | 'upi_id'>[],
+      }
+    },
+    enabled: !!session,
+  })
+  const linkedDemat = linkedAccountsQuery.data?.linkedDemat ?? []
+  const linkedBank = linkedAccountsQuery.data?.linkedBank ?? []
+  function loadLinkedAccounts() {
+    queryClient.invalidateQueries({ queryKey: linkedAccountsQueryKey })
   }
 
-  async function loadPendingReview() {
-    setLoadingReview(true)
-    const [dematRes, bankRes] = await Promise.all([
-      supabase
-        .from('demat_link_requests')
-        .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
-        .eq('status', 'PENDING')
-        .order('requested_at', { ascending: false }),
-      supabase
-        .from('bank_link_requests')
-        .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
-        .eq('status', 'PENDING')
-        .order('requested_at', { ascending: false }),
-    ])
-    type DematRow = DematLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; demat_accounts: Pick<DematAccount, 'holder_name'> | null }
-    type BankRow = BankLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; bank_accounts: Pick<BankAccount, 'account_holder_name'> | null }
-    const unified: PendingReviewRequest[] = [
-      ...((dematRes.data ?? []) as DematRow[]).map((r) => ({
-        id: r.id,
-        kind: 'demat' as const,
-        requestedAt: r.requested_at,
-        requesterName: r.profiles?.full_name ?? 'Unknown',
-        targetName: r.demat_accounts?.holder_name ?? 'an account',
-      })),
-      ...((bankRes.data ?? []) as BankRow[]).map((r) => ({
-        id: r.id,
-        kind: 'bank' as const,
-        requestedAt: r.requested_at,
-        requesterName: r.profiles?.full_name ?? 'Unknown',
-        targetName: r.bank_accounts?.account_holder_name ?? 'a bank/UPI account',
-      })),
-    ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
-    setPendingReview(unified)
-    setLoadingReview(false)
+  const pendingReviewQueryKey = ['pending-link-review'] as const
+  const pendingReviewQuery = useQuery<PendingReviewRequest[]>({
+    queryKey: pendingReviewQueryKey,
+    queryFn: async () => {
+      const [dematRes, bankRes] = await Promise.all([
+        supabase
+          .from('demat_link_requests')
+          .select('*, profiles!member_id(full_name), demat_accounts(holder_name)')
+          .eq('status', 'PENDING')
+          .order('requested_at', { ascending: false }),
+        supabase
+          .from('bank_link_requests')
+          .select('*, profiles!member_id(full_name), bank_accounts(account_holder_name)')
+          .eq('status', 'PENDING')
+          .order('requested_at', { ascending: false }),
+      ])
+      type DematRow = DematLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; demat_accounts: Pick<DematAccount, 'holder_name'> | null }
+      type BankRow = BankLinkRequest & { profiles: Pick<Profile, 'full_name'> | null; bank_accounts: Pick<BankAccount, 'account_holder_name'> | null }
+      return [
+        ...((dematRes.data ?? []) as DematRow[]).map((r) => ({
+          id: r.id,
+          kind: 'demat' as const,
+          requestedAt: r.requested_at,
+          requesterName: r.profiles?.full_name ?? 'Unknown',
+          targetName: r.demat_accounts?.holder_name ?? 'an account',
+        })),
+        ...((bankRes.data ?? []) as BankRow[]).map((r) => ({
+          id: r.id,
+          kind: 'bank' as const,
+          requestedAt: r.requested_at,
+          requesterName: r.profiles?.full_name ?? 'Unknown',
+          targetName: r.bank_accounts?.account_holder_name ?? 'a bank/UPI account',
+        })),
+      ].sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+    },
+    enabled: isAdmin,
+  })
+  const pendingReview = pendingReviewQuery.data ?? []
+  const loadingReview = pendingReviewQuery.isPending
+  function loadPendingReview() {
+    queryClient.invalidateQueries({ queryKey: pendingReviewQueryKey })
   }
 
   async function decideLinkRequest(kind: 'demat' | 'bank', id: string, approve: boolean) {
@@ -239,19 +267,31 @@ export function ProfilePage() {
       showToast(error.message, 'critical')
       return
     }
-    setPendingReview((rows) => rows.filter((r) => r.id !== id))
+    // queryClient.setQueryData, not a local setPendingReview — pendingReview
+    // now lives in pendingReviewQuery's cache, not component state.
+    queryClient.setQueryData(pendingReviewQueryKey, (rows: PendingReviewRequest[] | undefined) =>
+      rows?.filter((r) => r.id !== id),
+    )
   }
 
+  // Same toasts the two functions used to show inline on a failed fetch —
+  // fires once per distinct Error instance, not on every re-render while
+  // the error persists (matches AllotmentBoardPage's board-query pattern).
   useEffect(() => {
-    loadMyRequests()
-    loadMyBankRequests()
-    loadLinkedAccounts()
+    if (myRequestsQuery.error) {
+      showToast(`Couldn't load your link requests: ${(myRequestsQuery.error as Error).message}`, 'critical')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id])
+  }, [myRequestsQuery.error])
+  useEffect(() => {
+    if (myBankRequestsQuery.error) {
+      showToast(`Couldn't load your bank link requests: ${(myBankRequestsQuery.error as Error).message}`, 'critical')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myBankRequestsQuery.error])
 
   useEffect(() => {
     if (!isAdmin) return
-    loadPendingReview()
     // Realtime so a request approved/rejected/cancelled elsewhere (or a
     // brand new one arriving) doesn't need a manual refresh to disappear/
     // appear here — both tables are already in the supabase_realtime
@@ -1312,23 +1352,36 @@ function PanAccessLogSection() {
   // shape as AccountsSection below, instead of always sitting open with
   // just its per-day groups collapsed underneath.
   const [open, setOpen] = useState(false)
-  const [rows, setRows] = useState<PanAccessLogRow[]>([])
-  const [loading, setLoading] = useState(true)
+  // Was a local useState + fetch-once-on-mount — one useQuery instead, so
+  // revisiting Profile within staleTime doesn't refetch 200 audit-log rows
+  // it already has. openDays (which day-group starts expanded) still needs
+  // to react to the data actually arriving, so it's set from a separate
+  // effect on rows rather than inline in the old .then() callback.
+  const panAccessLogQuery = useQuery<PanAccessLogRow[]>({
+    queryKey: ['pan-access-log'],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from('pan_access_log')
+        .select('*, demat_accounts(holder_name), profiles(full_name)')
+        .order('accessed_at', { ascending: false })
+        .limit(200)
+      return (data ?? []) as unknown as PanAccessLogRow[]
+    },
+  })
+  const rows = panAccessLogQuery.data ?? []
+  const loading = panAccessLogQuery.isPending
   const [openDays, setOpenDays] = useState<Set<string>>(new Set())
+  // Guards against a background refetch (staleTime elapsing on a revisit)
+  // silently collapsing whatever days the user had manually opened —
+  // without this, a plain `useEffect(..., [rows])` re-derives openDays
+  // from the freshest rows on EVERY data update, not just the first one.
+  const hasInitializedOpenDays = useRef(false)
 
   useEffect(() => {
-    supabase
-      .from('pan_access_log')
-      .select('*, demat_accounts(holder_name), profiles(full_name)')
-      .order('accessed_at', { ascending: false })
-      .limit(200)
-      .then(({ data }) => {
-        const loaded = (data ?? []) as unknown as PanAccessLogRow[]
-        setRows(loaded)
-        if (loaded.length > 0) setOpenDays(new Set([dayKeyFor(loaded[0].accessed_at)]))
-        setLoading(false)
-      })
-  }, [])
+    if (hasInitializedOpenDays.current || rows.length === 0) return
+    hasInitializedOpenDays.current = true
+    setOpenDays(new Set([dayKeyFor(rows[0].accessed_at)]))
+  }, [rows])
 
   const dayGroups = useMemo(() => {
     const groups = new Map<string, PanAccessLogRow[]>()

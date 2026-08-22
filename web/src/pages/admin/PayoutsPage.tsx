@@ -6,8 +6,8 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useEffect, useMemo, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDownIcon, SearchIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
@@ -398,91 +398,101 @@ export function PayoutsPage() {
     () => (boardQuery.data ?? []).filter((r) => r.status === 'SOLD' && !r.ipo_is_archived),
     [boardQuery.data],
   )
-  const [payments, setPayments] = useState<SettlementPayment[]>([])
-  const [localLoading, setLocalLoading] = useState(true)
-  const loading = boardQuery.isPending || localLoading
-  const [loadError, setLoadError] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  // Admin-only, separate from the SOLD settlement ledger above — allotted
-  // applications that haven't been marked SOLD yet still have real money
-  // owed to whoever funded them once they do sell, and there was no way to
-  // see who/how much until that point without checking every IPO by hand.
-  // Estimated (live price when the IPO's listed and its symbol is on file,
-  // GMP-based projection otherwise, same fallback expectedProfitBreakdown
-  // already uses for Dashboard's "Expected profit" tile) — never a
-  // confirmed figure, so kept entirely separate from the real settlement
-  // cards above rather than blended into the same total.
-  const [expectedCards, setExpectedCards] = useState<ReturnType<typeof buildFunderAllottedCards>>([])
-  const [livePriceBySymbol, setLivePriceBySymbol] = useState<Record<string, number | null>>({})
 
-  async function load() {
-    setLocalLoading(true)
-    setLoadError(null)
-    // Board rows come from the shared v_allotment_board cache (above) —
-    // invalidate it here too (not just wait on RealtimeCacheSync's own
-    // applications listener) so a mutation made from THIS page reflects
-    // immediately rather than however long the realtime round trip takes.
-    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
-    const [paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
-      supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
-      // Same shape/query NotificationsPage's admin funder query and
-      // Dashboard's profit-projection query already use — admin-only
-      // conceptually (this section only ever renders for isAdmin below),
-      // but not client-gated on the fetch itself per this app's own
-      // convention of letting RLS do the scoping rather than an
-      // isAdmin ? ... : [] branch pretending to be the security boundary.
-      supabase
-        .from('applications')
-        .select(
-          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-            'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-        )
-        .eq('status', 'ALLOTTED')
-        .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
-      // See DashboardPage's matching query — CASE_2 shared-account managers
-      // shouldn't have their expected remainder halved with a nonexistent
-      // third-party funder.
-      supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
-    ])
-    // Not fatal on its own — the page still works with the pre-existing
-    // paid/unpaid flags below, just without the live remaining-amount
-    // figures on each settlement card.
-    if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
-    setPayments((paymentsRes.data as SettlementPayment[]) ?? [])
+  // Everything below that ISN'T the shared v_allotment_board cache
+  // (settlement_payments, the ALLOTTED-with-embeds projection query, and
+  // the live stock-price lookup derived from it) — was a local useState +
+  // manual load() called once on mount, reset to loading=true on every
+  // visit to this page exactly like Dashboard's own data was before
+  // v1.183.0. One useQuery instead, so revisiting Payouts within
+  // staleTime is an instant cache hit instead of a spinner over data that
+  // was already on screen a moment ago.
+  interface LocalPayoutsData {
+    payments: SettlementPayment[]
+    // Admin-only, separate from the SOLD settlement ledger above — allotted
+    // applications that haven't been marked SOLD yet still have real money
+    // owed to whoever funded them once they do sell, and there was no way to
+    // see who/how much until that point without checking every IPO by hand.
+    // Estimated (live price when the IPO's listed and its symbol is on file,
+    // GMP-based projection otherwise, same fallback expectedProfitBreakdown
+    // already uses for Dashboard's "Expected profit" tile) — never a
+    // confirmed figure, so kept entirely separate from the real settlement
+    // cards above rather than blended into the same total.
+    expectedCards: ReturnType<typeof buildFunderAllottedCards>
+    livePriceBySymbol: Record<string, number | null>
+  }
+  const localPayoutsQuery = useQuery<LocalPayoutsData>({
+    queryKey: ['payouts-local'],
+    queryFn: async () => {
+      const [paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
+        supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
+        // Same shape/query NotificationsPage's admin funder query and
+        // Dashboard's profit-projection query already use — admin-only
+        // conceptually (this section only ever renders for isAdmin below),
+        // but not client-gated on the fetch itself per this app's own
+        // convention of letting RLS do the scoping rather than an
+        // isAdmin ? ... : [] branch pretending to be the security boundary.
+        supabase
+          .from('applications')
+          .select(
+            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+          )
+          .eq('status', 'ALLOTTED')
+          .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
+        // See DashboardPage's matching query — CASE_2 shared-account managers
+        // shouldn't have their expected remainder halved with a nonexistent
+        // third-party funder.
+        supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
+      ])
+      // Not fatal on its own — the page still works with the pre-existing
+      // paid/unpaid flags below, just without the live remaining-amount
+      // figures on each settlement card. Warned via toast rather than
+      // thrown, same as before — a thrown error here would put the WHOLE
+      // query into error state and blank the page, which is worse than
+      // just missing the live-remaining figures.
+      if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
+      const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
-    if (expectedRes.error) {
-      showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
-      setExpectedCards([])
-      setLivePriceBySymbol({})
-    } else {
+      if (expectedRes.error) {
+        showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
+        return { payments, expectedCards: [], livePriceBySymbol: {} }
+      }
       const expectedRowsBase = ((expectedRes.data ?? []) as unknown as ProfitProjectionRow[]).filter(
         (r) => !r.ipos?.is_archived,
       )
       const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
-      const cards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
-      setExpectedCards(cards)
-      const symbols = Array.from(new Set(cards.map((c) => c.symbol).filter((s): s is string => !!s)))
+      const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
+      const symbols = Array.from(new Set(expectedCards.map((c) => c.symbol).filter((s): s is string => !!s)))
+      let livePriceBySymbol: Record<string, number | null> = {}
       if (symbols.length > 0) {
         const { data: priceData } = await supabase.functions.invoke<{
           prices?: Record<string, { price: number | null; stale: boolean }>
         }>('fetch-stock-price', { body: { symbols } })
-        const prices: Record<string, number | null> = {}
-        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) prices[sym] = p.price
-        setLivePriceBySymbol(prices)
-      } else {
-        setLivePriceBySymbol({})
+        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
       }
-    }
-    setLocalLoading(false)
-  }
+      return { payments, expectedCards, livePriceBySymbol }
+    },
+  })
+  const payments = localPayoutsQuery.data?.payments ?? []
+  const expectedCards = localPayoutsQuery.data?.expectedCards ?? []
+  const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? {}
+  const loading = boardQuery.isPending || localPayoutsQuery.isPending
+  const loadError = localPayoutsQuery.error instanceof Error ? localPayoutsQuery.error.message : null
 
-  useEffect(() => {
-    load()
-  }, [])
+  // Both queries this page reads from — called after any mutation so the
+  // page reflects its own write immediately rather than waiting on
+  // RealtimeCacheSync's realtime round trip (allotmentBoard) or the next
+  // staleTime window (payouts-local).
+  function invalidatePayoutsData() {
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    queryClient.invalidateQueries({ queryKey: ['payouts-local'] })
+  }
 
   async function markPaid(line: PayoutLine) {
     setMarkingPaid(line.applicationId + line.field)
@@ -495,7 +505,7 @@ export function PayoutsPage() {
       showToast(error.message, 'critical')
       return
     }
-    load()
+    invalidatePayoutsData()
   }
 
   const paymentsByApp = new Map<string, SettlementPayment[]>()
@@ -540,7 +550,7 @@ export function PayoutsPage() {
         ) : (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {ipoSettlementGroups.map((g) => (
-              <IpoSettlementCard key={g.ipoName} group={g} onLogged={load} readOnly />
+              <IpoSettlementCard key={g.ipoName} group={g} onLogged={invalidatePayoutsData} readOnly />
             ))}
           </div>
         )}
@@ -670,7 +680,7 @@ export function PayoutsPage() {
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {ipoSettlementGroups.map((g) => (
-              <IpoSettlementCard key={g.ipoName} group={g} onLogged={load} />
+              <IpoSettlementCard key={g.ipoName} group={g} onLogged={invalidatePayoutsData} />
             ))}
           </div>
         </section>
