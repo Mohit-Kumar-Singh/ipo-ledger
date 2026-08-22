@@ -1029,9 +1029,23 @@ export function ApplicationsPage() {
                             </span>
                           )}
                         </div>
+                        {/* UPI ID alongside the funder name — one funder can
+                            pay from several UPI accounts, so the name alone
+                            doesn't say which one actually funded this row.
+                            Read straight off effectiveFunderAccount rather
+                            than upiIdFor(): that helper's 'No UPI ID'
+                            placeholder is right for a sort-group header but
+                            is pure noise here, so a bank-only account (no UPI
+                            on file) just shows the name as before. Doubles as
+                            the RLS guard — a demat owner who isn't the funder
+                            gets no embed at all (migration 0057), so the ID
+                            silently stays hidden from them. */}
                         {funderDiffersFromHolder && (
                           <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
+                            {effectiveFunderAccount(a)?.upi_id && (
+                              <span className="font-mono"> · {effectiveFunderAccount(a)!.upi_id}</span>
+                            )}
                           </p>
                         )}
                         {/* Funder-only rows show something to self-check allotment
