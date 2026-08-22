@@ -683,8 +683,11 @@ export function DashboardPage() {
         // account for admin, just this member's own for a member), so this
         // reads as "how many IPOs has admin/this member applied to" either
         // way, matching the section's own "across all accounts"/"your
-        // accounts" framing.
-        totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED').length,
+        // accounts" framing. NOT_ALLOTTED is excluded too — once an IPO's
+        // allotment result is out, an application that didn't get shares
+        // isn't a "current" application anymore, just a closed-out record
+        // (still visible on the Applications page, just not counted here).
+        totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED' && r.status !== 'NOT_ALLOTTED').length,
       })
       setLoading(false)
     }
