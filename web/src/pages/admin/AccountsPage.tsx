@@ -491,13 +491,21 @@ function AccountSection({
                         </div>
                       </div>
                     </div>
-                    <div className="flex shrink-0 items-center gap-0.5">
+                    <div className="flex shrink-0 items-center gap-1.5">
                       <ShareDetailsButton account={a} onGetPan={onGetPan} />
+                      {/* ml-1.5 on top of the row's own gap-1.5 — an extra
+                          beat of space between the share pair and the
+                          manage pair (Edit/expand), not just uniform
+                          spacing throughout. The whatsapp/edit boundary is
+                          where a tap meant for one was landing on the
+                          other; a same-size gap everywhere didn't read as
+                          two separate groups on a touchscreen the way this
+                          does. */}
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
                         aria-label={`Edit ${a.holder_name}`}
-                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                        className="ml-1.5 rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--ink-muted)' }}
                       >
                         <PencilIcon size={14} />
@@ -597,22 +605,19 @@ function AccountSection({
   )
 }
 
-// Copies every broker-app credential field for one account as a single
-// plain-text block, ready to paste straight into WhatsApp/SMS to hand the
-// login over to the account holder — the per-field CopyButtons above cover
-// "I need just this one field," this covers "share the whole login."
 // Builds the shareable text for one demat account, and offers it two ways:
-// copy to clipboard, or hand off to WhatsApp's own share sheet (the same
-// wa.me hand-off the Notifications page uses for its sends, via
-// sendCustomWhatsapp — passing an empty phone opens WhatsApp's contact
-// picker instead of targeting one recipient, since "who to send this to"
-// isn't known here the way it is for a notification).
+// copy to clipboard, or send straight to the account holder's own WhatsApp
+// (the same wa.me hand-off the Notifications page uses for its sends, via
+// sendCustomWhatsapp — this time with the account's own phone_e164, which
+// opens a chat with THEM directly rather than the "share with" contact
+// picker an empty phone falls back to).
 //
-// Contents are deliberately scoped: holder name, PAN and demat (DP client)
-// number, plus the broker-app login fields. profit_share_percent and
-// phone_e164 are excluded on purpose — the cut is internal accounting that
+// Contents are deliberately scoped: holder name, PAN, demat (DP client)
+// number, and the broker-app login fields — NOT the "Logged in" free-text
+// note (already logged in somewhere isn't something worth relaying) or
+// profit_share_percent/phone_e164 (the cut is internal accounting that
 // means nothing to whoever receives this, and the phone number is usually
-// the recipient's own.
+// the recipient's own).
 //
 // PAN is fetched through onGetPan rather than read off the card's revealed
 // state, so it's the real value rather than the masked one whether or not
@@ -643,7 +648,6 @@ function ShareDetailsButton({
     if (account.login_password) lines.push(`Password: ${account.login_password}`)
     if (account.app_password) lines.push(`App password: ${account.app_password}`)
     if (account.t_pin) lines.push(`T-PIN: ${account.t_pin}`)
-    if (account.logged_in_notes) lines.push(`Logged in: ${account.logged_in_notes}`)
     return lines.join('\n')
   }
 
@@ -660,8 +664,11 @@ function ShareDetailsButton({
     setBusy('whatsapp')
     const text = await buildText()
     setBusy(null)
-    // Empty phone => wa.me/?text=... => WhatsApp's own "share with" picker.
-    sendCustomWhatsapp('', text)
+    // The account holder's own number — opens a chat with THEM directly,
+    // not a generic "share with" picker (previously an empty phone,
+    // which fell back to WhatsApp's own contact picker). These details are
+    // about them, so their own chat is the right default target.
+    sendCustomWhatsapp(account.phone_e164, text)
   }
 
   // Two icon-only buttons, same shape as the Edit/expand controls they sit
