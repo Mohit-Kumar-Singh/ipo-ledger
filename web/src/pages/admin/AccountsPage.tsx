@@ -461,8 +461,16 @@ function AccountSection({
 
               return (
                 <div key={a.id} className="card stagger-item p-3 sm:p-3.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-2.5">
+                  {/* flex-nowrap, not flex-wrap — the previous version
+                      allowed the identity block and button group to break
+                      onto two lines once the buttons grew wide enough
+                      (the touch-target fix below). flex-1 min-w-0 on the
+                      identity block below makes IT the one that shrinks/
+                      truncates under pressure, so name + cut + every
+                      button always share one row regardless of screen
+                      width, down to a phone-narrow viewport. */}
+                  <div className="flex flex-nowrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
                       <div
                         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
                         style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
@@ -491,32 +499,28 @@ function AccountSection({
                         </div>
                       </div>
                     </div>
-                    {/* gap-2.5 (up from gap-1.5) — confirmed by report that
-                        Copy and WhatsApp were both firing off what read as
-                        one tap. DOM click events only ever target one
-                        element, so this was never two handlers genuinely
-                        firing together — it's a touch-target problem: at
-                        the old spacing/size, one real touch's contact area
-                        covered both 26px buttons at once, and either the
-                        browser's own hit-testing or (more likely) two
-                        quick taps in immediate succession each landing on
-                        a different one of the two adjacent targets read as
-                        "both happened." Every button in this row also grew
-                        (p-1.5 -> p-2, icons 14/16 -> 15/16). */}
-                    <div className="flex shrink-0 items-center gap-2.5">
+                    {/* Dialed back from an earlier, wider pass (gap-2.5 +
+                        p-2 everywhere) — that fixed Copy/WhatsApp getting
+                        mis-tapped together but made the row wide enough to
+                        wrap onto its own line below the name on narrower
+                        screens. Back to p-1.5 (original size); the actual
+                        fix for the mis-tap stays as extra separation
+                        specifically at the two group boundaries (mr-1 on
+                        Copy, ml-1 on Edit) rather than a bigger gap and
+                        bigger buttons everywhere. */}
+                    <div className="flex shrink-0 items-center gap-1">
                       <ShareDetailsButton account={a} onGetPan={onGetPan} />
-                      {/* ml-2.5 on top of the row's own gap-2.5 — extra
+                      {/* ml-1 on top of the row's own gap-1 — a bit more
                           separation between the share pair and the manage
-                          pair (Edit/expand), not just uniform spacing
-                          throughout. */}
+                          pair than between buttons within a pair. */}
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
                         aria-label={`Edit ${a.holder_name}`}
-                        className="ml-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                        className="ml-1 rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
                         style={{ color: 'var(--ink-muted)' }}
                       >
-                        <PencilIcon size={15} />
+                        <PencilIcon size={14} />
                       </button>
                       {/* Where Delete used to sit. Delete moved into the edit
                           form — it's destructive and irreversible, so it
@@ -527,7 +531,7 @@ function AccountSection({
                         aria-label={`${isExpanded ? 'Hide' : 'Show'} details for ${a.holder_name}`}
                         aria-expanded={isExpanded}
                         title={isExpanded ? 'Hide details' : 'Show PAN and login details'}
-                        className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)]"
+                        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
                         style={{ color: 'var(--ink-muted)' }}
                       >
                         <span
@@ -679,10 +683,11 @@ function ShareDetailsButton({
     sendCustomWhatsapp(account.phone_e164, text)
   }
 
-  // Two icon-only buttons, same size as the rest of the row (p-2, 15px
-  // icons) plus mr-2.5 between them on top of the row's own gap-2.5 — this
-  // was the pair reported as both firing off what read as one tap, so it
-  // gets real separation, not just a hairline gap.
+  // Same size as the rest of the row (p-1.5, 14px icons) — mr-1 between
+  // Copy and WhatsApp on top of the row's own gap-1 is the actual fix for
+  // the mis-tap report; bigger buttons everywhere was the previous
+  // (over-corrected) attempt and made the row too wide to stay on one line
+  // with the name and cut on narrower screens.
   return (
     <>
       <button
@@ -691,10 +696,10 @@ function ShareDetailsButton({
         disabled={busy !== null}
         aria-label={`Copy ${account.holder_name}'s details`}
         title={copied ? 'Copied!' : 'Copy the details'}
-        className="mr-2.5 rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        className="mr-1 rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
         style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
       >
-        {copied ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
+        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
       </button>
       <button
         type="button"
@@ -702,10 +707,10 @@ function ShareDetailsButton({
         disabled={busy !== null}
         aria-label={`Share ${account.holder_name}'s details on WhatsApp`}
         title="Share on WhatsApp"
-        className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
         style={{ color: 'var(--ink-muted)' }}
       >
-        <CommentDiscussionIcon size={15} />
+        <CommentDiscussionIcon size={14} />
       </button>
     </>
   )
