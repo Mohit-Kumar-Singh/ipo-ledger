@@ -11,7 +11,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, TagIcon, PencilIcon, UndoIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
 import { AllottedIcon } from '../../components/AllottedIcon'
 import type {
   AllotmentBoardRow,
@@ -731,59 +731,42 @@ function SoldPayoutsSection({
                       {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
                     </p>
                   </div>
-                  {/* Status pill, then every action grouped together as
-                      icon buttons at the trailing edge of the card. All three
-                      used to be a mix of unpadded link-accent text links and
-                      padded icon buttons, which left their hit targets and
-                      optical spacing inconsistent; they now share one padded
-                      shape (p-1.5 + rounded hover), the same one the Accounts
-                      cards and the payout controls below already use.
+                  {/* Stacked on phone (flex-col), one row from sm: up —
+                      three elements (status, Mark sold/Edit sale, Undo)
+                      cramped into one row was the thing getting clipped/
+                      unreadable on a narrow screen.
 
-                      No longer stacks on phone: that was there because the
-                      row carried three text labels, and four icons fit on one
-                      line at any width. */}
-                  <div className="flex shrink-0 items-center gap-2">
+                      Text labels, not icons: these were briefly icon-only
+                      (v1.177.0/v1.179.0) and reverted here by request. The
+                      status pill itself stays on StatusBadge, which the
+                      table shares — only the ACTIONS went back to text. */}
+                  <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
                     <StatusBadge status={row.status} />
-                    <div className="flex items-center gap-0.5">
-                      {!isEditing && (
-                        <button
-                          onClick={() => onOpenForm(row)}
-                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
-                          style={{ color: 'var(--accent)' }}
-                          aria-label={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
-                          title={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
-                        >
-                          {row.status === 'SOLD' ? <PencilIcon size={15} /> : <TagIcon size={15} />}
-                        </button>
-                      )}
-                      {row.status === 'ALLOTTED' && (
-                        <button
-                          onClick={() => notifyHolder(row)}
-                          disabled={notifying === row.application_id}
-                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
-                          style={{ color: 'var(--accent)' }}
-                          aria-label="Notify holder"
-                          title={
-                            notifying === row.application_id
-                              ? 'Preparing…'
-                              : 'WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF'
-                          }
-                        >
-                          <CommentDiscussionIcon size={15} />
-                        </button>
-                      )}
-                      {row.status === 'ALLOTTED' && (
-                        <button
-                          onClick={() => onUndo(row.application_id)}
-                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
-                          style={{ color: 'var(--ink-muted)' }}
-                          aria-label="Undo — revert back to Applied"
-                          title="Undo — revert back to Applied"
-                        >
-                          <UndoIcon size={15} />
-                        </button>
-                      )}
-                    </div>
+                    {!isEditing && (
+                      <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
+                        {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && (
+                      <button
+                        onClick={() => notifyHolder(row)}
+                        disabled={notifying === row.application_id}
+                        className="link-accent text-xs font-medium disabled:opacity-50"
+                        title="WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF"
+                      >
+                        {notifying === row.application_id ? 'Preparing…' : 'Notify holder'}
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && (
+                      <button
+                        onClick={() => onUndo(row.application_id)}
+                        className="text-xs font-medium hover:underline"
+                        style={{ color: 'var(--ink-muted)' }}
+                        title="Revert back to Applied"
+                      >
+                        Undo
+                      </button>
+                    )}
                   </div>
                 </div>
 

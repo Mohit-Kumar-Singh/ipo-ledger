@@ -5,6 +5,7 @@ import {
   AlertIcon,
   CheckIcon,
   ChevronDownIcon,
+  CommentDiscussionIcon,
   CopyIcon,
   LinkIcon,
   PencilIcon,
@@ -17,6 +18,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
+import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { CopyButton } from '../../components/CopyButton'
 import { Combobox } from '../../components/Combobox'
 import type { DematAccount, Profile } from '../../types/database'
@@ -299,6 +301,7 @@ export function AccountsPage() {
             onLinkMember={linkMember}
             onUnlinkMember={unlinkMember}
             onRevealPan={revealPan}
+            onGetPan={fetchPan}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
             onSavedEdit={() => {
@@ -324,6 +327,7 @@ export function AccountsPage() {
             onLinkMember={linkMember}
             onUnlinkMember={unlinkMember}
             onRevealPan={revealPan}
+            onGetPan={fetchPan}
             onEdit={startEdit}
             onCancelEdit={() => setEditingAccount(null)}
             onSavedEdit={() => {
@@ -354,6 +358,7 @@ function AccountSection({
   onLinkMember,
   onUnlinkMember,
   onRevealPan,
+  onGetPan,
   onEdit,
   onCancelEdit,
   onSavedEdit,
@@ -374,6 +379,10 @@ function AccountSection({
   onLinkMember: (dematId: string, userId: string) => void
   onUnlinkMember: (dematId: string) => void
   onRevealPan: (id: string) => void
+  // Returns the decrypted PAN (reveal-pan Edge Function, which also writes a
+  // pan_access_log row) — distinct from onRevealPan, which only updates the
+  // card's own displayed value and returns nothing.
+  onGetPan: (id: string) => Promise<string | null>
   onEdit: (a: DematAccount) => void
   onCancelEdit: () => void
   onSavedEdit: () => void
@@ -449,7 +458,6 @@ function AccountSection({
 
               const hasCredentials =
                 a.platform || a.application_name || a.login_email || a.login_password || a.app_password || a.t_pin || a.logged_in_notes
-              const hasShareableCredentials = a.login_email || a.login_password || a.app_password || a.t_pin
 
               return (
                 <div key={a.id} className="card stagger-item p-3 sm:p-3.5">
@@ -484,7 +492,7 @@ function AccountSection({
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-0.5">
-                      {hasShareableCredentials && <ShareDetailsButton account={a} />}
+                      <ShareDetailsButton account={a} onGetPan={onGetPan} />
                       <button
                         onClick={() => onEdit(a)}
                         disabled={revealing === a.id}
@@ -593,40 +601,97 @@ function AccountSection({
 // plain-text block, ready to paste straight into WhatsApp/SMS to hand the
 // login over to the account holder — the per-field CopyButtons above cover
 // "I need just this one field," this covers "share the whole login."
-function ShareDetailsButton({ account }: { account: DematAccount }) {
+// Builds the shareable text for one demat account, and offers it two ways:
+// copy to clipboard, or hand off to WhatsApp's own share sheet (the same
+// wa.me hand-off the Notifications page uses for its sends, via
+// sendCustomWhatsapp — passing an empty phone opens WhatsApp's contact
+// picker instead of targeting one recipient, since "who to send this to"
+// isn't known here the way it is for a notification).
+//
+// Contents are deliberately scoped: holder name, PAN and demat (DP client)
+// number, plus the broker-app login fields. profit_share_percent and
+// phone_e164 are excluded on purpose — the cut is internal accounting that
+// means nothing to whoever receives this, and the phone number is usually
+// the recipient's own.
+//
+// PAN is fetched through onGetPan rather than read off the card's revealed
+// state, so it's the real value rather than the masked one whether or not
+// "Reveal" was pressed first — that call decrypts server-side and writes a
+// pan_access_log row, which is the correct audit trail for putting a PAN on
+// the clipboard or into a chat.
+function ShareDetailsButton({
+  account,
+  onGetPan,
+}: {
+  account: DematAccount
+  onGetPan: (id: string) => Promise<string | null>
+}) {
   const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState<'copy' | 'whatsapp' | null>(null)
 
-  function buildText(): string {
-    const lines = [`Account: ${account.holder_name}`]
+  async function buildText(): Promise<string> {
+    const pan = await onGetPan(account.id)
+    const lines = [`Name: ${account.holder_name}`]
+    // Falls back to the masked value rather than omitting the line entirely
+    // if the reveal call fails — an obviously-masked PAN is clearer than a
+    // silently missing field.
+    lines.push(`PAN: ${pan ?? account.pan_masked}`)
+    if (account.dp_client_id) lines.push(`Demat no: ${account.dp_client_id}`)
     if (account.platform) lines.push(`Platform: ${platformLabel(account.platform)}`)
     else if (account.application_name) lines.push(`App: ${account.application_name}`)
     if (account.login_email) lines.push(`Login ID: ${account.login_email}`)
     if (account.login_password) lines.push(`Password: ${account.login_password}`)
     if (account.app_password) lines.push(`App password: ${account.app_password}`)
     if (account.t_pin) lines.push(`T-PIN: ${account.t_pin}`)
+    if (account.logged_in_notes) lines.push(`Logged in: ${account.logged_in_notes}`)
     return lines.join('\n')
   }
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(buildText())
+    setBusy('copy')
+    const text = await buildText()
+    setBusy(null)
+    await navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1200)
   }
 
-  // Icon-only, matching the Edit/Delete buttons it sits next to — a
-  // full-text "Copy login details" button was one of the things making
-  // every card taller than it needed to be.
+  async function handleWhatsapp() {
+    setBusy('whatsapp')
+    const text = await buildText()
+    setBusy(null)
+    // Empty phone => wa.me/?text=... => WhatsApp's own "share with" picker.
+    sendCustomWhatsapp('', text)
+  }
+
+  // Two icon-only buttons, same shape as the Edit/expand controls they sit
+  // beside — a full-text pair would put this card back to the height the
+  // icon-only version was introduced to claw back.
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      aria-label={`Copy ${account.holder_name}'s login details`}
-      title={copied ? 'Copied!' : 'Copy login details'}
-      className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
-      style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
-    >
-      {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleCopy}
+        disabled={busy !== null}
+        aria-label={`Copy ${account.holder_name}'s details`}
+        title={copied ? 'Copied!' : 'Copy the details'}
+        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        style={{ color: copied ? 'var(--good)' : 'var(--ink-muted)' }}
+      >
+        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+      </button>
+      <button
+        type="button"
+        onClick={handleWhatsapp}
+        disabled={busy !== null}
+        aria-label={`Share ${account.holder_name}'s details on WhatsApp`}
+        title="Share on WhatsApp"
+        className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+        style={{ color: 'var(--ink-muted)' }}
+      >
+        <CommentDiscussionIcon size={14} />
+      </button>
+    </>
   )
 }
 

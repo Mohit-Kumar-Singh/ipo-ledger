@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase'
 import { showToast } from '../lib/toast'
 import { confirmDialog } from '../lib/confirmDialog'
 import { ThemeToggle } from '../components/ThemeToggle'
+import { SharePortalButton } from '../components/SharePortalButton'
 import { Logo } from '../components/Logo'
 import { InfoTooltip } from '../components/HoverCard'
 import { AccountsPage } from './admin/AccountsPage'
@@ -549,7 +550,10 @@ export function ProfilePage() {
           further down. */}
       <div className="flex items-center justify-between gap-2">
         <Logo size={38} />
-        <ThemeToggle iconOnly />
+        <div className="flex items-center gap-0.5">
+          <SharePortalButton />
+          <ThemeToggle iconOnly />
+        </div>
       </div>
 
       {/* Identity card — avatar/name/role/email unchanged, then three
