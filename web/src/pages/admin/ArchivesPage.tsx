@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { UndoIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
@@ -45,9 +47,23 @@ function formatArchiveDate(dateStr: string): string {
 export function ArchivesPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [ipos, setIpos] = useState<Ipo[]>([])
-  const [rows, setRows] = useState<AllotmentBoardRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Shared caches (lib/queries.ts) — both ipos and v_allotment_board are
+  // fetched unfiltered by useIpos/useAllotmentBoardAll (also read by
+  // Dashboard, Applications, Allotment board, Payouts); this page's own
+  // archived-only view is a client-side filter over the same cached rows
+  // instead of its own separate `.eq('is_archived', true)` network query.
+  const iposQuery = useIpos()
+  const boardQuery = useAllotmentBoardAll()
+  const ipos = useMemo(
+    () =>
+      (iposQuery.data ?? [])
+        .filter((i) => i.is_archived)
+        .sort((a, b) => (b.listing_date ?? '').localeCompare(a.listing_date ?? '')),
+    [iposQuery.data],
+  )
+  const rows = useMemo(() => (boardQuery.data ?? []).filter((r) => r.ipo_is_archived), [boardQuery.data])
+  const loading = iposQuery.isPending || boardQuery.isPending
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [unarchiving, setUnarchiving] = useState<string | null>(null)
   // The last IPO unarchived this visit — an accidental tap on "Unarchive"
@@ -60,20 +76,17 @@ export function ArchivesPage() {
   const [justUnarchived, setJustUnarchived] = useState<Ipo | null>(null)
   const [reArchiving, setReArchiving] = useState(false)
 
-  async function load() {
-    setLoading(true)
-    const [iposRes, boardRes] = await Promise.all([
-      supabase.from('ipos').select('*').eq('is_archived', true).order('listing_date', { ascending: false }),
-      supabase.from('v_allotment_board').select('*').eq('ipo_is_archived', true),
+  // Both unarchive/reArchive below write ipos.is_archived, which changes
+  // both what belongs in the filtered `ipos` list above AND every board
+  // row's ipo_is_archived (the view joins ipos) — invalidate both shared
+  // caches so this page and any other currently-mounted page reading them
+  // (Dashboard, Applications, Allotment board, Payouts) pick up the change.
+  async function invalidateArchiveState() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard }),
     ])
-    setIpos((iposRes.data ?? []) as Ipo[])
-    setRows((boardRes.data ?? []) as AllotmentBoardRow[])
-    setLoading(false)
   }
-
-  useEffect(() => {
-    load()
-  }, [])
 
   function toggleExpanded(ipoId: string) {
     setExpanded((s) => {
@@ -93,7 +106,7 @@ export function ArchivesPage() {
       return
     }
     setJustUnarchived(ipo)
-    load()
+    await invalidateArchiveState()
   }
 
   async function reArchive(ipo: Ipo) {
@@ -105,7 +118,7 @@ export function ArchivesPage() {
       return
     }
     setJustUnarchived(null)
-    load()
+    await invalidateArchiveState()
   }
 
   const rowsByIpo = new Map<string, AllotmentBoardRow[]>()

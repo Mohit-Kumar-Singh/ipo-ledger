@@ -1,5 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from './lib/queryClient'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
@@ -7,6 +9,7 @@ import { AppShell } from './components/layout/AppShell'
 import { ConfigBanner } from './components/ConfigBanner'
 import { PageSpinner } from './components/PageSpinner'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { RealtimeCacheSync } from './components/RealtimeCacheSync'
 
 // Route-level code splitting: each page's JS only downloads when that route
 // is actually visited.
@@ -36,34 +39,37 @@ const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ defa
 function App() {
   return (
     <ErrorBoundary>
-      <ThemeProvider>
-        <BrowserRouter>
-          <AuthProvider>
-            <ConfigBanner />
-            <Suspense fallback={<PageSpinner />}>
-              <Routes>
-                <Route path="/login" element={<LoginPage />} />
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <RealtimeCacheSync />
+              <ConfigBanner />
+              <Suspense fallback={<PageSpinner />}>
+                <Routes>
+                  <Route path="/login" element={<LoginPage />} />
 
-                <Route element={<ProtectedRoute />}>
-                  <Route element={<AppShell />}>
-                    <Route path="/" element={<DashboardPage />} />
-                    <Route path="/accounts" element={<AccountsPage />} />
-                    <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                    <Route path="/ipos" element={<IposPage />} />
-                    <Route path="/applications" element={<ApplicationsPage />} />
-                    <Route path="/allotment" element={<AllotmentBoardPage />} />
-                    <Route path="/payouts" element={<PayoutsPage />} />
-                    <Route path="/shared-accounts" element={<SharedAccountsPage />} />
-                    <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="/archives" element={<ArchivesPage />} />
-                    <Route path="/profile" element={<ProfilePage />} />
+                  <Route element={<ProtectedRoute />}>
+                    <Route element={<AppShell />}>
+                      <Route path="/" element={<DashboardPage />} />
+                      <Route path="/accounts" element={<AccountsPage />} />
+                      <Route path="/bank-accounts" element={<BankAccountsPage />} />
+                      <Route path="/ipos" element={<IposPage />} />
+                      <Route path="/applications" element={<ApplicationsPage />} />
+                      <Route path="/allotment" element={<AllotmentBoardPage />} />
+                      <Route path="/payouts" element={<PayoutsPage />} />
+                      <Route path="/shared-accounts" element={<SharedAccountsPage />} />
+                      <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/archives" element={<ArchivesPage />} />
+                      <Route path="/profile" element={<ProfilePage />} />
+                    </Route>
                   </Route>
-                </Route>
-              </Routes>
-            </Suspense>
-          </AuthProvider>
-        </BrowserRouter>
-      </ThemeProvider>
+                </Routes>
+              </Suspense>
+            </AuthProvider>
+          </BrowserRouter>
+        </ThemeProvider>
+      </QueryClientProvider>
     </ErrorBoundary>
   )
 }

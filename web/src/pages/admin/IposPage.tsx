@@ -1,8 +1,10 @@
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { CheckIcon } from '@primer/octicons-react'
 import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
+import { useIpos, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
@@ -195,8 +197,17 @@ async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: str
 export function IposPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [ipos, setIpos] = useState<Ipo[]>([])
-  const [loading, setLoading] = useState(true)
+  const queryClient = useQueryClient()
+  // Shared cache (lib/queries.ts) — the full ipos table, previously fetched
+  // fresh by this page every time it mounted even though Dashboard/
+  // Applications/Archives/Allotment board fetch the exact same table. isPending
+  // (no cached data at all, ever) drives the full-page spinner below; a
+  // background refetch on a stale-but-present cache just updates `ipos`
+  // in place with no spinner, per the "cached data first, refresh silently"
+  // pattern this whole pass exists to add.
+  const iposQuery = useIpos()
+  const ipos = useMemo(() => sortIpos(iposQuery.data ?? []), [iposQuery.data])
+  const loading = iposQuery.isPending
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingIpo, setEditingIpo] = useState<Ipo | null>(null)
 
@@ -214,21 +225,14 @@ export function IposPage() {
   const [selectedIpos, setSelectedIpos] = useState<Set<string>>(new Set())
   const [parentPrices, setParentPrices] = useState<Record<string, { price: number | null; stale: boolean }>>({})
 
+  // Was a full manual fetch (setLoading/supabase.from/setIpos) — now just
+  // invalidates the shared cache entry so THIS page's useIpos() re-renders
+  // with fresh data, and so does every other currently-mounted page reading
+  // the same ipos cache (Dashboard, Applications, Archives, Allotment
+  // board), not just this one.
   async function load() {
-    setLoading(true)
-    const { data, error } = await supabase.from('ipos').select('*').order('open_date', { ascending: false })
-    if (error) {
-      showToast(`Couldn't load IPOs: ${error.message}`, 'critical')
-      setLoading(false)
-      return
-    }
-    setIpos(sortIpos((data ?? []) as Ipo[]))
-    setLoading(false)
+    await queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
   }
-
-  useEffect(() => {
-    load()
-  }, [])
 
   // One batched call for every distinct parent-company symbol currently in
   // view, not one call per card — several IPOs can share the same parent

@@ -6,6 +6,8 @@ import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, 
 import { Plus, X } from 'lucide-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
+import { useQueryClient } from '@tanstack/react-query'
+import { useIpos, useDematAccounts, useBankAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
@@ -109,16 +111,39 @@ export function ApplicationsPage() {
   const { profile } = useAuth()
   const location = useLocation()
   const isAdmin = profile?.role === 'admin'
+  const queryClient = useQueryClient()
   const [applications, setApplications] = useState<ApplicationRow[]>([])
-  const [ipos, setIpos] = useState<Ipo[]>([])
-  const [accounts, setAccounts] = useState<DematAccount[]>([])
-  const [banks, setBanks] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [formDataLoading, setFormDataLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
+  // ipos/demat_accounts/bank_accounts only feed the add/edit form's
+  // dropdowns and the ipoji sync panel — deferred (enabled: false) until one
+  // of those is actually open, same "don't fetch on every page load" intent
+  // the pre-shared-cache code already had (see the removed loadFormData's
+  // comment), just expressed as `enabled` on the shared hook (lib/queries.ts)
+  // instead of an imperative fetch call, so a page that visited /ipos or
+  // /accounts moments earlier hits a warm cache here instead of a fresh
+  // network round trip.
+  const formDataNeeded = showForm || !!editingApplication || ipojiSyncOpen
+  const iposQuery = useIpos(formDataNeeded)
+  const accountsQuery = useDematAccounts(formDataNeeded)
+  const banksQuery = useBankAccounts(formDataNeeded)
+  const ipos = useMemo(
+    () => [...(iposQuery.data ?? [])].sort((a, b) => a.company_name.localeCompare(b.company_name)),
+    [iposQuery.data],
+  )
+  const accounts = useMemo(
+    () => [...(accountsQuery.data ?? [])].sort((a, b) => a.holder_name.localeCompare(b.holder_name)),
+    [accountsQuery.data],
+  )
+  const banks = useMemo(
+    () => [...(banksQuery.data ?? [])].sort((a, b) => Number(b.is_default) - Number(a.is_default)),
+    [banksQuery.data],
+  )
+  const formDataLoading =
+    formDataNeeded && (iposQuery.isPending || accountsQuery.isPending || banksQuery.isPending)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
   const [searchQuery, setSearchQuery] = useState('')
@@ -280,26 +305,6 @@ export function ApplicationsPage() {
     setLoading(false)
   }
 
-  // IPOs + demat accounts + bank/UPI accounts are only needed to populate the
-  // "New application" form's dropdowns — no point fetching them on every page
-  // load when most visits are just reviewing the table. Re-fetched every time
-  // the form opens (not cached after the first load) so newly added IPOs/
-  // accounts/bank-UPI entries show up immediately instead of needing a page
-  // refresh. Demat accounts and bank/UPI accounts are independent lists now —
-  // any combination of the two can be picked per application.
-  async function loadFormData() {
-    setFormDataLoading(true)
-    const [iposRes, accountsRes, banksRes] = await Promise.all([
-      supabase.from('ipos').select('*').order('company_name'),
-      supabase.from('demat_accounts').select('*').order('holder_name'),
-      supabase.from('bank_accounts').select('*').order('is_default', { ascending: false }),
-    ])
-    setIpos((iposRes.data ?? []) as Ipo[])
-    setAccounts((accountsRes.data ?? []) as DematAccount[])
-    setBanks((banksRes.data ?? []) as BankAccount[])
-    setFormDataLoading(false)
-  }
-
   useEffect(() => {
     loadApplications()
 
@@ -330,13 +335,11 @@ export function ApplicationsPage() {
   function openForm() {
     setShowForm(true)
     setEditingApplication(null)
-    loadFormData()
   }
 
   function openEdit(a: ApplicationRow) {
     setEditingApplication(a)
     setShowForm(false)
-    loadFormData()
   }
 
   async function markStatus(id: string, status: Application['status']) {
@@ -620,10 +623,7 @@ export function ApplicationsPage() {
                   matching IposPage's sync button. */}
               {isAdmin && (
                 <button
-                  onClick={() => {
-                    setIpojiSyncOpen((v) => !v)
-                    if (!ipojiSyncOpen) loadFormData()
-                  }}
+                  onClick={() => setIpojiSyncOpen((v) => !v)}
                   aria-label={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
                   title={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
@@ -647,7 +647,12 @@ export function ApplicationsPage() {
             existingByKey={existingByKey}
             existingByAppNumber={existingByAppNumber}
             onImported={loadApplications}
-            onIposCreated={loadFormData}
+            // The sync panel just inserted new IPO rows itself — force a
+            // refetch rather than relying on formDataNeeded's existing
+            // "already enabled" cache entry, which would otherwise keep
+            // showing the pre-import list until the app-wide staleTime
+            // window (queryClient.ts) elapses.
+            onIposCreated={() => queryClient.invalidateQueries({ queryKey: queryKeys.ipos })}
             lookupsLoading={formDataLoading}
           />
         </Suspense>

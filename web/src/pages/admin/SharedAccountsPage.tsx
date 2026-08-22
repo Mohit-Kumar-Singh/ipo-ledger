@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { PeopleIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { useDematAccounts, queryKeys } from '../../lib/queries'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import type { AccountManager, AccountManagerCaseType, DematAccount, Profile } from '../../types/database'
@@ -21,24 +23,36 @@ import { InlineSpinner } from '../../components/PageSpinner'
 //   CASE_2 — person provided AND funds the account themselves; they get a
 //   bigger cut covering both roles combined, e.g. 70% / 30% (manager / you).
 export function SharedAccountsPage() {
+  const queryClient = useQueryClient()
   const [managers, setManagers] = useState<AccountManager[]>([])
-  const [accounts, setAccounts] = useState<DematAccount[]>([])
+  // Shared cache (lib/queries.ts) — demat_accounts is also read in full by
+  // Accounts/Applications/BankAccounts/Dashboard; this page's own mutations
+  // (assign/unassign a manager) write demat_accounts rows, so they need to
+  // invalidate the shared cache, not just update page-local state.
+  const dematAccountsQuery = useDematAccounts()
+  const accounts = useMemo(
+    () => [...(dematAccountsQuery.data ?? [])].sort((a, b) => a.holder_name.localeCompare(b.holder_name)),
+    [dematAccountsQuery.data],
+  )
   const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
-  const [loading, setLoading] = useState(true)
+  const [managersLoaded, setManagersLoaded] = useState(false)
+  const loading = dematAccountsQuery.isPending || !managersLoaded
   const [showForm, setShowForm] = useState<AccountManagerCaseType | null>(null)
   const [editing, setEditing] = useState<AccountManager | null>(null)
 
+  // managers/linkableMembers are page-local (account_managers and the
+  // unfiltered profiles list aren't read anywhere else) — only the
+  // demat_accounts half of what used to be one Promise.all moves to the
+  // shared cache.
   async function load() {
-    setLoading(true)
-    const [managersRes, accountsRes, membersRes] = await Promise.all([
+    const [managersRes, membersRes] = await Promise.all([
       supabase.from('account_managers').select('*').order('full_name'),
-      supabase.from('demat_accounts').select('*').order('holder_name'),
       supabase.from('profiles').select('*'),
+      queryClient.invalidateQueries({ queryKey: queryKeys.dematAccounts }),
     ])
     setManagers((managersRes.data ?? []) as AccountManager[])
-    setAccounts((accountsRes.data ?? []) as DematAccount[])
     setLinkableMembers((membersRes.data ?? []) as Profile[])
-    setLoading(false)
+    setManagersLoaded(true)
   }
 
   useEffect(() => {

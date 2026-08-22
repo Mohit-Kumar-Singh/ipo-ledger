@@ -6,9 +6,11 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { ChevronDownIcon, SearchIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
@@ -382,9 +384,23 @@ function groupCardsByIpo(cards: SettlementCard[]): IpoSettlementGroup[] {
 export function PayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [rows, setRows] = useState<AllotmentBoardRow[]>([])
+  const queryClient = useQueryClient()
+  // Shared cache (lib/queries.ts) — v_allotment_board is also read in full
+  // by Dashboard, and filtered differently by Archives and the Allotment
+  // board; this page's own SOLD-only, not-archived view is a client-side
+  // filter over the same cached rows instead of its own separate
+  // `.eq('status', 'SOLD')` network query. It's backed by `applications`,
+  // which IS in the realtime publication (CLAUDE.md) — RealtimeCacheSync
+  // (mounted once in App.tsx) invalidates this cache on any applications
+  // change from anywhere in the app, not just from this page.
+  const boardQuery = useAllotmentBoardAll()
+  const rows = useMemo(
+    () => (boardQuery.data ?? []).filter((r) => r.status === 'SOLD' && !r.ipo_is_archived),
+    [boardQuery.data],
+  )
   const [payments, setPayments] = useState<SettlementPayment[]>([])
-  const [loading, setLoading] = useState(true)
+  const [localLoading, setLocalLoading] = useState(true)
+  const loading = boardQuery.isPending || localLoading
   const [loadError, setLoadError] = useState<string | null>(null)
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -401,13 +417,14 @@ export function PayoutsPage() {
   const [livePriceBySymbol, setLivePriceBySymbol] = useState<Record<string, number | null>>({})
 
   async function load() {
-    setLoading(true)
+    setLocalLoading(true)
     setLoadError(null)
-    // No per-IPO filter — v_allotment_board is already RLS-scoped per
-    // viewer, this just doesn't narrow it down to one selected IPO the way
-    // AllotmentBoardPage does.
-    const [boardRes, paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
-      supabase.from('v_allotment_board').select('*').eq('status', 'SOLD'),
+    // Board rows come from the shared v_allotment_board cache (above) —
+    // invalidate it here too (not just wait on RealtimeCacheSync's own
+    // applications listener) so a mutation made from THIS page reflects
+    // immediately rather than however long the realtime round trip takes.
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    const [paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
       supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
       // Same shape/query NotificationsPage's admin funder query and
       // Dashboard's profit-projection query already use — admin-only
@@ -431,12 +448,6 @@ export function PayoutsPage() {
       // third-party funder.
       supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
     ])
-    if (boardRes.error) {
-      setLoadError(boardRes.error.message)
-      setLoading(false)
-      return
-    }
-    setRows((boardRes.data as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived))
     // Not fatal on its own — the page still works with the pre-existing
     // paid/unpaid flags below, just without the live remaining-amount
     // figures on each settlement card.
@@ -466,7 +477,7 @@ export function PayoutsPage() {
         setLivePriceBySymbol({})
       }
     }
-    setLoading(false)
+    setLocalLoading(false)
   }
 
   useEffect(() => {

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { useQueryClient } from '@tanstack/react-query'
+import { fetchIpos, fetchDematAccounts, fetchAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { Skeleton } from '../../components/PageSpinner'
 import { IpoDashboardCard } from '../../components/IpoDashboardCard'
@@ -273,6 +275,7 @@ function buildExpectedProfitByIpo(
 
 export function DashboardPage() {
   const { profile } = useAuth()
+  const queryClient = useQueryClient()
   const isAdmin = profile?.role === 'admin'
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -345,14 +348,21 @@ export function DashboardPage() {
       // Link requests moved off the Dashboard entirely (review now lives on
       // Profile, with a toast on arrival instead of a permanent tile/list
       // here — see ToastHost) — no longer fetched on this page at all.
-      const [closingToday, allIpos, activeAccounts, board, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
-        // Exact close_date match, not a 7-day window — "closing today" is
-        // the thing that actually needs same-day action; a 7-day-out IPO
-        // isn't urgent yet and just crowded out the tile/list with noise.
-        supabase.from('ipos').select('*').eq('close_date', todayStr).order('company_name'),
-        supabase.from('ipos').select('*'),
-        supabase.from('demat_accounts').select('id, holder_name').eq('is_active', true),
-        supabase.from('v_allotment_board').select('*'),
+      // ipos/demat_accounts/v_allotment_board now come from the shared
+      // cache (lib/queries.ts) via fetchQuery — resolves from cache
+      // instantly if another page (or Dashboard's own last load) already
+      // fetched it within the staleTime window, or fetches and populates
+      // the shared cache if not. Previously this fired TWO separate ipos
+      // queries in the same Promise.all (closingToday AND allIpos, both
+      // full/near-full table reads) plus its own independent
+      // demat_accounts and v_allotment_board queries, none of which were
+      // shared with any other page. closingToday/activeAccounts are
+      // derived client-side from the same fetched lists rather than their
+      // own filtered network query.
+      const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
+        queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
+        queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
+        queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
         supabase.from('v_application_attribution').select('*'),
         // Same row shape/query NotificationsPage's admin-only funder query
         // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
@@ -403,7 +413,7 @@ export function DashboardPage() {
       // up in "Awaiting mandate approval," "Allotted, not sold," or
       // "Payouts pending" — those tiles are for what's still live, not a
       // running history of everything that ever happened.
-      const boardRows = ((board.data ?? []) as AllotmentBoardRow[]).filter((r) => !r.ipo_is_archived)
+      const boardRows = boardData.filter((r) => !r.ipo_is_archived)
 
       const settlementPaymentsByApp = new Map<string, SettlementPayment[]>()
       for (const p of (settlementPaymentsRes.data ?? []) as SettlementPayment[]) {
@@ -461,9 +471,9 @@ export function DashboardPage() {
           .map(([ipoId]) => ipoId),
       )
 
-      const activeDematAccounts = (activeAccounts.data ?? []) as Pick<DematAccount, 'id' | 'holder_name'>[]
+      const activeDematAccounts = dematAccountsData.filter((a) => a.is_active) as Pick<DematAccount, 'id' | 'holder_name'>[]
       const totalActive = activeDematAccounts.length
-      const ipoProgress: IpoProgress[] = ((allIpos.data ?? []) as Ipo[])
+      const ipoProgress: IpoProgress[] = allIposData
         .filter(isLiveIpo)
         .map((ipo) => {
           const appliedIds = appliedDematIdsByIpo.get(ipo.id) ?? new Set<string>()
@@ -509,7 +519,7 @@ export function DashboardPage() {
       const in2DaysForGmp = new Date(`${todayStr}T00:00:00Z`)
       in2DaysForGmp.setUTCDate(in2DaysForGmp.getUTCDate() + 2)
       const in2DaysForGmpStr = in2DaysForGmp.toISOString().slice(0, 10)
-      const highGmpAlerts: HighGmpAlert[] = ((allIpos.data ?? []) as Ipo[])
+      const highGmpAlerts: HighGmpAlert[] = allIposData
         .filter((ipo) => ipo.open_date >= todayForGmp && ipo.open_date <= in2DaysForGmpStr)
         .map((ipo) => ({ ipo, gmpPercent: parseGmpPercent(ipo.gmp_notes) }))
         .filter((x): x is { ipo: Ipo; gmpPercent: number } => x.gmpPercent !== null && x.gmpPercent > HIGH_GMP_THRESHOLD)
@@ -646,7 +656,9 @@ export function DashboardPage() {
       )
 
       setData({
-        closingToday: (closingToday.data ?? []) as Ipo[],
+        // Derived client-side instead of its own `.eq('close_date', todayStr)`
+        // network query — same source array as ipoProgress/highGmpAlerts above.
+        closingToday: allIposData.filter((i) => i.close_date === todayStr).sort((a, b) => a.company_name.localeCompare(b.company_name)),
         pendingMandate: actionablePendingMandate,
         allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
         attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
@@ -700,7 +712,16 @@ export function DashboardPage() {
     const channel = supabase
       .channel('dashboard-applications')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
-        if (!cancelled) load()
+        if (cancelled) return
+        // Explicit invalidate before load() re-runs — v_allotment_board's
+        // shared cache entry has its own 15s staleTime, and without this a
+        // load() triggered by this exact realtime event could still read a
+        // technically-fresh-but-now-stale cached value if it happens to
+        // fire before RealtimeCacheSync's own (separate) invalidation of
+        // the same key lands. Redundant on many events (RealtimeCacheSync
+        // often gets there first), never harmful.
+        queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+        load()
       })
       .subscribe()
 

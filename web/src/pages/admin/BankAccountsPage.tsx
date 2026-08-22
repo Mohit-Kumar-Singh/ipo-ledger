@@ -1,6 +1,8 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { LawIcon, LinkIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { useBankAccounts, useDematAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
@@ -19,24 +21,38 @@ interface EditingBank {
 export function BankAccountsPage() {
   const { session, profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [banks, setBanks] = useState<BankAccount[]>([])
-  const [dematPhoneByName, setDematPhoneByName] = useState<Record<string, string>>({})
+  const queryClient = useQueryClient()
+  // Shared cache (lib/queries.ts) — bank_accounts is also read in full by
+  // ApplicationsPage; demat_accounts (used here just for the name->phone
+  // suggestion map below) is read in full by Accounts/Applications/
+  // SharedAccounts/Dashboard too. Both used to be independent fetches per
+  // page; now every page reads the same cache entry.
+  const banksQuery = useBankAccounts()
+  const banks = useMemo(
+    () =>
+      [...(banksQuery.data ?? [])].sort(
+        (a, b) => Number(b.is_default) - Number(a.is_default) || (a.account_holder_name ?? '').localeCompare(b.account_holder_name ?? ''),
+      ),
+    [banksQuery.data],
+  )
+  const dematAccountsQuery = useDematAccounts()
+  const dematPhoneByName = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const d of dematAccountsQuery.data ?? []) map[d.holder_name] = d.phone_e164 ?? ''
+    return map
+  }, [dematAccountsQuery.data])
   const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
-  const [loading, setLoading] = useState(true)
+  const loading = banksQuery.isPending
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<EditingBank | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [linking, setLinking] = useState<string | null>(null)
 
+  // Was part of the same Promise.all as the bank_accounts fetch — now just
+  // invalidates the shared cache so this page (and Applications, which reads
+  // the same bank_accounts cache) picks up the change.
   async function load() {
-    setLoading(true)
-    const [banksRes, membersRes] = await Promise.all([
-      supabase.from('bank_accounts').select('*').order('is_default', { ascending: false }).order('account_holder_name'),
-      supabase.from('profiles').select('*').eq('role', 'member'),
-    ])
-    setBanks((banksRes.data ?? []) as BankAccount[])
-    setLinkableMembers((membersRes.data ?? []) as Profile[])
-    setLoading(false)
+    await queryClient.invalidateQueries({ queryKey: queryKeys.bankAccounts })
   }
 
   async function linkMember(bankAccountId: string, userId: string) {
@@ -61,20 +77,15 @@ export function BankAccountsPage() {
     load()
   }
 
+  // Members list is page-local — nothing else reads it, and none of this
+  // page's mutations (bank account link/unlink/save/delete) can change who
+  // holds the 'member' role, so it only ever needs the one initial fetch.
   useEffect(() => {
-    load()
-    // So the "Account holder name" field can suggest names already used for
-    // a demat account (instead of retyping and risking a mismatched
-    // spelling), and picking one can auto-fill their phone number too.
     supabase
-      .from('demat_accounts')
-      .select('holder_name, phone_e164')
-      .order('holder_name')
-      .then(({ data }) => {
-        const map: Record<string, string> = {}
-        for (const d of data ?? []) map[d.holder_name as string] = (d.phone_e164 as string) ?? ''
-        setDematPhoneByName(map)
-      })
+      .from('profiles')
+      .select('*')
+      .eq('role', 'member')
+      .then(({ data }) => setLinkableMembers((data ?? []) as Profile[]))
   }, [])
 
   function startEdit(b: BankAccount) {

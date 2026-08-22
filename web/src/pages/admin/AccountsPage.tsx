@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
   AlertIcon,
@@ -11,6 +12,7 @@ import {
   TrashIcon,
 } from '@primer/octicons-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
+import { useDematAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
@@ -65,39 +67,41 @@ function hasAddDraft(): boolean {
 export function AccountsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
-  const [accounts, setAccounts] = useState<DematAccount[]>([])
+  const queryClient = useQueryClient()
+  // Shared cache (lib/queries.ts) — demat_accounts is also read in full by
+  // Applications/SharedAccounts/BankAccounts/Dashboard; this page's own
+  // mutations (link/unlink member, edit, delete, add) write demat_accounts
+  // rows, so they invalidate the shared cache rather than only updating
+  // page-local state, keeping every other page's copy in sync too.
+  const accountsQuery = useDematAccounts()
+  const accounts = useMemo(() => [...(accountsQuery.data ?? [])].sort(byHolderName), [accountsQuery.data])
   const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const loading = accountsQuery.isPending
+  const loadError = accountsQuery.error instanceof Error ? accountsQuery.error.message : null
   const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [linking, setLinking] = useState<string | null>(null)
 
+  // Was a full Promise.all of both tables — now just invalidates the shared
+  // demat_accounts cache (accountsQuery above re-renders from it automatically).
   async function load() {
-    setLoading(true)
-    setLoadError(null)
-    const [accountsRes, membersRes] = await Promise.all([
-      supabase.from('demat_accounts').select('*').order('holder_name', { ascending: true }),
-      supabase.from('profiles').select('*').eq('role', 'member'),
-    ])
-    if (accountsRes.error || membersRes.error) {
-      setLoadError((accountsRes.error ?? membersRes.error)?.message ?? 'Failed to load accounts.')
-      setLoading(false)
-      return
-    }
-    const loadedAccounts = ((accountsRes.data ?? []) as DematAccount[]).sort(byHolderName)
-    setAccounts(loadedAccounts)
+    await queryClient.invalidateQueries({ queryKey: queryKeys.dematAccounts })
+  }
+
+  // Members list is page-local and fetched once — no mutation on this page
+  // can change who holds the 'member' role, so unlike accounts it never
+  // needs to be part of load()'s refresh.
+  useEffect(() => {
     // Every member is a valid link target here, even one already linked to
     // another account — a person can hold more than one demat account, and
     // excluding them made the dropdown empty for their other account(s).
-    setLinkableMembers((membersRes.data ?? []) as Profile[])
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    load()
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('role', 'member')
+      .then(({ data }) => setLinkableMembers((data ?? []) as Profile[]))
   }, [])
 
   // pan_hash is a one-way hash (safe to compare client-side without

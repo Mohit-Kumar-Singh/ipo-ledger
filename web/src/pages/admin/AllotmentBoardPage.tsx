@@ -1,6 +1,8 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
+import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -14,7 +16,6 @@ import { AllottedIcon } from '../../components/AllottedIcon'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
-  Ipo,
   Notification,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -91,11 +92,19 @@ export function AllotmentBoardPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const [searchParams] = useSearchParams()
-  const [ipos, setIpos] = useState<Ipo[]>([])
+  const queryClient = useQueryClient()
+  // Shared caches (lib/queries.ts) — ipos backs the IPO picker below (also
+  // read in full by Dashboard/Applications/IposPage/Archives);
+  // v_allotment_board backs the board itself (also read by Dashboard,
+  // Archives, Payouts). Both used to be their own `.eq(...)`-filtered
+  // network query fired fresh on every mount; now they're client-side
+  // filters over the same shared cache, so a page navigated from a moment
+  // ago (e.g. Dashboard, which reads the exact same two tables) leaves this
+  // page rendering from a warm cache instead of a fresh round trip.
+  const iposQuery = useIpos()
+  const boardQuery = useAllotmentBoardAll()
   const [selectedIpoId, setSelectedIpoId] = useState('')
-  const [rows, setRows] = useState<AllotmentBoardRow[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(false)
   const [allottedNotifs, setAllottedNotifs] = useState<Record<string, AllottedNotif>>({})
   const [dispatching, setDispatching] = useState<string | null>(null)
   const [soldForms, setSoldForms] = useState<Record<string, SoldFormState>>({})
@@ -104,91 +113,103 @@ export function AllotmentBoardPage() {
   const [showSellComposer, setShowSellComposer] = useState(false)
 
   // Archived IPOs (fully settled, moved to /archives) drop out of this
-  // dropdown — their board is still viewable there. Re-run after any action
-  // that might have just auto-archived the currently-selected IPO (see
-  // maybeAutoArchiveIpo below), so it drops out of the list right away
-  // instead of sitting there stale until a manual page reload.
-  function loadIpos(onLoaded?: (loaded: Ipo[]) => void) {
+  // dropdown — their board is still viewable there. Any mutation below that
+  // might have just auto-archived the currently-selected IPO invalidates
+  // queryKeys.ipos, which re-derives this and drops it out of the list
+  // right away instead of sitting there stale until a manual page reload.
+  const ipos = useMemo(() => {
     const todayStr = nowIst().dateStr
-    supabase
-      .from('ipos')
-      .select('*')
-      .not('allotment_date', 'is', null)
-      .lte('allotment_date', todayStr)
-      .eq('is_archived', false)
-      .order('allotment_date', { ascending: false })
-      .then(({ data }) => {
-        const loaded = (data ?? []) as Ipo[]
-        setIpos(loaded)
-        onLoaded?.(loaded)
-      })
+    return (iposQuery.data ?? [])
+      .filter((i) => i.allotment_date != null && i.allotment_date <= todayStr && !i.is_archived)
+      .sort((a, b) => (b.allotment_date ?? '').localeCompare(a.allotment_date ?? ''))
+  }, [iposQuery.data])
+
+  const rows = useMemo(
+    () => (boardQuery.data ?? []).filter((r) => r.ipo_id === selectedIpoId),
+    [boardQuery.data, selectedIpoId],
+  )
+
+  // Deep-link from the Dashboard's "N allotted" badge (?ipo=<id>) —
+  // auto-select that IPO's board the moment the picker's own options have
+  // loaded, instead of leaving the visitor to pick it again by hand.
+  // Otherwise default to the most RECENT allotment, which is `ipos`' first
+  // entry (sorted by allotment_date desc above).
+  //
+  // This used to pick the earliest listing_date instead, on the theory
+  // that it's the one most overdue to sell. In practice that pins the
+  // board to the oldest IPO still hanging around — an IPO only
+  // auto-archives once every row on it is settled, so one stuck row keeps
+  // it unarchived and permanently first. Whichever allotment just came
+  // out is the one there's actually work to do on; older ones are still a
+  // dropdown pick away.
+  //
+  // Guarded on selectedIpoId being empty so this only ever runs once, the
+  // moment `ipos` first has entries — picking a different IPO from the
+  // dropdown afterward goes through loadBoard below, not this effect.
+  useEffect(() => {
+    if (selectedIpoId || ipos.length === 0) return
+    const ipoIdParam = searchParams.get('ipo')
+    setSelectedIpoId(ipoIdParam && ipos.some((i) => i.id === ipoIdParam) ? ipoIdParam : ipos[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ipos])
+
+  function loadBoard(ipoId: string) {
+    setSelectedIpoId(ipoId)
+    setSelected(new Set())
+  }
+
+  // Notification status (ALLOTTED-type WhatsApp sends) for whichever rows
+  // are on screen — a second table keyed off the board's own result set,
+  // not something v_allotment_board carries itself, so it stays its own
+  // fetch rather than folding into the shared cache. Deliberately doesn't
+  // gate the page's main loading spinner (see `loading` below) — the board
+  // itself is the primary content; per-row notification status can arrive
+  // moments later without blocking the whole page on it.
+  async function loadNotifs(boardRows: AllotmentBoardRow[]) {
+    const appIds = boardRows.map((r) => r.application_id)
+    if (appIds.length === 0) {
+      setAllottedNotifs({})
+      return
+    }
+    const { data: notifs } = await supabase
+      .from('notifications')
+      .select('id, application_id, status, to_phone, template_name, variables')
+      .eq('type', 'ALLOTTED')
+      .in('application_id', appIds)
+    const map: Record<string, AllottedNotif> = {}
+    for (const n of notifs ?? []) {
+      map[n.application_id as string] = {
+        id: n.id,
+        status: n.status,
+        to_phone: n.to_phone,
+        template_name: n.template_name,
+        variables: n.variables,
+      }
+    }
+    setAllottedNotifs(map)
   }
 
   useEffect(() => {
-    // Deep-link from the Dashboard's "N allotted" badge (?ipo=<id>) —
-    // auto-select that IPO's board the moment the dropdown's own options
-    // have loaded, instead of leaving the visitor to pick it again by hand.
-    // Otherwise default to the most RECENT allotment, which is loadIpos'
-    // first row (it already orders by allotment_date desc).
-    //
-    // This used to pick the earliest listing_date instead, on the theory
-    // that it's the one most overdue to sell. In practice that pins the
-    // board to the oldest IPO still hanging around — an IPO only
-    // auto-archives once every row on it is settled, so one stuck row keeps
-    // it unarchived and permanently first. Whichever allotment just came
-    // out is the one there's actually work to do on; older ones are still a
-    // dropdown pick away.
-    const ipoIdParam = searchParams.get('ipo')
-    loadIpos((loaded) => {
-      if (ipoIdParam && loaded.some((i) => i.id === ipoIdParam)) {
-        loadBoard(ipoIdParam)
-        return
-      }
-      if (loaded[0]) loadBoard(loaded[0].id)
-    })
+    loadNotifs(rows)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [rows])
 
-  async function loadBoard(ipoId: string) {
-    setSelectedIpoId(ipoId)
-    setSelected(new Set())
-    if (!ipoId) {
-      setRows([])
-      return
-    }
-    setLoading(true)
-    const { data, error } = await supabase.from('v_allotment_board').select('*').eq('ipo_id', ipoId)
-    if (error) {
-      showToast(`Couldn't load the allotment board: ${error.message}`, 'critical')
-      setLoading(false)
-      return
-    }
-    const boardRows = (data ?? []) as AllotmentBoardRow[]
-    setRows(boardRows)
+  // isPending (not isFetching/isLoading) — true only when this shared cache
+  // has never been populated at all, matching "skeleton loader only when no
+  // data exists." A page visited moments after Dashboard/Archives/Payouts
+  // (all read the same v_allotment_board cache) renders instantly here with
+  // no spinner, since the data's already warm.
+  const loading = boardQuery.isPending
 
-    const appIds = boardRows.map((r) => r.application_id)
-    if (appIds.length > 0) {
-      const { data: notifs } = await supabase
-        .from('notifications')
-        .select('id, application_id, status, to_phone, template_name, variables')
-        .eq('type', 'ALLOTTED')
-        .in('application_id', appIds)
-      const map: Record<string, AllottedNotif> = {}
-      for (const n of notifs ?? []) {
-        map[n.application_id as string] = {
-          id: n.id,
-          status: n.status,
-          to_phone: n.to_phone,
-          template_name: n.template_name,
-          variables: n.variables,
-        }
-      }
-      setAllottedNotifs(map)
-    } else {
-      setAllottedNotifs({})
+  // Surfaces a fetch failure on the shared v_allotment_board cache the same
+  // way the old page-local fetch did (a toast) — errored once per distinct
+  // Error instance, not on every re-render while the error persists.
+  useEffect(() => {
+    if (boardQuery.error) {
+      showToast(`Couldn't load the allotment board: ${boardQuery.error.message}`, 'critical')
     }
-    setLoading(false)
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [boardQuery.error])
 
   async function dispatchNotification(n: AllottedNotif) {
     setDispatching(n.id)
@@ -198,7 +219,7 @@ export function AllotmentBoardPage() {
       await openWhatsAppForNotification(n)
     }
     setDispatching(null)
-    loadBoard(selectedIpoId)
+    loadNotifs(rows)
   }
 
   // Allotted rows surface first so a glance at the board shows who's already
@@ -222,18 +243,26 @@ export function AllotmentBoardPage() {
   const selectedIpo = ipos.find((i) => i.id === selectedIpoId)
   const allottedCount = rows.filter((r) => r.status === 'ALLOTTED').length
 
+  // Writes below invalidate both shared caches explicitly rather than
+  // relying solely on RealtimeCacheSync's own applications listener
+  // (App.tsx) — that guarantees THIS page reflects its own action
+  // immediately, regardless of realtime round-trip timing; other
+  // currently-open tabs/pages still pick it up via the realtime push.
   async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
     await supabase.from('applications').update({ status }).eq('id', applicationId)
-    if (status === 'NOT_ALLOTTED') { await maybeAutoArchiveIpo(selectedIpoId); loadIpos() }
-    loadBoard(selectedIpoId)
+    if (status === 'NOT_ALLOTTED') {
+      await maybeAutoArchiveIpo(selectedIpoId)
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   async function bulkMarkNotAllotted() {
     if (selected.size === 0) return
     await supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).in('id', Array.from(selected))
     await maybeAutoArchiveIpo(selectedIpoId)
-    loadIpos()
-    loadBoard(selectedIpoId)
+    queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   function toggle(id: string) {
@@ -306,7 +335,7 @@ export function AllotmentBoardPage() {
       .eq('id', row.application_id)
     setSavingSold(null)
     closeSoldForm(row.application_id)
-    loadBoard(selectedIpoId)
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   async function markPaid(applicationId: string, field: 'demat_cut_paid' | 'funder_share_paid') {
@@ -316,8 +345,8 @@ export function AllotmentBoardPage() {
     // This might be the last outstanding payout on the IPO — check whether
     // everything's resolved now and archive immediately if so.
     await maybeAutoArchiveIpo(selectedIpoId)
-    loadIpos()
-    loadBoard(selectedIpoId)
+    queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   return (
