@@ -9,7 +9,8 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, TagIcon, PencilIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, TagIcon, PencilIcon, UndoIcon } from '@primer/octicons-react'
+import { AllottedIcon } from '../../components/AllottedIcon'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -35,6 +36,30 @@ const notifBadgeClass: Record<Notification['status'], string> = {
   READ: 'badge-violet',
   FAILED: 'badge-critical',
   SIMULATED: 'badge-warning',
+}
+
+// One place both the table and the card read their status pill from, so the
+// two can never drift on which statuses render as an icon. SOLD and ALLOTTED
+// are icon-only, with the word kept in title/aria-label for anyone hovering or
+// on a screen reader; APPLIED and NOT_ALLOTTED stay as text because neither has
+// an icon that reads unambiguously at 14px.
+function StatusBadge({ status }: { status: ApplicationStatus }) {
+  const label = status.replace('_', ' ')
+  const icon =
+    status === 'SOLD' ? (
+      <CheckCircleFillIcon size={13} />
+    ) : status === 'ALLOTTED' ? (
+      <AllottedIcon size={14} />
+    ) : null
+  return (
+    <span
+      className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}`}
+      title={label}
+      aria-label={icon ? label : undefined}
+    >
+      {icon ?? label}
+    </span>
+  )
 }
 
 type AllottedNotif = Pick<Notification, 'id' | 'status' | 'to_phone' | 'template_name' | 'variables'>
@@ -383,7 +408,7 @@ export function AllotmentBoardPage() {
           <table className="w-full text-sm">
             <thead style={{ background: 'var(--page)', color: 'var(--ink-muted)' }} className="text-left">
               <tr>
-                <th className="px-4 py-2.5">
+                <th className="px-4 py-2.5 align-middle">
                   {selectableIds.length > 0 && (
                     <input
                       type="checkbox"
@@ -396,11 +421,11 @@ export function AllotmentBoardPage() {
                     />
                   )}
                 </th>
-                <th className="px-4 py-2.5 font-medium">Holder</th>
-                <th className="px-4 py-2.5 font-medium">Bank</th>
-                <th className="px-4 py-2.5 font-medium">Status</th>
-                <th className="px-4 py-2.5 font-medium">Message</th>
-                <th className="px-4 py-2.5 font-medium">Actions</th>
+                <th className="px-4 py-2.5 align-middle font-medium">Holder</th>
+                <th className="px-4 py-2.5 align-middle font-medium">Bank</th>
+                <th className="px-4 py-2.5 align-middle font-medium">Status</th>
+                <th className="px-4 py-2.5 align-middle font-medium">Message</th>
+                <th className="px-4 py-2.5 align-middle font-medium">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
@@ -408,7 +433,7 @@ export function AllotmentBoardPage() {
                 const notif = allottedNotifs[row.application_id]
                 return (
                 <tr key={row.application_id} className="stagger-item transition-colors duration-150 hover:bg-[var(--hover-surface)]">
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-2.5 align-middle">
                     {row.status === 'APPLIED' && canMark(row) && (
                       <input
                         type="checkbox"
@@ -417,7 +442,7 @@ export function AllotmentBoardPage() {
                       />
                     )}
                   </td>
-                  <td className="px-4 py-2.5 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  <td className="px-4 py-2.5 align-middle font-medium" style={{ color: 'var(--ink-primary)' }}>
                     <span className="inline-flex items-center gap-1.5">
                       {row.holder_name}
                       {row.is_funder_override && (
@@ -430,16 +455,11 @@ export function AllotmentBoardPage() {
                       )}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5">{row.bank_account_holder_name ?? '—'}</td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
-                      title={row.status.replace('_', ' ')}
-                    >
-                      {row.status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : row.status.replace('_', ' ')}
-                    </span>
+                  <td className="px-4 py-2.5 align-middle">{row.bank_account_holder_name ?? '—'}</td>
+                  <td className="px-4 py-2.5 align-middle">
+                    <StatusBadge status={row.status} />
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-2.5 align-middle">
                     {notif ? (
                       <div className="flex items-center gap-2">
                         <span className={`badge ${notifBadgeClass[notif.status]}`}>{notif.status}</span>
@@ -465,7 +485,7 @@ export function AllotmentBoardPage() {
                       <span style={{ color: 'var(--ink-muted)' }}>—</span>
                     )}
                   </td>
-                  <td className="px-4 py-2.5">
+                  <td className="px-4 py-2.5 align-middle">
                     {/* Marking status is owner/admin-only — applications' own
                         RLS write policy blocks a funder-only viewer from
                         updating status at all, so these controls are hidden
@@ -477,7 +497,7 @@ export function AllotmentBoardPage() {
                       // the IPO's date got edited to a future date after this board was
                       // loaded (stale selectedIpo in an already-open tab).
                       (selectedIpo?.allotment_date && selectedIpo.allotment_date <= nowIst().dateStr ? (
-                        <div className="flex gap-3">
+                        <div className="flex items-center gap-3">
                           <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                             Allotted
                           </button>
@@ -497,11 +517,12 @@ export function AllotmentBoardPage() {
                     {row.status === 'NOT_ALLOTTED' && canMark(row) && (
                       <button
                         onClick={() => markStatus(row.application_id, 'APPLIED')}
-                        className="text-xs font-medium hover:underline"
+                        className="-my-1 inline-flex items-center rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
                         style={{ color: 'var(--ink-muted)' }}
-                        title="Revert back to Applied"
+                        aria-label="Undo — revert back to Applied"
+                        title="Undo — revert back to Applied"
                       >
-                        Undo
+                        <UndoIcon size={15} />
                       </button>
                     )}
                   </td>
@@ -681,57 +702,59 @@ function SoldPayoutsSection({
                       {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
                     </p>
                   </div>
-                  {/* Stacked on phone (flex-col), one row from sm: up —
-                      three elements (status, Mark sold/Edit sale, Undo)
-                      cramped into one row was the thing getting clipped/
-                      unreadable on a narrow screen. */}
-                  <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
-                    <span
-                      className={`badge ${statusBadgeClass[row.status]} ${row.status === 'SOLD' ? 'inline-flex items-center' : ''}`}
-                      title={row.status.replace('_', ' ')}
-                    >
-                      {row.status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : row.status.replace('_', ' ')}
-                    </span>
-                    {/* Icon-only (same pattern as the Message/Paid controls
-                        further down) — three text links plus a status badge
-                        on one row was the bulk that made this wrap awkwardly
-                        on phone. aria-label carries the name the visible text
-                        used to, so this stays readable to a screen reader. */}
-                    {!isEditing && (
-                      <button
-                        onClick={() => onOpenForm(row)}
-                        className="link-accent inline-flex items-center"
-                        aria-label={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
-                        title={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
-                      >
-                        {row.status === 'SOLD' ? <PencilIcon size={15} /> : <TagIcon size={15} />}
-                      </button>
-                    )}
-                    {row.status === 'ALLOTTED' && (
-                      <button
-                        onClick={() => notifyHolder(row)}
-                        disabled={notifying === row.application_id}
-                        className="link-accent inline-flex items-center disabled:opacity-50"
-                        aria-label="Notify holder"
-                        title={
-                          notifying === row.application_id
-                            ? 'Preparing…'
-                            : 'WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF'
-                        }
-                      >
-                        <CommentDiscussionIcon size={15} />
-                      </button>
-                    )}
-                    {row.status === 'ALLOTTED' && (
-                      <button
-                        onClick={() => onUndo(row.application_id)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--ink-muted)' }}
-                        title="Revert back to Applied"
-                      >
-                        Undo
-                      </button>
-                    )}
+                  {/* Status pill, then every action grouped together as
+                      icon buttons at the trailing edge of the card. All three
+                      used to be a mix of unpadded link-accent text links and
+                      padded icon buttons, which left their hit targets and
+                      optical spacing inconsistent; they now share one padded
+                      shape (p-1.5 + rounded hover), the same one the Accounts
+                      cards and the payout controls below already use.
+
+                      No longer stacks on phone: that was there because the
+                      row carried three text labels, and four icons fit on one
+                      line at any width. */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <StatusBadge status={row.status} />
+                    <div className="flex items-center gap-0.5">
+                      {!isEditing && (
+                        <button
+                          onClick={() => onOpenForm(row)}
+                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                          style={{ color: 'var(--accent)' }}
+                          aria-label={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                          title={row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                        >
+                          {row.status === 'SOLD' ? <PencilIcon size={15} /> : <TagIcon size={15} />}
+                        </button>
+                      )}
+                      {row.status === 'ALLOTTED' && (
+                        <button
+                          onClick={() => notifyHolder(row)}
+                          disabled={notifying === row.application_id}
+                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                          style={{ color: 'var(--accent)' }}
+                          aria-label="Notify holder"
+                          title={
+                            notifying === row.application_id
+                              ? 'Preparing…'
+                              : 'WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF'
+                          }
+                        >
+                          <CommentDiscussionIcon size={15} />
+                        </button>
+                      )}
+                      {row.status === 'ALLOTTED' && (
+                        <button
+                          onClick={() => onUndo(row.application_id)}
+                          className="rounded-lg p-1.5 transition-colors hover:bg-[var(--hover-surface)]"
+                          style={{ color: 'var(--ink-muted)' }}
+                          aria-label="Undo — revert back to Applied"
+                          title="Undo — revert back to Applied"
+                        >
+                          <UndoIcon size={15} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
