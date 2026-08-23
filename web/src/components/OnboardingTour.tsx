@@ -190,8 +190,15 @@ export function OnboardingTour({ onRequireNavOpen, onActiveChange }: OnboardingT
       )}
 
       <div
-        className="card fixed inset-x-4 bottom-4 z-[60] p-5 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-80"
-        style={{ background: 'var(--surface)' }}
+        // bottom-4/sm:bottom-6 used to sit right on top of the floating
+        // bottom tab bar (visible at every width below lg — see AppShell) —
+        // this card's z-[60] is above the tab bar's z-30, so it rendered
+        // ON TOP of the pill rather than above it. Same clearance formula
+        // AppShell's own <main> uses for its bottom padding, applied at
+        // every breakpoint below lg (harmless overshoot above lg, where the
+        // tab bar is hidden and this card just sits a bit higher).
+        className="card fixed inset-x-4 z-[60] p-5 sm:inset-x-auto sm:right-6 sm:w-80"
+        style={{ background: 'var(--surface)', bottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
       >
         <button
           onClick={finish}

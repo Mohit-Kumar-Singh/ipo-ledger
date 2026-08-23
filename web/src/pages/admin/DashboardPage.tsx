@@ -682,6 +682,25 @@ export function DashboardPage() {
       (r) => r.mandate_status === 'PENDING' && Date.now() <= bidCutoffMs(r.close_date),
     )
 
+    // Once an IPO's allotment IS out, a row still stuck at APPLIED for that
+    // same IPO isn't "pending a decision" anymore — the decision already
+    // happened, this one just never got flipped. Counting it as live
+    // overstates how many applications are actually still open, so once an
+    // IPO is decided, only its ALLOTTED/SOLD rows count toward totalApplied
+    // below — a leftover APPLIED row closes right along with the IPO's
+    // NOT_ALLOTTED ones. "Decided" is two independent signals, either one
+    // enough: (1) any sibling row for the same IPO already sitting at
+    // ALLOTTED/NOT_ALLOTTED/SOLD — works for admin, who sees every account;
+    // (2) the IPO's own listing_date has passed — listing always happens
+    // after allotment, so this still catches a member viewer whose only
+    // application to that IPO is the stale one, with no visible sibling row
+    // to compare against (boardRows is RLS-scoped to their own accounts).
+    const decidedIpoIds = new Set(
+      boardRows
+        .filter((r) => r.status === 'ALLOTTED' || r.status === 'NOT_ALLOTTED' || r.status === 'SOLD' || (!!r.listing_date && r.listing_date <= todayStr))
+        .map((r) => r.ipo_id),
+    )
+
     return {
       // Derived client-side instead of its own `.eq('close_date', todayStr)`
       // network query — same source array as ipoProgress/highGmpAlerts above.
@@ -726,7 +745,14 @@ export function DashboardPage() {
       // allotment result is out, an application that didn't get shares
       // isn't a "current" application anymore, just a closed-out record
       // (still visible on the Applications page, just not counted here).
-      totalApplied: boardRows.filter((r) => r.mandate_status !== 'CANCELLED' && r.status !== 'NOT_ALLOTTED').length,
+      // decidedIpoIds (above) excludes stale APPLIED stragglers on an
+      // already-decided IPO the same way.
+      totalApplied: boardRows.filter(
+        (r) =>
+          r.mandate_status !== 'CANCELLED' &&
+          r.status !== 'NOT_ALLOTTED' &&
+          !(r.status === 'APPLIED' && decidedIpoIds.has(r.ipo_id)),
+      ).length,
     }
     },
     // Same reasoning as v_allotment_board's own staleTime (lib/queries.ts)
