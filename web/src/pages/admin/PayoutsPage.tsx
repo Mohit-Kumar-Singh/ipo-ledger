@@ -6,7 +6,7 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDownIcon, SearchIcon, CreditCardIcon, FileIcon, GraphIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
@@ -29,7 +29,15 @@ import {
 } from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
-import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset, type TrendPoint } from '../../lib/payoutAnalytics'
+import {
+  buildPayoutAnalytics,
+  resolveDateRange,
+  type DateRangePreset,
+  type IpoBreakdownRow,
+  type ApplicationStatusCounts,
+  type IpoShareRow,
+  type AccountPendingRow,
+} from '../../lib/payoutAnalytics'
 import { StatTile } from './DashboardPage'
 import { nowIst } from '../../lib/ipoStatus'
 
@@ -400,7 +408,6 @@ export function PayoutsPage() {
     () => buildPayoutAnalytics(allRows, boardQuery.data ?? EMPTY_BOARD_ROWS, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol),
     [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol],
   )
-  const [trendMode, setTrendMode] = useState<'cumulative' | 'daily' | 'investment' | 'payout'>('cumulative')
   const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
   const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
 
@@ -506,26 +513,29 @@ export function PayoutsPage() {
 
       {/* === Profit & Payout Analytics dashboard (v1.187.0) === */}
       <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
-          {(
-            [
-              ['this_month', 'This month'],
-              ['last_month', 'Last month'],
-              ['last_3_months', 'Last 3 months'],
-              ['this_year', 'This year'],
-              ['all_time', 'All time'],
-              ['custom', 'Custom'],
-            ] as [DateRangePreset, string][]
-          ).map(([preset, label]) => (
-            <button
-              key={preset}
-              type="button"
-              onClick={() => setRangePreset(preset)}
-              className={rangePreset === preset ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
+          <span className="shrink-0">Range</span>
+          <div className="segmented scrollbar-none max-w-full overflow-x-auto">
+            {(
+              [
+                ['this_month', 'This month'],
+                ['last_month', 'Last month'],
+                ['last_3_months', 'Last 3 months'],
+                ['this_year', 'This year'],
+                ['all_time', 'All time'],
+                ['custom', 'Custom'],
+              ] as [DateRangePreset, string][]
+            ).map(([preset, label]) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setRangePreset(preset)}
+                className={`segmented-item shrink-0 whitespace-nowrap ${rangePreset === preset ? 'segmented-item-active' : ''}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {rangePreset === 'custom' && (
             <div className="flex items-center gap-1.5">
               <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="input text-xs" />
@@ -582,13 +592,21 @@ export function PayoutsPage() {
             label="Successful IPOs"
             value={analytics.summary.successfulIpoCount}
             tone="good"
+            panel={<SuccessfulIposPanel rows={analytics.ipoBreakdown} />}
           />
-          <StatTile icon={FileIcon} label="Applications" value={analytics.summary.totalApplications} tone="info" />
+          <StatTile
+            icon={FileIcon}
+            label="Applications"
+            value={analytics.summary.totalApplications}
+            tone="info"
+            panel={<ApplicationsStatusPanel counts={analytics.statusBreakdown} />}
+          />
           <StatTile
             icon={GraphIcon}
             label="Shares allotted"
             value={analytics.summary.totalSharesAllotted}
             tone="info"
+            panel={<SharesByIpoPanel rows={analytics.sharesByIpo} />}
           />
           <StatTile
             icon={CreditCardIcon}
@@ -596,39 +614,9 @@ export function PayoutsPage() {
             value={analytics.summary.pendingPayout}
             tone={analytics.summary.pendingPayout > 0 ? 'warning' : 'good'}
             format={(n) => rupees(n)}
+            panel={<PendingByAccountPanel rows={analytics.pendingByAccount} />}
           />
         </div>
-
-        {/* Trend chart */}
-        {analytics.trend.length > 1 && (
-          <div className="card p-4">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                Profit trend
-              </h2>
-              <div className="flex gap-1">
-                {(
-                  [
-                    ['cumulative', 'Cumulative'],
-                    ['daily', 'Daily'],
-                    ['investment', 'Investment'],
-                    ['payout', 'Payout'],
-                  ] as [typeof trendMode, string][]
-                ).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setTrendMode(mode)}
-                    className={trendMode === mode ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <PayoutTrendChart trend={analytics.trend} mode={trendMode} />
-          </div>
-        )}
 
         {/* Realized vs Unrealized — kept as two distinct numbers, never
             blended, per the brief: "clearly distinguish so the user does
@@ -829,7 +817,6 @@ export function PayoutsPage() {
                   <th className="px-2 py-1.5 font-medium">Profit</th>
                   <th className="px-2 py-1.5 font-medium">ROI</th>
                   <th className="px-2 py-1.5 font-medium">Successful IPOs</th>
-                  <th className="px-2 py-1.5 font-medium">Payout</th>
                 </tr>
               </thead>
               <tbody>
@@ -844,7 +831,6 @@ export function PayoutsPage() {
                     </td>
                     <td className="px-2 py-2">{a.roi.toFixed(1)}%</td>
                     <td className="px-2 py-2">{a.successfulIpos}</td>
-                    <td className="px-2 py-2">{rupees(a.payout)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -1529,138 +1515,91 @@ function PayoutSection({
   )
 }
 
-
-// Hand-rolled SVG line chart (no charting library — matches the rest of
-// this app's dataviz components, e.g. IpoProgressGauge/AttributionChart,
-// which are also hand-rolled). One series at a time (mode picks which),
-// so no legend box is needed — the section title above already names it,
-// per this app's own chart conventions. --series-1 is the app's existing
-// validated chart color (index.css), not a new one introduced here.
-// Thin 2px line, rounded caps, a hover crosshair + floating tooltip
-// showing date/value, and a fixed 300x1000 viewBox scaled to 100% width
-// via CSS (not a resize-observer — this page's own layout doesn't need
-// pixel-exact chart width, just a smooth line that reflows with the
-// container).
-function PayoutTrendChart({
-  trend,
-  mode,
-}: {
-  trend: TrendPoint[]
-  mode: 'cumulative' | 'daily' | 'investment' | 'payout'
-}) {
-  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
-  const width = 1000
-  const height = 260
-  const padding = { top: 12, right: 12, bottom: 24, left: 12 }
-  const plotW = width - padding.left - padding.right
-  const plotH = height - padding.top - padding.bottom
-
-  const valueFor = (t: TrendPoint) =>
-    mode === 'cumulative'
-      ? t.cumulativeProfit
-      : mode === 'daily'
-        ? t.dailyProfit
-        : mode === 'investment'
-          ? t.cumulativeInvestment
-          : t.cumulativePayout
-
-  const values = trend.map(valueFor)
-  const maxVal = Math.max(1, ...values, 0)
-  const minVal = Math.min(0, ...values)
-  const range = maxVal - minVal || 1
-
-  const xFor = (i: number) => padding.left + (trend.length <= 1 ? 0 : (i / (trend.length - 1)) * plotW)
-  const yFor = (v: number) => padding.top + plotH - ((v - minVal) / range) * plotH
-
-  const points = trend.map((t, i) => `${xFor(i)},${yFor(valueFor(t))}`).join(' ')
-  const zeroY = yFor(0)
-
-  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const relX = ((e.clientX - rect.left) / rect.width) * width
-    const idx = Math.round(((relX - padding.left) / plotW) * (trend.length - 1))
-    setHoverIndex(Math.max(0, Math.min(trend.length - 1, idx)))
-  }
-
-  const hovered = hoverIndex != null ? trend[hoverIndex] : null
-
+// KPI-tile hover panels — same HoverCard-via-StatTile pattern DashboardPage
+// established (StatTile itself lives there, exported for reuse). Kept local
+// to this file rather than imported, same reasoning DashboardPage's own
+// small panel components use: each is a few lines, single-consumer.
+function SuccessfulIposPanel({ rows }: { rows: IpoBreakdownRow[] }) {
+  const successful = rows.filter((r) => r.profit > 0)
+  if (successful.length === 0) return <PanelEmpty>No profitable IPOs in this range yet.</PanelEmpty>
   return (
-    <div className="relative">
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full"
-        style={{ height: 220 }}
-        onMouseMove={handleMove}
-        onMouseLeave={() => setHoverIndex(null)}
-        role="img"
-        aria-label={`Profit trend chart, ${mode} view`}
-      >
-        {/* Recessive baseline at zero, only when the series actually
-            crosses it (daily can go negative) — a bar/line chart at pure
-            positive values doesn't need a zero-line cluttering it. */}
-        {minVal < 0 && (
-          <line x1={padding.left} y1={zeroY} x2={width - padding.right} y2={zeroY} stroke="var(--border)" strokeWidth={1} />
-        )}
-        <polyline
-          points={points}
-          fill="none"
-          stroke="var(--series-1)"
-          strokeWidth={2}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        {hoverIndex != null && (
-          <line
-            x1={xFor(hoverIndex)}
-            y1={padding.top}
-            x2={xFor(hoverIndex)}
-            y2={height - padding.bottom}
-            stroke="var(--ink-muted)"
-            strokeWidth={1}
-            strokeDasharray="3,3"
-          />
-        )}
-        {hoverIndex != null && (
-          <circle cx={xFor(hoverIndex)} cy={yFor(valueFor(trend[hoverIndex]))} r={4} fill="var(--series-1)" stroke="var(--surface)" strokeWidth={2} />
-        )}
-        {/* First/last date labels only — direct-labeling every point would
-            be noise; a hover tooltip covers the rest (dataviz convention:
-            selective direct labels, not a number on every point). */}
-        {trend.length > 0 && (
-          <text x={padding.left} y={height - 6} fontSize={11} fill="var(--ink-muted)">
-            {formatShortDate(trend[0].date)}
-          </text>
-        )}
-        {trend.length > 1 && (
-          <text x={width - padding.right} y={height - 6} fontSize={11} fill="var(--ink-muted)" textAnchor="end">
-            {formatShortDate(trend[trend.length - 1].date)}
-          </text>
-        )}
-      </svg>
-      {hovered && (
-        <div
-          className="card pointer-events-none absolute top-0 rounded-md px-2.5 py-1.5 text-xs shadow-lg"
-          style={{
-            left: `${(xFor(hoverIndex!) / width) * 100}%`,
-            transform: xFor(hoverIndex!) > width / 2 ? 'translateX(-105%)' : 'translateX(5%)',
-          }}
-        >
-          <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {formatShortDate(hovered.date)}
-          </p>
-          <p style={{ color: 'var(--ink-muted)' }}>{rupees(valueFor(hovered))}</p>
+    <div className="space-y-1.5">
+      {successful.map((r) => (
+        <div key={r.ipoId} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {r.ipoName}
+          </span>
+          <span className="shrink-0" style={{ color: 'var(--good)' }}>
+            {rupees(r.profit)}
+          </span>
         </div>
-      )}
+      ))}
     </div>
   )
 }
 
-// "18 Aug" — same compact day+short-month convention AllotmentBoardPage's
-// own formatShortDate already uses (kept as a separate local copy rather
-// than a cross-page import for one three-line function, same reasoning
-// DashboardPage's own copy documents).
-function formatShortDate(iso: string): string {
-  const [y, m, d] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(y, m - 1, d))
-  return `${d} ${date.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })}`
+function ApplicationsStatusPanel({ counts }: { counts: ApplicationStatusCounts }) {
+  const rows: [string, number][] = [
+    ['Applied', counts.applied],
+    ['Allotted', counts.allotted],
+    ['Not allotted', counts.notAllotted],
+    ['Sold', counts.sold],
+  ]
+  if (rows.every(([, n]) => n === 0)) return <PanelEmpty>No applications in this range.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {rows.map(([label, n]) => (
+        <div key={label} className="flex items-center justify-between gap-3">
+          <span style={{ color: 'var(--ink-muted)' }}>{label}</span>
+          <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {n}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SharesByIpoPanel({ rows }: { rows: IpoShareRow[] }) {
+  if (rows.length === 0) return <PanelEmpty>No shares allotted in this range yet.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.ipoName} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {r.ipoName}
+          </span>
+          <span className="shrink-0" style={{ color: 'var(--ink-secondary)' }}>
+            {r.shares}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PendingByAccountPanel({ rows }: { rows: AccountPendingRow[] }) {
+  if (rows.length === 0) return <PanelEmpty>Nothing owed right now.</PanelEmpty>
+  return (
+    <div className="space-y-1.5">
+      {rows.map((r) => (
+        <div key={r.funderName} className="flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {r.funderName}
+          </span>
+          <span className="shrink-0" style={{ color: 'var(--warning)' }}>
+            {rupees(r.pending)}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function PanelEmpty({ children }: { children: ReactNode }) {
+  return (
+    <p className="p-1" style={{ color: 'var(--ink-muted)' }}>
+      {children}
+    </p>
+  )
 }

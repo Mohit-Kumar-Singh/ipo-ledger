@@ -166,11 +166,40 @@ export interface BestWorstIpo {
   roi: number
 }
 
+// Application counts by status within range — backs the "Applications" KPI
+// tile's hover panel. Counted straight off rowsInRange (same set
+// totalApplications sums), not re-derived from ipoBreakdown, since
+// ipoBreakdown only covers rows that produced a realized/unrealized profit
+// line (i.e. ALLOTTED/SOLD) and would silently drop APPLIED/NOT_ALLOTTED.
+export interface ApplicationStatusCounts {
+  applied: number
+  allotted: number
+  notAllotted: number
+  sold: number
+}
+
+// Per-IPO share count — backs the "Shares allotted" KPI tile's hover panel.
+export interface IpoShareRow {
+  ipoName: string
+  shares: number
+}
+
+// Per-account amount still owed out to a funder — backs the "Pending
+// payout" KPI tile's hover panel. Same settlementCards remainingToFunder
+// this page's own settlement UI reads, just grouped by funder name.
+export interface AccountPendingRow {
+  funderName: string
+  pending: number
+}
+
 export interface PayoutAnalytics {
   range: DateRange
   summary: MonthlySummary
   ipoBreakdown: IpoBreakdownRow[]
   accountBreakdown: AccountBreakdownRow[]
+  statusBreakdown: ApplicationStatusCounts
+  sharesByIpo: IpoShareRow[]
+  pendingByAccount: AccountPendingRow[]
   trend: TrendPoint[]
   payoutStatus: PayoutStatusBreakdown
   capital: CapitalUtilization
@@ -231,11 +260,36 @@ export function buildPayoutAnalytics(
   )
   const pendingPayout = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
 
+  const pendingByAccountMap = new Map<string, number>()
+  for (const c of settlementCards) {
+    if (!c.funderName || c.remainingToFunder <= SETTLED_EPSILON_LOCAL) continue
+    pendingByAccountMap.set(c.funderName, (pendingByAccountMap.get(c.funderName) ?? 0) + c.remainingToFunder)
+  }
+  const pendingByAccount: AccountPendingRow[] = Array.from(pendingByAccountMap.entries())
+    .map(([funderName, pending]) => ({ funderName, pending }))
+    .sort((a, b) => b.pending - a.pending)
+
   const totalProfit = realizedProfit + unrealizedProfit
   const roi = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
 
   const allottedOrSold = rowsInRange.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')
   const totalSharesAllotted = allottedOrSold.reduce((s, r) => s + r.lots * (r.ipos?.lot_size ?? 0), 0)
+
+  const statusBreakdown: ApplicationStatusCounts = {
+    applied: rowsInRange.filter((r) => r.status === 'APPLIED').length,
+    allotted: rowsInRange.filter((r) => r.status === 'ALLOTTED').length,
+    notAllotted: rowsInRange.filter((r) => r.status === 'NOT_ALLOTTED').length,
+    sold: rowsInRange.filter((r) => r.status === 'SOLD').length,
+  }
+
+  const sharesByIpoMap = new Map<string, number>()
+  for (const r of allottedOrSold) {
+    const name = r.ipos?.company_name ?? 'Unknown IPO'
+    sharesByIpoMap.set(name, (sharesByIpoMap.get(name) ?? 0) + r.lots * (r.ipos?.lot_size ?? 0))
+  }
+  const sharesByIpo: IpoShareRow[] = Array.from(sharesByIpoMap.entries())
+    .map(([ipoName, shares]) => ({ ipoName, shares }))
+    .sort((a, b) => b.shares - a.shares)
 
   // "Successful IPOs" = distinct IPOs with positive profit, realized or
   // projected — an IPO counts once even if it has several applications.
@@ -426,6 +480,9 @@ export function buildPayoutAnalytics(
     summary,
     ipoBreakdown: ipoBreakdown.sort((a, b) => b.profit - a.profit),
     accountBreakdown,
+    statusBreakdown,
+    sharesByIpo,
+    pendingByAccount,
     trend,
     payoutStatus,
     capital,
