@@ -57,11 +57,11 @@ export class ErrorBoundary extends Component<Props, State> {
           ) : (
             <>
               <h1 className="text-lg font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                Something went wrong
+                Couldn't load this page
               </h1>
               <p className="max-w-sm text-sm" style={{ color: 'var(--ink-muted)' }}>
-                This page hit an unexpected error. Try reloading — if it keeps happening, the details are in your
-                browser console.
+                Usually a shaky internet connection. Check your network and reload — if it keeps happening, the
+                details are in your browser console.
               </p>
             </>
           )}

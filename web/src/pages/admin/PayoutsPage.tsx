@@ -8,7 +8,15 @@
 // through every settled IPO one at a time.
 import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDownIcon, SearchIcon, CreditCardIcon } from '@primer/octicons-react'
+import {
+  ChevronDownIcon,
+  SearchIcon,
+  CreditCardIcon,
+  ClockIcon,
+  ChecklistIcon,
+  PaperAirplaneIcon,
+  CheckCircleFillIcon,
+} from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -34,8 +42,9 @@ import {
   type IpoSettlementGroup,
 } from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
-import { InlineSpinner } from '../../components/PageSpinner'
-import { InfoTooltip } from '../../components/HoverCard'
+import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
+import { InfoTooltip, HoverCard } from '../../components/HoverCard'
+import { useCountUp } from '../../lib/useCountUp'
 import {
   buildPayoutAnalytics,
   resolveDateRange,
@@ -228,6 +237,35 @@ function groupExpectedByHolder(lines: UnrealizedProfitLine[]): SettlementPartyGr
     g.ipos.push({ ipoName: l.ipoName, amount: l.holderCut })
   }
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
+// Shown in place of the whole analytics dashboard while its data is still
+// loading, instead of rendering the real cards immediately with every
+// number at its empty-array default of 0 and then jumping to the true
+// figure the instant the query resolves — that flash-then-jump was the
+// actual bug being reported, not anything wrong with the numbers
+// themselves. Shaped roughly like the real layout below (skeleton bars
+// standing in for each card) so there's no layout shift once it's replaced.
+function AnalyticsSkeleton() {
+  return (
+    <div className="space-y-5">
+      <div className="card space-y-3 p-5">
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-3 w-56" />
+      </div>
+      <div className="grid grid-cols-2 gap-2.5">
+        <Skeleton className="h-16 rounded-2xl" />
+        <Skeleton className="h-16 rounded-2xl" />
+      </div>
+      <Skeleton className="h-24 rounded-2xl" />
+      <div className="grid grid-cols-2 gap-3">
+        <Skeleton className="h-16 rounded-2xl" />
+        <Skeleton className="h-16 rounded-2xl" />
+      </div>
+      <Skeleton className="h-40 rounded-2xl" />
+    </div>
+  )
 }
 
 export function PayoutsPage() {
@@ -436,6 +474,20 @@ export function PayoutsPage() {
   const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
   const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
 
+  // Counts up from 0 on mount/change instead of snapping straight to the
+  // number — same motion StatTile's own KPI tiles already use, extended to
+  // this page's non-StatTile headline figures so the whole dashboard reads
+  // as one consistent feel instead of some numbers animating and others
+  // popping in abruptly. useCountUp itself no-ops (renders the real value
+  // immediately) while analytics is still the empty-array default, so
+  // there's nothing to animate FROM until real data exists — the loading
+  // skeleton below covers that gap instead.
+  const animatedTotalProfit = useCountUp(analytics.summary.totalProfit)
+  const animatedRealizedProfit = useCountUp(analytics.summary.realizedProfit)
+  const animatedUnrealizedProfit = useCountUp(analytics.summary.unrealizedProfit)
+  const animatedPaid = useCountUp(analytics.payoutStatus.paid)
+  const animatedPending = useCountUp(analytics.payoutStatus.pending)
+
   if (!isAdmin) {
     // rows (v_allotment_board, SOLD only) is already RLS-scoped to just
     // this funder's own applications — no separate fetch/filter needed,
@@ -586,45 +638,62 @@ export function PayoutsPage() {
           )}
         </div>
 
+        {loading ? (
+          <AnalyticsSkeleton />
+        ) : (
+          <>
         {/* Profit Till Date — the single most important number on the page,
             per the design brief this was built against: visual hierarchy is
             Profit -> ROI -> Investment -> Payout -> Pending -> everything
             else below. Realized/unrealized are broken out immediately
-            underneath so "combined" is never mistaken for "confirmed." */}
+            underneath so "combined" is never mistaken for "confirmed." Whole
+            card is now the hover trigger (HoverCard wraps it), same "hover
+            anywhere on the tile" convention Dashboard's own StatTile uses —
+            not just a small (i) icon in the corner. */}
+        <HoverCard
+          tone="good"
+          panel={
+            <p style={{ color: 'var(--ink-secondary)' }}>
+              Realized profit from applications you've marked SOLD, plus estimated profit from ones that are
+              allotted but not yet sold, combined into one number. ROI is total profit divided by total invested.
+            </p>
+          }
+        >
         <div className="card p-5">
-          <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
             {range.label} · Profit till date
-            <InfoTooltip text="Realized profit from applications you've marked SOLD, plus estimated profit from ones that are allotted but not yet sold, combined into one number. ROI is total profit divided by total invested." />
           </p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <p className="font-mono-ipo text-4xl font-bold" style={{ color: 'var(--good)' }}>
-              {rupees(analytics.summary.totalProfit)}
+              {rupees(animatedTotalProfit)}
             </p>
             <span className="badge badge-good">{analytics.summary.roi.toFixed(2)}% ROI</span>
           </div>
           <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
             {rupees(analytics.summary.realizedProfit)} realized + {rupees(analytics.summary.unrealizedProfit)} estimated
-            (still held, not yet sold)
+            (allotted/still held)
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-5" style={{ borderColor: 'var(--border)' }}>
+          {/* ROI dropped from this grid — already shown as the badge above,
+              no need for it twice. */}
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-4" style={{ borderColor: 'var(--border)' }}>
             {[
               ['Investment', analytics.summary.totalInvested, 'var(--ink-primary)'],
               ['Profit', analytics.summary.totalProfit, 'var(--good)'],
               ['Payout received', analytics.summary.totalPayout, 'var(--accent)'],
               ['Pending', analytics.summary.pendingPayout, 'var(--warning-text)'],
-              ['ROI', null, 'var(--ink-primary)'],
             ].map(([label, amount, color]) => (
               <div key={label as string}>
                 <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
                   {label}
                 </p>
                 <p className="font-mono-ipo text-sm font-semibold" style={{ color: color as string }}>
-                  {amount === null ? `${analytics.summary.roi.toFixed(2)}%` : rupees(amount as number)}
+                  {rupees(amount as number)}
                 </p>
               </div>
             ))}
           </div>
         </div>
+        </HoverCard>
 
         {/* KPI grid — StatTile is Dashboard's own component (exported for
             reuse rather than a second near-identical tile implementation).
@@ -649,38 +718,41 @@ export function PayoutsPage() {
           />
         </div>
 
-        {/* Realized vs Unrealized — kept as two distinct numbers, never
-            blended, per the brief: "clearly distinguish so the user does
-            not confuse estimated profit with actual payout." */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="card p-4">
+        {/* Realized vs Unrealized — one rectangle, three sections, divided by
+            a border rather than three separate cards (per feedback) — still
+            never blended into one number: the brief's "clearly distinguish
+            so the user does not confuse estimated profit with actual
+            payout" is met by the divider + separate labels, not by separate
+            card shells. */}
+        <div className="card grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
+          <div className="p-4">
             <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
               Realized
             </p>
             <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--good)' }}>
-              {rupees(analytics.summary.realizedProfit)}
+              {rupees(animatedRealizedProfit)}
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
               From shares actually sold
             </p>
           </div>
-          <div className="card p-4">
+          <div className="p-4">
             <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
               Unrealized (estimated)
             </p>
             <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--accent)' }}>
-              {rupees(analytics.summary.unrealizedProfit)}
+              {rupees(animatedUnrealizedProfit)}
             </p>
             <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-              Allotted, still held — live price or GMP estimate
+              Allotted/still held — live price or GMP estimate
             </p>
           </div>
-          <div className="card p-4">
+          <div className="p-4">
             <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
               Total
             </p>
             <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              {rupees(analytics.summary.totalProfit)}
+              {rupees(animatedTotalProfit)}
             </p>
           </div>
         </div>
@@ -691,45 +763,69 @@ export function PayoutsPage() {
             fabricating states that don't exist here. Clicking a card
             filters the transaction table below. */}
         <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick={() => setPayoutStatusFilter((f) => (f === 'paid' ? 'all' : 'paid'))}
-            className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
-            style={payoutStatusFilter === 'paid' ? { borderColor: 'var(--good)' } : undefined}
+          <HoverCard
+            tone="good"
+            panel={
+              <p style={{ color: 'var(--ink-secondary)' }}>
+                Total of every settlement_payments row logged so far — a real, confirmed transfer, not an estimate.
+                Click the card to filter the transaction table below to just these.
+              </p>
+            }
           >
-            <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Paid
-              <InfoTooltip text="Total of every settlement_payments row logged so far — a real, confirmed transfer, not an estimate. Click to filter the transaction table below to just these." />
-            </p>
-            <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--good)' }}>
-              {rupees(analytics.payoutStatus.paid)}
-            </p>
-          </button>
-          <button
-            type="button"
-            onClick={() => setPayoutStatusFilter((f) => (f === 'pending' ? 'all' : 'pending'))}
-            className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
-            style={payoutStatusFilter === 'pending' ? { borderColor: 'var(--warning)' } : undefined}
+            <button
+              type="button"
+              onClick={() => setPayoutStatusFilter((f) => (f === 'paid' ? 'all' : 'paid'))}
+              className="card w-full p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
+              style={payoutStatusFilter === 'paid' ? { borderColor: 'var(--good)' } : undefined}
+            >
+              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                Paid
+              </p>
+              <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--good)' }}>
+                {rupees(animatedPaid)}
+              </p>
+            </button>
+          </HoverCard>
+          <HoverCard
+            tone="warning"
+            panel={
+              <p style={{ color: 'var(--ink-secondary)' }}>
+                What's still owed to funders on already-SOLD applications, after subtracting every logged payment —
+                the live settlement ledger, not a projection.
+              </p>
+            }
           >
-            <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Pending
-              <InfoTooltip text="What's still owed to funders on already-SOLD applications, after subtracting every logged payment — the live settlement ledger, not a projection." />
-            </p>
-            <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--warning-text)' }}>
-              {rupees(analytics.payoutStatus.pending)}
-            </p>
-          </button>
+            <button
+              type="button"
+              onClick={() => setPayoutStatusFilter((f) => (f === 'pending' ? 'all' : 'pending'))}
+              className="card w-full p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
+              style={payoutStatusFilter === 'pending' ? { borderColor: 'var(--warning)' } : undefined}
+            >
+              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                Pending
+              </p>
+              <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--warning-text)' }}>
+                {rupees(animatedPending)}
+              </p>
+            </button>
+          </HoverCard>
         </div>
 
-        {/* IPO-wise breakdown */}
+        {/* IPO-wise breakdown — overflow-x-auto lives on the table wrapper
+            ONLY, not the whole card. Per the CSS overflow spec, setting
+            overflow-x without an explicit overflow-y computes overflow-y to
+            auto too, which was clipping the heading's hover panel (it pops
+            open BELOW the heading, inside what used to be this same
+            scroll-clipped box) — same bug on the Account performance card
+            below. */}
         {analytics.ipoBreakdown.length > 0 && (
-          <div className="card overflow-x-auto p-4">
+          <div className="card p-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                 IPO-wise profit analysis
                 <InfoTooltip text="One row per IPO you've applied to. 'est.' means it isn't sold yet — profit and payout status are projected from the live/GMP price, not confirmed." />
               </h2>
-              <div className="flex gap-1">
+              <div className="segmented scrollbar-none max-w-full overflow-x-auto">
                 {(
                   [
                     ['profit', 'Highest profit'],
@@ -741,13 +837,14 @@ export function PayoutsPage() {
                     key={sort}
                     type="button"
                     onClick={() => setIpoSort(sort)}
-                    className={ipoSort === sort ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                    className={`segmented-item shrink-0 whitespace-nowrap ${ipoSort === sort ? 'segmented-item-active' : ''}`}
                   >
                     {label}
                   </button>
                 ))}
               </div>
             </div>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
                 <tr>
@@ -799,6 +896,7 @@ export function PayoutsPage() {
                   ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
@@ -839,11 +937,12 @@ export function PayoutsPage() {
             resolving just a display name for anyone who isn't the viewer
             themselves (see resolve_bank_holder_names). */}
         {analytics.accountBreakdown.length > 0 && (
-          <div className="card overflow-x-auto p-4">
+          <div className="card p-4">
             <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               Account performance
               <InfoTooltip text="Investment and profit totalled per funder, across every IPO they've funded — realized and estimated profit combined, same as the KPI cards above." />
             </h2>
+            <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
                 <tr>
@@ -870,14 +969,23 @@ export function PayoutsPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 
-        {/* Capital utilization */}
+        {/* Capital utilization — whole card is the hover trigger, same as
+            Profit till date above. */}
+        <HoverCard
+          panel={
+            <p style={{ color: 'var(--ink-secondary)' }}>
+              How your total invested bid amount (this range) breaks down: still locked in allotted-not-yet-sold
+              applications, vs. already released by marking something sold.
+            </p>
+          }
+        >
         <div className="card p-4">
-          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Capital utilization
-            <InfoTooltip text="How your total invested bid amount (this range) breaks down: still locked in allotted-not-yet-sold applications, vs. already released by marking something sold." />
           </h2>
           <div className="flex h-2.5 overflow-hidden rounded-full" style={{ background: 'var(--hover-surface)' }}>
             {analytics.capital.invested > 0 && (
@@ -928,6 +1036,7 @@ export function PayoutsPage() {
             </div>
           </div>
         </div>
+        </HoverCard>
 
         {/* Performance insights — only ever built from real numbers already
             computed above (lib/payoutAnalytics.ts); never shown if empty. */}
@@ -945,6 +1054,8 @@ export function PayoutsPage() {
               ))}
             </ul>
           </div>
+        )}
+          </>
         )}
       </div>
 
@@ -981,7 +1092,10 @@ export function PayoutsPage() {
           obligation the way that section is. */}
       {(expectedByFunder.length > 0 || expectedByHolder.length > 0) && (
         <div className="space-y-3">
-          <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            <span className="icon-badge icon-badge-info shrink-0" style={{ width: '1.75rem', height: '1.75rem' }}>
+              <ClockIcon size={13} />
+            </span>
             Expected — not yet sold
           </h2>
           <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -1010,7 +1124,10 @@ export function PayoutsPage() {
 
       {ipoSettlementGroups.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <h2 className="flex items-center gap-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            <span className="icon-badge icon-badge-good shrink-0" style={{ width: '1.75rem', height: '1.75rem' }}>
+              <ChecklistIcon size={13} />
+            </span>
             Settlement — by IPO
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -1526,16 +1643,24 @@ function PayoutSection({
                 <div className="mt-2 space-y-1.5">
                   {g.lines.map((l) => (
                     <div key={l.applicationId + l.field} className="flex items-center justify-between gap-2 text-xs">
+                      {/* First word only, same compact convention Dashboard's
+                          own panels use (e.g. PendingMandatePanel) — the full
+                          company name is already on screen elsewhere on this
+                          page (Settlement — by IPO), this line is meant to
+                          be scannable, not a second full listing. */}
                       <span style={{ color: 'var(--ink-muted)' }}>
-                        {l.ipoName} · {l.kind === 'cut' ? 'cut' : 'share'} · ₹{Math.round(l.amount).toLocaleString('en-IN')}
+                        {l.ipoName.split(' ')[0]} · {l.kind === 'cut' ? 'cut' : 'share'} · ₹
+                        {Math.round(l.amount).toLocaleString('en-IN')}
                       </span>
-                      <span className="flex shrink-0 items-center gap-2">
+                      <span className="flex shrink-0 items-center gap-2.5">
                         {l.phone && (
                           <button
                             onClick={() => sendCustomWhatsapp(l.phone!, payoutMessage(l.row, l.result, l.kind))}
-                            className="link-accent font-medium"
+                            aria-label="Message"
+                            title="Message"
+                            className="link-accent inline-flex items-center"
                           >
-                            Message
+                            <PaperAirplaneIcon size={14} />
                           </button>
                         )}
                         {l.paid ? (
@@ -1544,9 +1669,11 @@ function PayoutSection({
                           <button
                             onClick={() => onMarkPaid(l)}
                             disabled={markingPaid === l.applicationId + l.field}
-                            className="link-accent font-medium disabled:opacity-50"
+                            aria-label={markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                            title={markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                            className="link-accent inline-flex items-center disabled:opacity-50"
                           >
-                            {markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                            <CheckCircleFillIcon size={14} />
                           </button>
                         )}
                       </span>

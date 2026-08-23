@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckCircleIcon, ClockIcon, LawIcon, CreditCardIcon, FileIcon, GraphIcon, LinkIcon } from '@primer/octicons-react'
+import { IndianRupee } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchIpos, fetchDematAccounts, fetchAllotmentBoardAll, queryKeys } from '../../lib/queries'
@@ -849,16 +850,31 @@ export function DashboardPage() {
           <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
             Dashboard
           </h1>
-          {/* Quick jump to the full IPO list — sits at the far end of the row. */}
-          <Link
-            to="/ipos"
-            aria-label="Go to IPOs"
-            title="Go to IPOs"
-            className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
-            style={{ color: 'var(--ink-muted)' }}
-          >
-            <GraphIcon size={16} />
-          </Link>
+          {/* Quick jumps — full IPO list, and (admin only, same gate the
+              sidebar nav uses) Payouts, which used to sit as its own icon on
+              the Allotment board before moving here per feedback. */}
+          <div className="flex items-center gap-1">
+            <Link
+              to="/ipos"
+              aria-label="Go to IPOs"
+              title="Go to IPOs"
+              className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+              style={{ color: 'var(--ink-muted)' }}
+            >
+              <GraphIcon size={16} />
+            </Link>
+            {isAdmin && (
+              <Link
+                to="/payouts"
+                aria-label="Go to Payouts"
+                title="Go to Payouts"
+                className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                <IndianRupee size={16} />
+              </Link>
+            )}
+          </div>
         </div>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
           {isAdmin ? 'Overview across all accounts and IPOs' : 'Overview of your accounts and upcoming IPOs'}
