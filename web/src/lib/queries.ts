@@ -35,6 +35,13 @@ export const queryKeys = {
   dematAccounts: ['demat_accounts'] as const,
   bankAccounts: ['bank_accounts'] as const,
   allotmentBoard: ['v_allotment_board'] as const,
+  // settlement_payments is genuinely page-local (only Payouts reads it) so
+  // it isn't one of the shared multi-page caches above — but it IS now in
+  // the supabase_realtime publication (migration 0085), and RealtimeCacheSync
+  // needs the exact same key PayoutsPage's own useQuery uses to invalidate
+  // the right cache entry. Defined here, not duplicated as a literal in two
+  // files, so the two can't silently drift apart.
+  payoutsLocal: ['payouts-local'] as const,
 }
 
 // Plain async fetchers, exported separately from the useX hooks below —

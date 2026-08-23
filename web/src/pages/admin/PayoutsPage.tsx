@@ -6,7 +6,7 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useMemo, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDownIcon,
@@ -23,7 +23,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
-import { payoutMessage, effectiveSplitWithFunder, payoutCutContact } from './AllotmentBoardPage'
+import { payoutMessage } from './AllotmentBoardPage'
+import { effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import {
@@ -321,7 +322,7 @@ export function PayoutsPage() {
     case2ManagerIds: Set<string>
   }
   const localPayoutsQuery = useQuery<LocalPayoutsData>({
-    queryKey: ['payouts-local'],
+    queryKey: queryKeys.payoutsLocal,
     queryFn: async () => {
       const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes] = await Promise.all([
         supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
@@ -415,7 +416,7 @@ export function PayoutsPage() {
   // staleTime window (payouts-local).
   function invalidatePayoutsData() {
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
-    queryClient.invalidateQueries({ queryKey: ['payouts-local'] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.payoutsLocal })
   }
 
   async function markPaid(line: PayoutLine) {
@@ -1339,6 +1340,14 @@ function SettlementCardView({
   const [amount, setAmount] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
+  // One key per log-payment ATTEMPT, not per network request — generated
+  // once when the form opens, reused across any retry of that same
+  // attempt (a timed-out request that actually succeeded, a second click
+  // after a transient error), and only cleared once a payment actually
+  // lands. A ref, not state: changing it must never itself trigger a
+  // re-render. See migration 0084 — the unique index this keys against is
+  // the actual fix; this is just where the key comes from.
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   // Defaults the amount field to whatever's still outstanding for the
   // selected kind's direction, so the common case (logging the full
@@ -1356,48 +1365,68 @@ function SettlementCardView({
       showToast('Enter an amount greater than 0.', 'warning')
       return
     }
-    setSaving(true)
-    const { error } = await supabase
-      .from('settlement_payments')
-      .insert({ application_id: c.applicationId, kind, amount: amt, note: note.trim() || null })
-    if (error) {
-      setSaving(false)
-      showToast(error.message, 'critical')
-      return
-    }
+    // Same key for every retry of this one attempt — only minted fresh when
+    // the form is opened (see the "+ Log a payment" button below), so a
+    // second click here after a timeout/error reuses it rather than making
+    // a new one, which is what actually makes the 23505 branch below mean
+    // "this exact attempt already landed" instead of "coincidence."
+    if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
+    const idempotencyKey = idempotencyKeyRef.current
 
-    // What this payment leaves outstanding. Mirrors buildSettlementCards'
-    // own two reducers: a holder_to_funder payment counts against BOTH
-    // sides at once (it left the holder and reached the funder, it just
-    // never passed through the admin), which is why these aren't exclusive.
+    // What this payment leaves outstanding, computed BEFORE the write —
+    // mirrors buildSettlementCards' own two reducers: a holder_to_funder
+    // payment counts against BOTH sides at once (it left the holder and
+    // reached the funder, it just never passed through the admin), which is
+    // why these aren't exclusive. Only the resulting true/false flags cross
+    // into SQL below — the split itself (amountFromHolder/amountToFunder)
+    // still only ever exists in computeProfitSplit on the client; see
+    // settlement.ts's own note on why that math doesn't get reimplemented
+    // in the database.
     const nextFromHolder =
       c.remainingFromHolder - (kind === 'holder_to_admin' || kind === 'holder_to_funder' ? amt : 0)
     const nextToFunder =
       c.remainingToFunder - (kind === 'admin_to_funder' || kind === 'holder_to_funder' ? amt : 0)
-
-    // Flip the legacy paid-flags for any side this payment just cleared, so
-    // the Dashboard tile / Outstanding list / auto-archive stop reporting a
-    // debt the ledger shows as settled. Done here rather than in a DB
-    // trigger on settlement_payments because the amounts owed come out of
-    // computeProfitSplit on the client — the database has no idea what
-    // amountFromHolder/amountToFunder are, and reimplementing that split in
-    // SQL is exactly the kind of duplicated math that drifts.
     const flags = settledPaidFlags(c, nextFromHolder, nextToFunder)
-    if (Object.keys(flags).length > 0) {
-      const { error: flagError } = await supabase.from('applications').update(flags).eq('id', c.applicationId)
-      if (flagError) {
-        // The payment itself is already saved and is the authoritative
-        // record — surface the flag failure without discarding it, rather
-        // than reporting the whole thing as failed.
-        showToast(`Payment logged, but couldn't update paid status: ${flagError.message}`, 'warning')
-      } else {
-        // Settling the last side of the last unsettled row can be what makes
-        // the whole IPO archivable, same check the Allotment board runs
-        // after its own "Mark paid".
-        await maybeAutoArchiveIpo(c.ipoId)
-      }
+
+    setSaving(true)
+    // Both the payment insert and the paid-flag update happen inside ONE
+    // Postgres transaction (migration 0087) — either both land or neither
+    // does, instead of the old two-sequential-calls version where a second-
+    // call failure could leave a real, saved payment with stale flags next
+    // to it.
+    const { error } = await supabase.rpc('log_settlement_payment', {
+      p_application_id: c.applicationId,
+      p_kind: kind,
+      p_amount: amt,
+      p_note: note.trim() || null,
+      p_idempotency_key: idempotencyKey,
+      p_set_demat_cut_paid: !!flags.demat_cut_paid,
+      p_set_funder_share_paid: !!flags.funder_share_paid,
+    })
+    if (error && error.code !== '23505') {
+      setSaving(false)
+      showToast(error.message, 'critical')
+      return
+    }
+    if (error) {
+      // 23505 on idempotency_key means THIS exact attempt already landed —
+      // most likely the previous click's request actually succeeded (flags
+      // included) and the "Logging…" state just never heard back before the
+      // admin retried. Not a failure: the payment and its flags are already
+      // saved, same as if this call had returned success the first time.
+      showToast('Already logged — this payment was saved on an earlier attempt.', 'info')
+    } else if (Object.keys(flags).length > 0) {
+      // Settling the last side of the last unsettled row can be what makes
+      // the whole IPO archivable, same check the Allotment board runs after
+      // its own "Mark paid". Only run on a genuine fresh success — a 23505
+      // retry means this already ran on the original attempt.
+      await maybeAutoArchiveIpo(c.ipoId)
     }
 
+    // Cleared only on confirmed success (real or "already logged") — the
+    // next time this form opens, it's a genuinely new payment and needs a
+    // fresh key, not the previous one.
+    idempotencyKeyRef.current = null
     setSaving(false)
     setAmount('')
     setNote('')
@@ -1565,7 +1594,13 @@ function SettlementCardView({
               <button onClick={logPayment} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
                 {saving ? 'Logging…' : 'Log payment'}
               </button>
-              <button onClick={() => setShowLog(false)} className="btn-secondary text-xs">
+              <button
+                onClick={() => {
+                  idempotencyKeyRef.current = null
+                  setShowLog(false)
+                }}
+                className="btn-secondary text-xs"
+              >
                 Cancel
               </button>
             </div>

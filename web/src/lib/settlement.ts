@@ -6,8 +6,7 @@
 // app — PayoutsPage's own settlement cards and the analytics dashboard's
 // "Pending Payout" KPI both have to agree with each other, and the only way
 // to guarantee that is one function, not two independently-written ones.
-import { computeProfitSplit } from './profitSplit'
-import { effectiveSplitWithFunder, payoutCutContact } from '../pages/admin/AllotmentBoardPage'
+import { computeProfitSplit, effectiveSplitWithFunder, payoutCutContact } from './profitSplit'
 import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
 
 // What the account holder owes back (principal + all profit except their

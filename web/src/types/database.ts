@@ -148,6 +148,11 @@ export interface SettlementPayment {
   note: string | null
   created_by: string | null
   created_at: string
+  // Client-generated, one per log-payment attempt — unique-constrained
+  // (migration 0084) so a retry after a timeout/error can't create a
+  // second row for the same real payment. Null for any row logged before
+  // this existed.
+  idempotency_key: string | null
 }
 
 export interface Notification {

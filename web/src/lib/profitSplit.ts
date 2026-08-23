@@ -1,3 +1,5 @@
+import type { AllotmentBoardRow } from '../types/database'
+
 export function namesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false
   return a.trim().toLowerCase() === b.trim().toLowerCase()
@@ -52,4 +54,27 @@ export function computeProfitSplit(input: ProfitSplitInput): ProfitSplitResult {
     funderShare,
     profitPersonShare,
   }
+}
+
+// A shared account (migration 0079) forces splitWithFunder=false when its
+// manager is CASE_2 — that person already covers both the account-holder
+// and funder roles in their own cut, so there's no separate 50/50 with a
+// third-party funder to compute. CASE_1 (and non-shared rows) keep whatever
+// the caller/form asked for. Used by AllotmentBoardPage, PayoutsPage,
+// DashboardPage, ArchivesPage, and settlement.ts — moved here (not living on
+// whichever page needed it first) so a lib file depending on it isn't
+// importing from a page component.
+export function effectiveSplitWithFunder(row: AllotmentBoardRow, requested: boolean): boolean {
+  return row.account_manager_case_type === 'CASE_2' ? false : requested
+}
+
+// Who actually receives the demat-side cut/message for this row — the
+// shared-account manager (Person X/Y) when one's assigned, since they
+// manage the relationship end-to-end and the real PAN holder isn't the
+// point of contact for these accounts (migration 0079). Falls back to the
+// literal holder for every normal, non-shared account.
+export function payoutCutContact(row: AllotmentBoardRow): { name: string; phone: string | null } {
+  return row.account_manager_id
+    ? { name: row.account_manager_name ?? row.holder_name, phone: row.account_manager_phone }
+    : { name: row.holder_name, phone: row.phone_e164 }
 }

@@ -39,6 +39,16 @@ export function RealtimeCacheSync() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
         queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
       })
+      // settlement_payments joined the realtime publication in migration
+      // 0085 (financial-audit finding — a payment logged in one session
+      // wasn't visible in another for up to the app's 60s default
+      // staleTime). PayoutsPage's own local query bundles this table with
+      // a couple of others under one key; invalidating the whole bundle on
+      // any settlement_payments change is correct — the other data in it
+      // isn't wrong to refresh too, just not what changed.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settlement_payments' }, () => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.payoutsLocal })
+      })
       .subscribe()
     return () => {
       supabase.removeChannel(channel)

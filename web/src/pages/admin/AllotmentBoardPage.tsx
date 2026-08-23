@@ -6,7 +6,7 @@ import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
-import { computeProfitSplit, namesMatch } from '../../lib/profitSplit'
+import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
@@ -887,29 +887,16 @@ function SoldForm({
   )
 }
 
+// effectiveSplitWithFunder/payoutCutContact moved to lib/profitSplit.ts —
+// pure business rules with no JSX/page dependency, previously living here
+// only because this was the first page that needed them (an architecture
+// smell the app's own audit flagged: business logic inside a UI component,
+// and a lib file — settlement.ts — importing FROM a page component was the
+// actual tell). Imported below like any other lib function now.
+
 // Exported — the new /payouts page reuses this verbatim so an outstanding
 // payout's WhatsApp message reads identically whether it's sent from here
 // or from there, instead of a second, silently-drifting copy.
-// A shared account (migration 0079) forces splitWithFunder=false when its
-// manager is CASE_2 — that person already covers both the account-holder
-// and funder roles in their own cut, so there's no separate 50/50 with a
-// third-party funder to compute. CASE_1 (and non-shared rows) keep whatever
-// the caller/form asked for.
-export function effectiveSplitWithFunder(row: AllotmentBoardRow, requested: boolean): boolean {
-  return row.account_manager_case_type === 'CASE_2' ? false : requested
-}
-
-// Who actually receives the demat-side cut/message for this row — the
-// shared-account manager (Person X/Y) when one's assigned, since they
-// manage the relationship end-to-end and the real PAN holder isn't the
-// point of contact for these accounts (migration 0079). Falls back to the
-// literal holder for every normal, non-shared account.
-export function payoutCutContact(row: AllotmentBoardRow): { name: string; phone: string | null } {
-  return row.account_manager_id
-    ? { name: row.account_manager_name ?? row.holder_name, phone: row.account_manager_phone }
-    : { name: row.holder_name, phone: row.phone_e164 }
-}
-
 export function payoutMessage(
   row: AllotmentBoardRow,
   result: ReturnType<typeof computeProfitSplit>,

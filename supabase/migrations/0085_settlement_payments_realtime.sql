@@ -1,0 +1,12 @@
+-- Financial audit finding (P1): settlement_payments sat outside both the
+-- realtime publication and the shared query cache (lib/queries.ts's own
+-- comment explicitly called this out as a deliberate omission at the time,
+-- since nothing else read it — that's no longer true once this table can
+-- push live updates). A payment logged in one admin session wasn't visible
+-- in a second open tab/device for up to the app's default 60s staleTime,
+-- during which that second session's "still owed" figure — and the
+-- suggested amount pre-filled into ITS OWN log-payment form — were both
+-- stale. Combined with 0084's idempotency key, this closes the loop: even
+-- without a retry, two genuinely different sessions now see the same
+-- ledger within seconds of each other instead of up to a minute apart.
+alter publication supabase_realtime add table settlement_payments;
