@@ -8,7 +8,7 @@
 // through every settled IPO one at a time.
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDownIcon, SearchIcon } from '@primer/octicons-react'
+import { ChevronDownIcon, SearchIcon, CreditCardIcon, FileIcon, GraphIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -19,8 +19,19 @@ import { payoutMessage, effectiveSplitWithFunder, payoutCutContact } from './All
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { buildFunderAllottedCards, expectedProfitBreakdown, type ProfitProjectionRow } from '../../lib/expectedProfit'
+import {
+  buildSettlementCards,
+  groupCardsByIpo,
+  settledPaidFlags,
+  SETTLED_EPSILON,
+  type SettlementCard,
+  type IpoSettlementGroup,
+} from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset, type TrendPoint } from '../../lib/payoutAnalytics'
+import { StatTile } from './DashboardPage'
+import { nowIst } from '../../lib/ipoStatus'
 
 interface PayoutLine {
   applicationId: string
@@ -101,140 +112,15 @@ function rupees(n: number): string {
   return `${sign}₹${Math.round(Math.abs(n)).toLocaleString('en-IN')}`
 }
 
-// The two-sided settlement for one SOLD application: what the account
-// holder owes back (principal + all profit except their own cut — money
-// COMING IN) and what's owed out to whoever funded it (their principal +
-// their profit share, if any — money GOING OUT). Distinct from PayoutLine
-// above, which only tracks the OUTGOING obligations already being marked
-// paid/unpaid; this is a per-application view of the full picture (both
-// directions at once).
-//
-// remainingFromHolder/remainingToFunder are the LIVE figures — the full
-// amountFromHolder/amountToFunder owed, minus whatever settlement_payments
-// rows have actually been logged against this application so far (see
-// migration 0078). Can go negative if overpaid; shown as-is rather than
-// clamped to 0, since an overpayment is worth noticing, not hiding.
-interface SettlementCard {
-  applicationId: string
-  // Needed to re-run the auto-archive check after a payment settles the
-  // last outstanding side of this application — an IPO archives only once
-  // nothing is left pending across all of its rows.
-  ipoId: string
-  ipoName: string
-  lots: number
-  lotSize: number
-  sellPrice: number
-  bidAmount: number
-  totalSoldAmount: number
-  profitTotal: number
-  cutPercent: number
-  holderName: string
-  holderPhone: string | null
-  isDematHolderSelf: boolean
-  dematCutAmount: number
-  // Money coming IN — what the account holder sends back once they've sold.
-  amountFromHolder: number
-  hasFunder: boolean
-  isFunderSelf: boolean
-  funderName: string | null
-  funderPhone: string | null
-  funderShare: number
-  // Money going OUT — what's owed to the funder (their principal + share).
-  amountToFunder: number
-  // What's actually left over for the profit person (you) once both sides
-  // above have moved — incoming minus outgoing, from computeProfitSplit
-  // directly rather than re-derived, so it can never drift from the
-  // authoritative split even if the two amounts above are ever adjusted.
-  myProfit: number
-  payments: SettlementPayment[]
-  remainingFromHolder: number
-  remainingToFunder: number
-}
-
-function buildSettlementCards(
-  rows: AllotmentBoardRow[],
-  profitPersonName: string,
-  paymentsByApp: Map<string, SettlementPayment[]>,
-): SettlementCard[] {
-  const cards: SettlementCard[] = []
-  for (const r of rows) {
-    if (r.sell_price == null) continue
-    const result = computeProfitSplit({
-      sellPricePerShare: r.sell_price,
-      lotSize: r.lot_size,
-      lots: r.lots,
-      bidAmount: r.bid_amount ?? 0,
-      // See the comment on Dashboard's buildPendingPayouts — a funder-only
-      // viewer's own copy of this row has profit_share_percent nulled out
-      // by demat_accounts RLS (they're not linked to the account they
-      // funded), which without this fallback silently skipped the demat
-      // holder's cut and inflated their own settlement figures.
-      cutPercent: r.profit_share_percent ?? 25,
-      dematHolderName: r.holder_name,
-      funderName: r.bank_account_holder_name,
-      profitPersonName,
-      splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
-    })
-    const bidAmount = r.bid_amount ?? 0
-    const amountFromHolder = result.isDematHolderSelf ? 0 : result.totalSoldAmount - result.dematCutAmount
-    // A CASE_2 shared account's "funder" IS its manager (same person as the
-    // holder-side cut recipient, migration 0079) — their bidAmount return is
-    // already folded into amountFromHolder above (bidAmount + their share of
-    // the remainder, via effectiveSplitWithFunder forcing funderShare to 0).
-    // Without this, hasFunder/isFunderSelf would still see a distinct bank
-    // account and wrongly add a SECOND "owed to funder" line for the same
-    // bidAmount that's already inside amountFromHolder.
-    const amountToFunder =
-      r.account_manager_case_type === 'CASE_2'
-        ? 0
-        : result.hasFunder && !result.isFunderSelf
-          ? bidAmount + result.funderShare
-          : 0
-    const cutContact = payoutCutContact(r)
-    const payments = paymentsByApp.get(r.application_id) ?? []
-    // A holder_to_funder payment reduces BOTH sides at once — it's money
-    // that left the holder's pocket (counts against what they still owe)
-    // AND money the funder now has (counts against what's still owed to
-    // them) — it just never passed through you.
-    const paidByHolder = payments
-      .filter((p) => p.kind === 'holder_to_admin' || p.kind === 'holder_to_funder')
-      .reduce((s, p) => s + p.amount, 0)
-    const sentToFunder = payments
-      .filter((p) => p.kind === 'admin_to_funder' || p.kind === 'holder_to_funder')
-      .reduce((s, p) => s + p.amount, 0)
-    cards.push({
-      applicationId: r.application_id,
-      ipoId: r.ipo_id,
-      ipoName: r.company_name,
-      lots: r.lots,
-      lotSize: r.lot_size,
-      sellPrice: r.sell_price,
-      bidAmount,
-      totalSoldAmount: result.totalSoldAmount,
-      profitTotal: result.grossProfit,
-      // Display-only field (the "Show calculation" breakdown text) — same
-      // fallback as the computeProfitSplit call above, so the number shown
-      // always matches what dematCutAmount was actually computed from.
-      cutPercent: r.profit_share_percent ?? 25,
-      holderName: cutContact.name,
-      holderPhone: cutContact.phone,
-      isDematHolderSelf: result.isDematHolderSelf,
-      dematCutAmount: result.dematCutAmount,
-      amountFromHolder,
-      hasFunder: result.hasFunder,
-      isFunderSelf: result.isFunderSelf,
-      funderName: r.bank_account_holder_name,
-      funderPhone: r.bank_account_phone,
-      funderShare: result.funderShare,
-      amountToFunder,
-      myProfit: result.profitPersonShare,
-      payments,
-      remainingFromHolder: amountFromHolder - paidByHolder,
-      remainingToFunder: amountToFunder - sentToFunder,
-    })
-  }
-  return cards
-}
+// Module-level, not per-render — same reasoning as v1.186.0's other
+// stable-empty-fallback fixes (an inline `?? []`/`?? {}` allocates a fresh
+// reference on every render while the query has no data yet, which is an
+// unstable dependency for anything downstream that memoizes on it).
+const EMPTY_PROJECTION_ROWS: ProfitProjectionRow[] = []
+const EMPTY_LIVE_PRICES: Record<string, number | null> = {}
+const EMPTY_CASE2_IDS: Set<string> = new Set()
+const EMPTY_BOARD_ROWS: AllotmentBoardRow[] = []
+const EMPTY_PAYMENTS: SettlementPayment[] = []
 
 interface RecipientGroup {
   name: string
@@ -261,12 +147,6 @@ interface SettlementPartyGroup {
   total: number
   ipos: { ipoName: string; amount: number }[]
 }
-
-// Below a rupee, a card's remaining amount is just floating-point noise from
-// the split math (halves/percentages), not a real outstanding balance — used
-// as the threshold everywhere "still owed" is checked so a fully-settled
-// card never shows up as a stray ₹0.4 entry.
-const SETTLED_EPSILON = 1
 
 // One row per real person still owed money in a given direction — "who do I
 // need to send, how much, for which IPOs" and the mirror "who do I still
@@ -317,70 +197,6 @@ function groupExpectedByFunder(
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
 
-// Both directions of an application's own obligations done — the holder's
-// side (if there was one to begin with) and the funder's side (ditto). A
-// self-funded or self-held application is trivially "settled" on the side
-// that never applied to it in the first place.
-function isCardFullySettled(c: SettlementCard): boolean {
-  const holderDone = c.isDematHolderSelf || c.amountFromHolder <= 0 || c.remainingFromHolder <= SETTLED_EPSILON
-  const funderDone = !c.hasFunder || c.isFunderSelf || c.amountToFunder <= 0 || c.remainingToFunder <= SETTLED_EPSILON
-  return holderDone && funderDone
-}
-
-// Which of the two legacy paid-flags on `applications` a settlement state
-// implies. The flags predate the settlement_payments ledger (0078 replaced
-// the "one lump payment, all-or-nothing" model they encode) but are still
-// what the Dashboard's "Payouts pending" tile, this page's Outstanding/Paid
-// sections, and auto-archive all read — so logging enough payments to clear
-// a side has to flip the matching flag, or those three keep insisting money
-// is owed that the ledger already shows as received.
-//
-// Deliberately only ever reports true. Payments are append-only (there's no
-// delete in the UI), so a remaining balance only ever decreases and a flag
-// only ever needs to go unpaid -> paid; nothing here should un-mark a flag
-// an admin set by hand.
-//
-// Takes the remaining amounts as arguments rather than reading them off the
-// card, so the caller can pass post-payment figures for a payment that
-// hasn't been re-fetched yet.
-function settledPaidFlags(
-  c: SettlementCard,
-  remainingFromHolder: number,
-  remainingToFunder: number,
-): { demat_cut_paid?: true; funder_share_paid?: true } {
-  const flags: { demat_cut_paid?: true; funder_share_paid?: true } = {}
-  if (!c.isDematHolderSelf && c.amountFromHolder > 0 && remainingFromHolder <= SETTLED_EPSILON) {
-    flags.demat_cut_paid = true
-  }
-  if (c.hasFunder && !c.isFunderSelf && c.amountToFunder > 0 && remainingToFunder <= SETTLED_EPSILON) {
-    flags.funder_share_paid = true
-  }
-  return flags
-}
-
-interface IpoSettlementGroup {
-  ipoName: string
-  cards: SettlementCard[]
-  allSettled: boolean
-}
-
-// One entry per IPO, not per application — the page used to list every sold
-// application as its own flat card regardless of which IPO it belonged to,
-// which meant the same IPO's several holders/funders scattered across the
-// grid instead of reading as one settlement job. Grouped + sorted with any
-// still-outstanding IPO first, so the ones needing action surface above the
-// fully-settled ones rather than being interleaved by application id order.
-function groupCardsByIpo(cards: SettlementCard[]): IpoSettlementGroup[] {
-  const byIpo = new Map<string, SettlementCard[]>()
-  for (const c of cards) {
-    if (!byIpo.has(c.ipoName)) byIpo.set(c.ipoName, [])
-    byIpo.get(c.ipoName)!.push(c)
-  }
-  return Array.from(byIpo.entries())
-    .map(([ipoName, ipoCards]) => ({ ipoName, cards: ipoCards, allSettled: ipoCards.every(isCardFullySettled) }))
-    .sort((a, b) => Number(a.allSettled) - Number(b.allSettled) || a.ipoName.localeCompare(b.ipoName))
-}
-
 export function PayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -422,11 +238,21 @@ export function PayoutsPage() {
     // cards above rather than blended into the same total.
     expectedCards: ReturnType<typeof buildFunderAllottedCards>
     livePriceBySymbol: Record<string, number | null>
+    // ALL statuses, ALL applications (not just ALLOTTED-with-a-tracked-
+    // funder like expectedRes below) — the one thing the pre-existing
+    // settlement/expected-payout queries never needed and the new
+    // analytics dashboard does: "how many applications, how much invested,
+    // how many shares allotted, across every status, this period." Same
+    // ProfitProjectionRow shape (id + status_changed_at added, both needed
+    // to key a line to its own application and to a realization date —
+    // see lib/expectedProfit.ts's own note on both fields).
+    allRows: ProfitProjectionRow[]
+    case2ManagerIds: Set<string>
   }
   const localPayoutsQuery = useQuery<LocalPayoutsData>({
     queryKey: ['payouts-local'],
     queryFn: async () => {
-      const [paymentsRes, expectedRes, case2ManagersRes] = await Promise.all([
+      const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes] = await Promise.all([
         supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
         // Same shape/query NotificationsPage's admin funder query and
         // Dashboard's profit-projection query already use — admin-only
@@ -449,6 +275,18 @@ export function PayoutsPage() {
         // shouldn't have their expected remainder halved with a nonexistent
         // third-party funder.
         supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
+        // Broader than expectedRes above: every status (not just ALLOTTED),
+        // no funder-existence filter (self-funded applications count too
+        // for "how much invested"/"how many applications" this period).
+        supabase
+          .from('applications')
+          .select(
+            'id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+          ),
       ])
       // Not fatal on its own — the page still works with the pre-existing
       // paid/unpaid flags below, just without the live remaining-amount
@@ -459,16 +297,29 @@ export function PayoutsPage() {
       if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
+      if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
+      const allRows = ((allRowsRes.data ?? []) as unknown as ProfitProjectionRow[]).filter((r) => !r.ipos?.is_archived)
+
       if (expectedRes.error) {
         showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
-        return { payments, expectedCards: [], livePriceBySymbol: {} }
+        return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>() }
       }
       const expectedRowsBase = ((expectedRes.data ?? []) as unknown as ProfitProjectionRow[]).filter(
         (r) => !r.ipos?.is_archived,
       )
       const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
       const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
-      const symbols = Array.from(new Set(expectedCards.map((c) => c.symbol).filter((s): s is string => !!s)))
+      // Symbols from BOTH the funder-card projection and the broader
+      // allRows set — allRows' own ALLOTTED rows feed buildUnrealizedProfitLines
+      // (the analytics dashboard's unrealized-profit figure), which needs
+      // the same live-price lookup expectedCards already triggers, not a
+      // second round trip to the same Edge Function.
+      const symbols = Array.from(
+        new Set([
+          ...expectedCards.map((c) => c.symbol).filter((s): s is string => !!s),
+          ...allRows.filter((r) => r.status === 'ALLOTTED').map((r) => r.ipos?.symbol).filter((s): s is string => !!s),
+        ]),
+      )
       let livePriceBySymbol: Record<string, number | null> = {}
       if (symbols.length > 0) {
         const { data: priceData } = await supabase.functions.invoke<{
@@ -476,12 +327,14 @@ export function PayoutsPage() {
         }>('fetch-stock-price', { body: { symbols } })
         for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
       }
-      return { payments, expectedCards, livePriceBySymbol }
+      return { payments, expectedCards, livePriceBySymbol, allRows, case2ManagerIds }
     },
   })
-  const payments = localPayoutsQuery.data?.payments ?? []
+  const payments = localPayoutsQuery.data?.payments ?? EMPTY_PAYMENTS
   const expectedCards = localPayoutsQuery.data?.expectedCards ?? []
-  const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? {}
+  const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? EMPTY_LIVE_PRICES
+  const allRows = localPayoutsQuery.data?.allRows ?? EMPTY_PROJECTION_ROWS
+  const case2ManagerIds = localPayoutsQuery.data?.case2ManagerIds ?? EMPTY_CASE2_IDS
   const loading = boardQuery.isPending || localPayoutsQuery.isPending
   const loadError = localPayoutsQuery.error instanceof Error ? localPayoutsQuery.error.message : null
 
@@ -520,8 +373,36 @@ export function PayoutsPage() {
   // own name here would spuriously match their own row, zeroing what
   // they're owed. A non-admin viewer is never the profit-taking admin by
   // construction.
-  const settlementCards = buildSettlementCards(rows, isAdmin ? (profile?.full_name ?? '') : '', paymentsByApp)
+  const profitPersonName = isAdmin ? (profile?.full_name ?? '') : ''
+  const settlementCards = buildSettlementCards(rows, profitPersonName, paymentsByApp)
   const ipoSettlementGroups = groupCardsByIpo(settlementCards)
+
+  // --- Profit & Payout Analytics dashboard (v1.187.0) ---
+  // Default period is This Month -> today, per spec. Everything below is
+  // derived from buildPayoutAnalytics (lib/payoutAnalytics.ts), which
+  // itself only ever calls INTO existing calculations (computeProfitSplit,
+  // buildBookedProfitLines, buildUnrealizedProfitLines, buildSettlementCards)
+  // rather than a second profit formula living in this file.
+  const [rangePreset, setRangePreset] = useState<DateRangePreset>('this_month')
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
+  const todayIstStr = nowIst().dateStr
+  const range = useMemo(
+    () =>
+      resolveDateRange(
+        rangePreset,
+        todayIstStr,
+        rangePreset === 'custom' ? { start: customStart || todayIstStr, end: customEnd || todayIstStr } : undefined,
+      ),
+    [rangePreset, todayIstStr, customStart, customEnd],
+  )
+  const analytics = useMemo(
+    () => buildPayoutAnalytics(allRows, boardQuery.data ?? EMPTY_BOARD_ROWS, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol),
+    [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol],
+  )
+  const [trendMode, setTrendMode] = useState<'cumulative' | 'daily' | 'investment' | 'payout'>('cumulative')
+  const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
+  const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
 
   if (!isAdmin) {
     // rows (v_allotment_board, SOLD only) is already RLS-scoped to just
@@ -619,6 +500,428 @@ export function PayoutsPage() {
                 {rupees(totalMyProfit)}
               </p>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* === Profit & Payout Analytics dashboard (v1.187.0) === */}
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center gap-2">
+          {(
+            [
+              ['this_month', 'This month'],
+              ['last_month', 'Last month'],
+              ['last_3_months', 'Last 3 months'],
+              ['this_year', 'This year'],
+              ['all_time', 'All time'],
+              ['custom', 'Custom'],
+            ] as [DateRangePreset, string][]
+          ).map(([preset, label]) => (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => setRangePreset(preset)}
+              className={rangePreset === preset ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+            >
+              {label}
+            </button>
+          ))}
+          {rangePreset === 'custom' && (
+            <div className="flex items-center gap-1.5">
+              <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="input text-xs" />
+              <span style={{ color: 'var(--ink-muted)' }}>to</span>
+              <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} className="input text-xs" />
+            </div>
+          )}
+        </div>
+
+        {/* Profit Till Date — the single most important number on the page,
+            per the design brief this was built against: visual hierarchy is
+            Profit -> ROI -> Investment -> Payout -> Pending -> everything
+            else below. Realized/unrealized are broken out immediately
+            underneath so "combined" is never mistaken for "confirmed." */}
+        <div className="card p-5">
+          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+            {range.label} · Profit till date
+          </p>
+          <div className="mt-1 flex flex-wrap items-baseline gap-3">
+            <p className="font-mono-ipo text-4xl font-bold" style={{ color: 'var(--good)' }}>
+              {rupees(analytics.summary.totalProfit)}
+            </p>
+            <span className="badge badge-good">{analytics.summary.roi.toFixed(2)}% ROI</span>
+          </div>
+          <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            {rupees(analytics.summary.realizedProfit)} realized + {rupees(analytics.summary.unrealizedProfit)} estimated
+            (still held, not yet sold)
+          </p>
+          <div className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-5" style={{ borderColor: 'var(--border)' }}>
+            {[
+              ['Investment', analytics.summary.totalInvested, 'var(--ink-primary)'],
+              ['Profit', analytics.summary.totalProfit, 'var(--good)'],
+              ['Payout received', analytics.summary.totalPayout, 'var(--accent)'],
+              ['Pending', analytics.summary.pendingPayout, 'var(--warning-text)'],
+              ['ROI', null, 'var(--ink-primary)'],
+            ].map(([label, amount, color]) => (
+              <div key={label as string}>
+                <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                  {label}
+                </p>
+                <p className="font-mono-ipo text-sm font-semibold" style={{ color: color as string }}>
+                  {amount === null ? `${analytics.summary.roi.toFixed(2)}%` : rupees(amount as number)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* KPI grid — StatTile is Dashboard's own component (exported for
+            reuse rather than a second near-identical tile implementation). */}
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+          <StatTile
+            icon={CreditCardIcon}
+            label="Successful IPOs"
+            value={analytics.summary.successfulIpoCount}
+            tone="good"
+          />
+          <StatTile icon={FileIcon} label="Applications" value={analytics.summary.totalApplications} tone="info" />
+          <StatTile
+            icon={GraphIcon}
+            label="Shares allotted"
+            value={analytics.summary.totalSharesAllotted}
+            tone="info"
+          />
+          <StatTile
+            icon={CreditCardIcon}
+            label="Pending payout"
+            value={analytics.summary.pendingPayout}
+            tone={analytics.summary.pendingPayout > 0 ? 'warning' : 'good'}
+            format={(n) => rupees(n)}
+          />
+        </div>
+
+        {/* Trend chart */}
+        {analytics.trend.length > 1 && (
+          <div className="card p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                Profit trend
+              </h2>
+              <div className="flex gap-1">
+                {(
+                  [
+                    ['cumulative', 'Cumulative'],
+                    ['daily', 'Daily'],
+                    ['investment', 'Investment'],
+                    ['payout', 'Payout'],
+                  ] as [typeof trendMode, string][]
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setTrendMode(mode)}
+                    className={trendMode === mode ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <PayoutTrendChart trend={analytics.trend} mode={trendMode} />
+          </div>
+        )}
+
+        {/* Realized vs Unrealized — kept as two distinct numbers, never
+            blended, per the brief: "clearly distinguish so the user does
+            not confuse estimated profit with actual payout." */}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="card p-4">
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Realized
+            </p>
+            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--good)' }}>
+              {rupees(analytics.summary.realizedProfit)}
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+              From shares actually sold
+            </p>
+          </div>
+          <div className="card p-4">
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Unrealized (estimated)
+            </p>
+            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--accent)' }}>
+              {rupees(analytics.summary.unrealizedProfit)}
+            </p>
+            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+              Allotted, still held — live price or GMP estimate
+            </p>
+          </div>
+          <div className="card p-4">
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Total
+            </p>
+            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {rupees(analytics.summary.totalProfit)}
+            </p>
+          </div>
+        </div>
+
+        {/* Payout status — this app's settlement_payments has no "Failed"/
+            "Processing" state (a row is only ever created after money has
+            already moved), so this is Paid/Pending only rather than
+            fabricating states that don't exist here. Clicking a card
+            filters the transaction table below. */}
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setPayoutStatusFilter((f) => (f === 'paid' ? 'all' : 'paid'))}
+            className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
+            style={payoutStatusFilter === 'paid' ? { borderColor: 'var(--good)' } : undefined}
+          >
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Paid
+            </p>
+            <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--good)' }}>
+              {rupees(analytics.payoutStatus.paid)}
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setPayoutStatusFilter((f) => (f === 'pending' ? 'all' : 'pending'))}
+            className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
+            style={payoutStatusFilter === 'pending' ? { borderColor: 'var(--warning)' } : undefined}
+          >
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Pending
+            </p>
+            <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--warning-text)' }}>
+              {rupees(analytics.payoutStatus.pending)}
+            </p>
+          </button>
+        </div>
+
+        {/* IPO-wise breakdown */}
+        {analytics.ipoBreakdown.length > 0 && (
+          <div className="card overflow-x-auto p-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                IPO-wise profit analysis
+              </h2>
+              <div className="flex gap-1">
+                {(
+                  [
+                    ['profit', 'Highest profit'],
+                    ['roi', 'Highest ROI'],
+                    ['investment', 'Investment'],
+                  ] as [typeof ipoSort, string][]
+                ).map(([sort, label]) => (
+                  <button
+                    key={sort}
+                    type="button"
+                    onClick={() => setIpoSort(sort)}
+                    className={ipoSort === sort ? 'btn-primary text-xs' : 'btn-secondary text-xs'}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <table className="w-full text-sm">
+              <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">IPO</th>
+                  <th className="px-2 py-1.5 font-medium">Investment</th>
+                  <th className="px-2 py-1.5 font-medium">Shares</th>
+                  <th className="px-2 py-1.5 font-medium">Exit value</th>
+                  <th className="px-2 py-1.5 font-medium">Profit</th>
+                  <th className="px-2 py-1.5 font-medium">ROI</th>
+                  <th className="px-2 py-1.5 font-medium">Payout</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...analytics.ipoBreakdown]
+                  .sort((a, b) =>
+                    ipoSort === 'profit'
+                      ? b.profit - a.profit
+                      : ipoSort === 'roi'
+                        ? b.roi - a.roi
+                        : b.investment - a.investment,
+                  )
+                  .map((r) => (
+                    <tr key={r.ipoId} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                      <td className="px-2 py-2 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {r.ipoName}
+                        {!r.isRealized && (
+                          <span className="ml-1.5 badge badge-neutral text-[10px]" title="Still held — estimated, not confirmed">
+                            est.
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">{rupees(r.investment)}</td>
+                      <td className="px-2 py-2">{r.allottedShares.toLocaleString('en-IN')}</td>
+                      <td className="px-2 py-2">{r.exitValue > 0 ? rupees(r.exitValue) : '—'}</td>
+                      <td className="px-2 py-2 font-medium" style={{ color: r.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
+                        {rupees(r.profit)}
+                      </td>
+                      <td className="px-2 py-2" style={{ color: r.roi >= 0 ? 'var(--good)' : 'var(--critical)' }}>
+                        {r.roi.toFixed(1)}%
+                      </td>
+                      <td className="px-2 py-2">
+                        <span
+                          className={`badge ${r.payoutStatus === 'Paid' ? 'badge-good' : r.payoutStatus === 'Partial' ? 'badge-warning' : r.payoutStatus === 'Pending' ? 'badge-critical' : 'badge-neutral'}`}
+                        >
+                          {r.payoutStatus}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Best / worst */}
+        {(analytics.best || analytics.worst) && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {analytics.best && (
+              <div className="card p-4">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  🏆 Best performing
+                </p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {analytics.best.ipoName}
+                </p>
+                <p className="font-mono-ipo text-sm" style={{ color: 'var(--good)' }}>
+                  {rupees(analytics.best.profit)} · {analytics.best.roi.toFixed(1)}% ROI
+                </p>
+              </div>
+            )}
+            {analytics.worst && (
+              <div className="card p-4">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  Lowest performing
+                </p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {analytics.worst.ipoName}
+                </p>
+                <p className="font-mono-ipo text-sm" style={{ color: analytics.worst.profit >= 0 ? 'var(--warning-text)' : 'var(--critical)' }}>
+                  {rupees(analytics.worst.profit)} · {analytics.worst.roi.toFixed(1)}% ROI
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Account-wise (funder) performance — names only, no phone/UPI/
+            bank details, matching this app's existing convention of
+            resolving just a display name for anyone who isn't the viewer
+            themselves (see resolve_bank_holder_names). */}
+        {analytics.accountBreakdown.length > 0 && (
+          <div className="card overflow-x-auto p-4">
+            <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              Account performance
+            </h2>
+            <table className="w-full text-sm">
+              <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
+                <tr>
+                  <th className="px-2 py-1.5 font-medium">Account</th>
+                  <th className="px-2 py-1.5 font-medium">Investment</th>
+                  <th className="px-2 py-1.5 font-medium">Profit</th>
+                  <th className="px-2 py-1.5 font-medium">ROI</th>
+                  <th className="px-2 py-1.5 font-medium">Successful IPOs</th>
+                  <th className="px-2 py-1.5 font-medium">Payout</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analytics.accountBreakdown.map((a) => (
+                  <tr key={a.funderName} className="border-t" style={{ borderColor: 'var(--border)' }}>
+                    <td className="px-2 py-2 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {a.funderName}
+                    </td>
+                    <td className="px-2 py-2">{rupees(a.investment)}</td>
+                    <td className="px-2 py-2" style={{ color: a.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
+                      {rupees(a.profit)}
+                    </td>
+                    <td className="px-2 py-2">{a.roi.toFixed(1)}%</td>
+                    <td className="px-2 py-2">{a.successfulIpos}</td>
+                    <td className="px-2 py-2">{rupees(a.payout)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Capital utilization */}
+        <div className="card p-4">
+          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Capital utilization
+          </h2>
+          <div className="flex h-2.5 overflow-hidden rounded-full" style={{ background: 'var(--hover-surface)' }}>
+            {analytics.capital.invested > 0 && (
+              <>
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${(analytics.capital.locked / analytics.capital.invested) * 100}%`,
+                    background: 'var(--warning)',
+                  }}
+                  title="Locked"
+                />
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${(analytics.capital.released / analytics.capital.invested) * 100}%`,
+                    background: 'var(--good)',
+                  }}
+                  title="Released"
+                />
+              </>
+            )}
+          </div>
+          <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Invested
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                {rupees(analytics.capital.invested)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Locked (still held)
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
+                {rupees(analytics.capital.locked)}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Released (sold)
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>
+                {rupees(analytics.capital.released)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Performance insights — only ever built from real numbers already
+            computed above (lib/payoutAnalytics.ts); never shown if empty. */}
+        {analytics.insights.length > 0 && (
+          <div className="card p-4">
+            <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              Your {range.label.toLowerCase()} performance
+            </h2>
+            <ul className="space-y-1.5 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+              {analytics.insights.map((line, i) => (
+                <li key={i} className="flex gap-2">
+                  <span style={{ color: 'var(--accent)' }}>•</span>
+                  {line}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
@@ -1224,4 +1527,140 @@ function PayoutSection({
         ))}
     </section>
   )
+}
+
+
+// Hand-rolled SVG line chart (no charting library — matches the rest of
+// this app's dataviz components, e.g. IpoProgressGauge/AttributionChart,
+// which are also hand-rolled). One series at a time (mode picks which),
+// so no legend box is needed — the section title above already names it,
+// per this app's own chart conventions. --series-1 is the app's existing
+// validated chart color (index.css), not a new one introduced here.
+// Thin 2px line, rounded caps, a hover crosshair + floating tooltip
+// showing date/value, and a fixed 300x1000 viewBox scaled to 100% width
+// via CSS (not a resize-observer — this page's own layout doesn't need
+// pixel-exact chart width, just a smooth line that reflows with the
+// container).
+function PayoutTrendChart({
+  trend,
+  mode,
+}: {
+  trend: TrendPoint[]
+  mode: 'cumulative' | 'daily' | 'investment' | 'payout'
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const width = 1000
+  const height = 260
+  const padding = { top: 12, right: 12, bottom: 24, left: 12 }
+  const plotW = width - padding.left - padding.right
+  const plotH = height - padding.top - padding.bottom
+
+  const valueFor = (t: TrendPoint) =>
+    mode === 'cumulative'
+      ? t.cumulativeProfit
+      : mode === 'daily'
+        ? t.dailyProfit
+        : mode === 'investment'
+          ? t.cumulativeInvestment
+          : t.cumulativePayout
+
+  const values = trend.map(valueFor)
+  const maxVal = Math.max(1, ...values, 0)
+  const minVal = Math.min(0, ...values)
+  const range = maxVal - minVal || 1
+
+  const xFor = (i: number) => padding.left + (trend.length <= 1 ? 0 : (i / (trend.length - 1)) * plotW)
+  const yFor = (v: number) => padding.top + plotH - ((v - minVal) / range) * plotH
+
+  const points = trend.map((t, i) => `${xFor(i)},${yFor(valueFor(t))}`).join(' ')
+  const zeroY = yFor(0)
+
+  function handleMove(e: React.MouseEvent<SVGSVGElement>) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const relX = ((e.clientX - rect.left) / rect.width) * width
+    const idx = Math.round(((relX - padding.left) / plotW) * (trend.length - 1))
+    setHoverIndex(Math.max(0, Math.min(trend.length - 1, idx)))
+  }
+
+  const hovered = hoverIndex != null ? trend[hoverIndex] : null
+
+  return (
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        style={{ height: 220 }}
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIndex(null)}
+        role="img"
+        aria-label={`Profit trend chart, ${mode} view`}
+      >
+        {/* Recessive baseline at zero, only when the series actually
+            crosses it (daily can go negative) — a bar/line chart at pure
+            positive values doesn't need a zero-line cluttering it. */}
+        {minVal < 0 && (
+          <line x1={padding.left} y1={zeroY} x2={width - padding.right} y2={zeroY} stroke="var(--border)" strokeWidth={1} />
+        )}
+        <polyline
+          points={points}
+          fill="none"
+          stroke="var(--series-1)"
+          strokeWidth={2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        {hoverIndex != null && (
+          <line
+            x1={xFor(hoverIndex)}
+            y1={padding.top}
+            x2={xFor(hoverIndex)}
+            y2={height - padding.bottom}
+            stroke="var(--ink-muted)"
+            strokeWidth={1}
+            strokeDasharray="3,3"
+          />
+        )}
+        {hoverIndex != null && (
+          <circle cx={xFor(hoverIndex)} cy={yFor(valueFor(trend[hoverIndex]))} r={4} fill="var(--series-1)" stroke="var(--surface)" strokeWidth={2} />
+        )}
+        {/* First/last date labels only — direct-labeling every point would
+            be noise; a hover tooltip covers the rest (dataviz convention:
+            selective direct labels, not a number on every point). */}
+        {trend.length > 0 && (
+          <text x={padding.left} y={height - 6} fontSize={11} fill="var(--ink-muted)">
+            {formatShortDate(trend[0].date)}
+          </text>
+        )}
+        {trend.length > 1 && (
+          <text x={width - padding.right} y={height - 6} fontSize={11} fill="var(--ink-muted)" textAnchor="end">
+            {formatShortDate(trend[trend.length - 1].date)}
+          </text>
+        )}
+      </svg>
+      {hovered && (
+        <div
+          className="card pointer-events-none absolute top-0 rounded-md px-2.5 py-1.5 text-xs shadow-lg"
+          style={{
+            left: `${(xFor(hoverIndex!) / width) * 100}%`,
+            transform: xFor(hoverIndex!) > width / 2 ? 'translateX(-105%)' : 'translateX(5%)',
+          }}
+        >
+          <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+            {formatShortDate(hovered.date)}
+          </p>
+          <p style={{ color: 'var(--ink-muted)' }}>{rupees(valueFor(hovered))}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// "18 Aug" — same compact day+short-month convention AllotmentBoardPage's
+// own formatShortDate already uses (kept as a separate local copy rather
+// than a cross-page import for one three-line function, same reasoning
+// DashboardPage's own copy documents).
+function formatShortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return `${d} ${date.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })}`
 }

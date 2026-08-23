@@ -7,9 +7,19 @@ import { parseGmpPercent } from './ipoGmp'
 import { computeProfitSplit } from './profitSplit'
 
 export type ProfitProjectionRow = {
+  // Optional — only queries that need to key a line back to its own
+  // application row (the Payouts analytics dashboard's trend chart and
+  // transaction table) select it; every other existing caller of this
+  // shape leaves it undefined, same "optional per-caller" convention as
+  // bid_amount/sell_price below.
+  id?: string
   ipo_id: string
   lots: number
   applied_at: string
+  // Optional -- same "only who needs it selects it" convention. Used as the
+  // realization-date proxy for SOLD rows in buildBookedProfitLines (this
+  // schema has no dedicated "sold on" column; see payoutAnalytics.ts).
+  status_changed_at?: string
   status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipoji_status_text: string | null
@@ -224,6 +234,17 @@ export interface BookedProfitLine {
   holderName: string
   profit: number
   soldAmount: number
+  // Optional — added for the Payouts analytics dashboard (which needs to
+  // key a line back to its own application row, sum investment, and place
+  // it on a date axis); Dashboard's own "Owed to you" consumer of this
+  // function predates these and doesn't read them.
+  applicationId?: string
+  investedAmount?: number
+  lots?: number
+  // status_changed_at at fetch time — the closest real proxy this schema
+  // has for "when the sale was realized" (there's no separate sold-on
+  // date column; see payoutAnalytics.ts's own note on this).
+  realizedAt?: string
 }
 
 export function buildBookedProfitLines(
@@ -256,6 +277,77 @@ export function buildBookedProfitLines(
       holderName,
       profit: result.profitPersonShare,
       soldAmount: result.totalSoldAmount,
+      applicationId: r.id,
+      investedAmount: r.bid_amount,
+      lots: r.lots,
+      realizedAt: r.status_changed_at,
+    })
+  }
+  return lines
+}
+
+// UNREALIZED profit for applications that are ALLOTTED but not yet sold —
+// the estimate (live price once listed, GMP-based guess otherwise) rather
+// than a real figure, same source expectedProfitBreakdown already uses for
+// Dashboard's "Expected profit" tile, just computed per-application here
+// instead of aggregated per funder-card. Named and shaped to mirror
+// BookedProfitLine exactly (profit/investedAmount/lots/applicationId) so
+// the Payouts analytics dashboard can concatenate realized + unrealized
+// lines onto one timeline/table without a third shape to reconcile.
+export interface UnrealizedProfitLine {
+  ipoName: string
+  ipoId: string
+  funderName: string
+  holderName: string
+  profit: number
+  investedAmount: number
+  lots: number
+  applicationId?: string
+  allottedAt?: string
+  // Whether `profit` came from a live quote or the static GMP estimate —
+  // surfaced so the UI can say "estimated" rather than imply certainty.
+  priceSource: 'live' | 'gmp'
+}
+
+export function buildUnrealizedProfitLines(
+  rows: ProfitProjectionRow[],
+  profitPersonName: string,
+  livePriceBySymbol: Record<string, number | null>,
+  case2ManagerIds: Set<string> = new Set(),
+): UnrealizedProfitLine[] {
+  const lines: UnrealizedProfitLine[] = []
+  for (const r of rows) {
+    if (r.status !== 'ALLOTTED' || !r.ipos || r.ipos.is_archived) continue
+    if (r.bid_amount == null || !r.ipos.price_high) continue
+    const funder = effectiveFunder(r)
+    const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
+    const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
+    const livePrice = r.ipos.symbol ? livePriceBySymbol[r.ipos.symbol] : null
+    const gmpPercent = parseGmpPercent(r.ipos.gmp_notes) ?? 0
+    const priceSource: 'live' | 'gmp' = livePrice != null ? 'live' : 'gmp'
+    const sellPricePerShare = livePrice != null ? livePrice : r.ipos.price_high * (1 + gmpPercent / 100)
+    const result = computeProfitSplit({
+      sellPricePerShare,
+      lotSize: r.ipos.lot_size,
+      lots: r.lots,
+      bidAmount: r.bid_amount,
+      cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
+      dematHolderName: holderName,
+      funderName: funder?.account_holder_name ?? null,
+      profitPersonName,
+      splitWithFunder: isCase2 ? false : (r.split_profit_with_funder ?? false),
+    })
+    lines.push({
+      ipoName: r.ipos.company_name,
+      ipoId: r.ipo_id,
+      funderName: funder?.account_holder_name ?? holderName,
+      holderName,
+      profit: result.profitPersonShare,
+      investedAmount: r.bid_amount,
+      lots: r.lots,
+      applicationId: r.id,
+      allottedAt: r.applied_at,
+      priceSource,
     })
   }
   return lines

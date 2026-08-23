@@ -1045,7 +1045,7 @@ export function DashboardPage() {
   )
 }
 
-function StatTile({
+export function StatTile({
   icon: Icon,
   label,
   value,
