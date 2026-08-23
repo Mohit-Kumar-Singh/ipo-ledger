@@ -8,7 +8,7 @@
 // through every settled IPO one at a time.
 import { useMemo, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDownIcon, SearchIcon, CreditCardIcon, FileIcon, GraphIcon } from '@primer/octicons-react'
+import { ChevronDownIcon, SearchIcon, CreditCardIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
 import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -35,13 +35,12 @@ import {
 } from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { InfoTooltip } from '../../components/HoverCard'
 import {
   buildPayoutAnalytics,
   resolveDateRange,
   type DateRangePreset,
   type IpoBreakdownRow,
-  type ApplicationStatusCounts,
-  type IpoShareRow,
   type AccountPendingRow,
 } from '../../lib/payoutAnalytics'
 import { StatTile } from './DashboardPage'
@@ -593,8 +592,9 @@ export function PayoutsPage() {
             else below. Realized/unrealized are broken out immediately
             underneath so "combined" is never mistaken for "confirmed." */}
         <div className="card p-5">
-          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+          <p className="flex items-center gap-1.5 text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
             {range.label} · Profit till date
+            <InfoTooltip text="Realized profit from applications you've marked SOLD, plus estimated profit from ones that are allotted but not yet sold, combined into one number. ROI is total profit divided by total invested." />
           </p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <p className="font-mono-ipo text-4xl font-bold" style={{ color: 'var(--good)' }}>
@@ -627,28 +627,17 @@ export function PayoutsPage() {
         </div>
 
         {/* KPI grid — StatTile is Dashboard's own component (exported for
-            reuse rather than a second near-identical tile implementation). */}
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            reuse rather than a second near-identical tile implementation).
+            Applications/Shares allotted tiles removed per feedback — their
+            numbers are still available via the analytics object below, just
+            not worth their own top-of-page tiles. */}
+        <div className="grid grid-cols-2 gap-2.5">
           <StatTile
             icon={CreditCardIcon}
             label="Successful IPOs"
             value={analytics.summary.successfulIpoCount}
             tone="good"
             panel={<SuccessfulIposPanel rows={analytics.ipoBreakdown} />}
-          />
-          <StatTile
-            icon={FileIcon}
-            label="Applications"
-            value={analytics.summary.totalApplications}
-            tone="info"
-            panel={<ApplicationsStatusPanel counts={analytics.statusBreakdown} />}
-          />
-          <StatTile
-            icon={GraphIcon}
-            label="Shares allotted"
-            value={analytics.summary.totalSharesAllotted}
-            tone="info"
-            panel={<SharesByIpoPanel rows={analytics.sharesByIpo} />}
           />
           <StatTile
             icon={CreditCardIcon}
@@ -708,8 +697,9 @@ export function PayoutsPage() {
             className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
             style={payoutStatusFilter === 'paid' ? { borderColor: 'var(--good)' } : undefined}
           >
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Paid
+              <InfoTooltip text="Total of every settlement_payments row logged so far — a real, confirmed transfer, not an estimate. Click to filter the transaction table below to just these." />
             </p>
             <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--good)' }}>
               {rupees(analytics.payoutStatus.paid)}
@@ -721,8 +711,9 @@ export function PayoutsPage() {
             className="card p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
             style={payoutStatusFilter === 'pending' ? { borderColor: 'var(--warning)' } : undefined}
           >
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            <p className="flex items-center gap-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
               Pending
+              <InfoTooltip text="What's still owed to funders on already-SOLD applications, after subtracting every logged payment — the live settlement ledger, not a projection." />
             </p>
             <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--warning-text)' }}>
               {rupees(analytics.payoutStatus.pending)}
@@ -734,8 +725,9 @@ export function PayoutsPage() {
         {analytics.ipoBreakdown.length > 0 && (
           <div className="card overflow-x-auto p-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                 IPO-wise profit analysis
+                <InfoTooltip text="One row per IPO you've applied to. 'est.' means it isn't sold yet — profit and payout status are projected from the live/GMP price, not confirmed." />
               </h2>
               <div className="flex gap-1">
                 {(
@@ -848,8 +840,9 @@ export function PayoutsPage() {
             themselves (see resolve_bank_holder_names). */}
         {analytics.accountBreakdown.length > 0 && (
           <div className="card overflow-x-auto p-4">
-            <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               Account performance
+              <InfoTooltip text="Investment and profit totalled per funder, across every IPO they've funded — realized and estimated profit combined, same as the KPI cards above." />
             </h2>
             <table className="w-full text-sm">
               <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
@@ -882,8 +875,9 @@ export function PayoutsPage() {
 
         {/* Capital utilization */}
         <div className="card p-4">
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Capital utilization
+            <InfoTooltip text="How your total invested bid amount (this range) breaks down: still locked in allotted-not-yet-sold applications, vs. already released by marking something sold." />
           </h2>
           <div className="flex h-2.5 overflow-hidden rounded-full" style={{ background: 'var(--hover-surface)' }}>
             {analytics.capital.invested > 0 && (
@@ -1583,46 +1577,6 @@ function SuccessfulIposPanel({ rows }: { rows: IpoBreakdownRow[] }) {
           </span>
           <span className="shrink-0" style={{ color: 'var(--good)' }}>
             {rupees(r.profit)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function ApplicationsStatusPanel({ counts }: { counts: ApplicationStatusCounts }) {
-  const rows: [string, number][] = [
-    ['Applied', counts.applied],
-    ['Allotted', counts.allotted],
-    ['Not allotted', counts.notAllotted],
-    ['Sold', counts.sold],
-  ]
-  if (rows.every(([, n]) => n === 0)) return <PanelEmpty>No applications in this range.</PanelEmpty>
-  return (
-    <div className="space-y-1.5">
-      {rows.map(([label, n]) => (
-        <div key={label} className="flex items-center justify-between gap-3">
-          <span style={{ color: 'var(--ink-muted)' }}>{label}</span>
-          <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {n}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function SharesByIpoPanel({ rows }: { rows: IpoShareRow[] }) {
-  if (rows.length === 0) return <PanelEmpty>No shares allotted in this range yet.</PanelEmpty>
-  return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.ipoName} className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {r.ipoName}
-          </span>
-          <span className="shrink-0" style={{ color: 'var(--ink-secondary)' }}>
-            {r.shares}
           </span>
         </div>
       ))}

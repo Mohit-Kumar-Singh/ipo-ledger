@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -11,7 +11,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon, CreditCardIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -350,26 +350,38 @@ export function AllotmentBoardPage() {
           Allotment board
           <InfoTooltip text="Mark results one row at a time. Only IPOs whose allotment is already out are listed below." />
         </h1>
-        {/* Sell reminder lives here as an icon (with the allotted count as a
-            badge) rather than a wide button in the controls row below. */}
-        {isAdmin && selectedIpoId && allottedCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowSellComposer(true)}
-            aria-label={`Send sell reminder (${allottedCount} allotted)`}
-            title={`Send sell reminder (${allottedCount} allotted)`}
-            className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+        {/* Sell reminder (send icon) and a link to Payouts, both as icon
+            buttons in a row rather than wide buttons in the controls row
+            below. */}
+        <div className="flex shrink-0 items-center gap-1">
+          {isAdmin && selectedIpoId && allottedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowSellComposer(true)}
+              aria-label={`Send sell reminder (${allottedCount} allotted)`}
+              title={`Send sell reminder (${allottedCount} allotted)`}
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+              style={{ color: 'var(--ink-secondary)' }}
+            >
+              <PaperAirplaneIcon size={18} />
+              <span
+                className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
+                style={{ background: 'var(--accent)', color: '#ffffff' }}
+              >
+                {allottedCount}
+              </span>
+            </button>
+          )}
+          <Link
+            to="/payouts"
+            aria-label="Open payouts"
+            title="Open payouts"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
             style={{ color: 'var(--ink-secondary)' }}
           >
-            <PaperAirplaneIcon size={18} />
-            <span
-              className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold"
-              style={{ background: 'var(--accent)', color: '#ffffff' }}
-            >
-              {allottedCount}
-            </span>
-          </button>
-        )}
+            <CreditCardIcon size={18} />
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
