@@ -167,6 +167,18 @@ export function buildFunderAllottedCards(
     if (r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)) {
       card.splitWithFunder = false
     }
+    // The application's own "don't split with funder" override (the same
+    // checkbox AllotmentBoardPage's sale form and this app's SOLD-settlement
+    // math already respect) was never read here — this card-based
+    // projection (Dashboard's "Expected profit" tile, Payouts' "Expected —
+    // not yet sold") silently assumed every allotment always splits 50/50,
+    // disagreeing with buildUnrealizedProfitLines (which DOES read this
+    // flag) for the exact same application. Confirmed live: an application
+    // with split_profit_with_funder=false showed two different "profit"
+    // figures on the same Payouts page depending which section you looked
+    // at. r.split_profit_with_funder === false is an explicit off, not the
+    // default — undefined/null/true all still mean "split."
+    if (r.split_profit_with_funder === false) card.splitWithFunder = false
   }
   const cards = Array.from(cardsByIpo.values()).flat()
   for (const c of cards) {
@@ -195,12 +207,30 @@ export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerSh
       : Math.round(lotAmount * (1 + gmpPercent / 100))
   const profitPerLot = soldPrice - lotAmount
   const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
-  // A CASE_2 shared account's manager IS the funder — nothing left to halve
-  // with a separate third party, they just get the whole remainder.
-  const yourProfitPerLot = card.splitWithFunder ? Math.round(netProfitPerLot / 2) : netProfitPerLot
+  // The account holder's own cut, per lot — profitPerLot minus what's left
+  // after it, so this always sums exactly back to profitPerLot with
+  // netProfitPerLot (both derived from the same rounding), rather than a
+  // second independently-rounded multiply that could drift by a rupee.
+  const holderCutPerLot = profitPerLot - netProfitPerLot
+  // A CASE_2 shared account's manager IS the funder, or this specific
+  // application had its own "don't split with funder" override on
+  // (card.splitWithFunder, set in buildFunderAllottedCards) — either way
+  // there's no separate third party to halve the remainder with; the whole
+  // remainder is the admin's own profit, and the funder gets only their
+  // principal back, nothing extra.
+  const funderSharePerLot = card.splitWithFunder ? Math.round(netProfitPerLot / 2) : 0
+  const yourProfitPerLot = netProfitPerLot - funderSharePerLot
   const netYourProfit = yourProfitPerLot * card.totalLots
+  const holderCutTotal = holderCutPerLot * card.totalLots
+  const funderShareTotal = funderSharePerLot * card.totalLots
   const investedTotal = lotAmount * card.totalLots
-  const amountToReturn = investedTotal + netYourProfit
+  // What to actually send the funder: their principal back plus THEIR OWN
+  // share of the remainder — never the admin's own share. Those two only
+  // happen to be equal when splitWithFunder is true (an even 50/50 split);
+  // this used to just reuse netYourProfit unconditionally, which silently
+  // handed the funder credit for the admin's own money whenever a specific
+  // application's split was turned off. See the case-by-case comment above.
+  const amountToReturn = investedTotal + funderShareTotal
   return {
     lotAmount,
     gmpPercent,
@@ -209,6 +239,8 @@ export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerSh
     netProfitPerLot,
     yourProfitPerLot,
     netYourProfit,
+    holderCutTotal,
+    funderShareTotal,
     investedTotal,
     amountToReturn,
     priceSource,
@@ -298,8 +330,17 @@ export interface UnrealizedProfitLine {
   ipoName: string
   ipoId: string
   funderName: string
+  funderPhone: string | null
   holderName: string
+  holderPhone: string | null
   profit: number
+  // The account holder's own cut and the funder's own share of what's
+  // left, straight off the same computeProfitSplit result `profit` (the
+  // admin's own share) is already taken from — exposed so a consumer can
+  // show/send all three real shares of one application's expected profit
+  // instead of just the admin's net number.
+  holderCut: number
+  funderShare: number
   investedAmount: number
   lots: number
   applicationId?: string
@@ -341,8 +382,12 @@ export function buildUnrealizedProfitLines(
       ipoName: r.ipos.company_name,
       ipoId: r.ipo_id,
       funderName: funder?.account_holder_name ?? holderName,
+      funderPhone: funder?.phone_e164 ?? null,
       holderName,
+      holderPhone: r.demat_accounts?.phone_e164 ?? null,
       profit: result.profitPersonShare,
+      holderCut: result.isDematHolderSelf ? 0 : result.dematCutAmount,
+      funderShare: result.funderShare,
       investedAmount: r.bid_amount,
       lots: r.lots,
       applicationId: r.id,

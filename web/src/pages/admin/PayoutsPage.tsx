@@ -18,7 +18,13 @@ import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage, effectiveSplitWithFunder, payoutCutContact } from './AllotmentBoardPage'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
-import { buildFunderAllottedCards, expectedProfitBreakdown, type ProfitProjectionRow } from '../../lib/expectedProfit'
+import {
+  buildFunderAllottedCards,
+  buildUnrealizedProfitLines,
+  expectedProfitBreakdown,
+  type ProfitProjectionRow,
+  type UnrealizedProfitLine,
+} from '../../lib/expectedProfit'
 import {
   buildSettlementCards,
   groupCardsByIpo,
@@ -201,6 +207,26 @@ function groupExpectedByFunder(
     if (!g.phone && c.phone) g.phone = c.phone
     g.total += amount
     g.ipos.push({ ipoName: c.ipoName, amount })
+  }
+  return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
+// Mirror of groupExpectedByFunder above, but for the account holder's own
+// cut of an allotted-not-yet-sold application — the funder-card projection
+// above can't attribute this precisely per holder (one card can cover
+// several holders funded by the same person), so this reads straight off
+// the per-application unrealizedLines instead, which already has an exact
+// holderCut for each real application (see expectedProfit.ts's
+// buildUnrealizedProfitLines).
+function groupExpectedByHolder(lines: UnrealizedProfitLine[]): SettlementPartyGroup[] {
+  const byName = new Map<string, SettlementPartyGroup>()
+  for (const l of lines) {
+    if (l.holderCut <= 0) continue
+    if (!byName.has(l.holderName)) byName.set(l.holderName, { name: l.holderName, phone: l.holderPhone, total: 0, ipos: [] })
+    const g = byName.get(l.holderName)!
+    if (!g.phone && l.holderPhone) g.phone = l.holderPhone
+    g.total += l.holderCut
+    g.ipos.push({ ipoName: l.ipoName, amount: l.holderCut })
   }
   return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
@@ -463,6 +489,22 @@ export function PayoutsPage() {
   const owedToFunders = groupSettlementByParty(settlementCards, 'funder')
   const owedFromHolders = groupSettlementByParty(settlementCards, 'holder')
   const expectedByFunder = groupExpectedByFunder(expectedCards, livePriceBySymbol)
+  // Deliberately NOT analytics.unrealizedLines — that's scoped to whatever
+  // date range is selected up top (This month by default), while
+  // expectedCards/expectedByFunder above covers every currently-ALLOTTED
+  // application regardless of range. Recomputing from allRows here (same
+  // un-filtered set expectedRowsBase used to build expectedCards) keeps
+  // both halves of this section on the same scope, so they stay comparable
+  // side by side instead of silently disagreeing on which applications
+  // they cover.
+  const expectedByHolder = groupExpectedByHolder(
+    buildUnrealizedProfitLines(
+      allRows.filter((r) => r.status === 'ALLOTTED'),
+      profitPersonName,
+      livePriceBySymbol,
+      case2ManagerIds,
+    ),
+  )
 
   return (
     <div className="space-y-6">
@@ -943,22 +985,32 @@ export function PayoutsPage() {
           above instead of by IPO. Kept visually and structurally separate
           from "You need to send" — this is never a real, actionable
           obligation the way that section is. */}
-      {expectedByFunder.length > 0 && (
+      {(expectedByFunder.length > 0 || expectedByHolder.length > 0) && (
         <div className="space-y-3">
           <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
             Expected — not yet sold
           </h2>
           <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
             Estimated from the live share price where the IPO's listed and its symbol is on file, or the GMP
-            projection otherwise — not a confirmed amount until it's actually marked sold.
+            projection otherwise — not a confirmed amount until it's actually marked sold. Funder's share only
+            applies when the split isn't turned off for that application.
           </p>
-          <SettlementPartyList
-            title="Expected to send"
-            groups={expectedByFunder}
-            amountColor="var(--ink-secondary)"
-            emptyLabel="Nothing allotted-and-unsold with a funder right now."
-            isEstimate
-          />
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <SettlementPartyList
+              title="Expected to send (funder's share)"
+              groups={expectedByFunder}
+              amountColor="var(--ink-secondary)"
+              emptyLabel="Nothing allotted-and-unsold with a funder right now."
+              isEstimate
+            />
+            <SettlementPartyList
+              title="Expected to receive (holder's cut)"
+              groups={expectedByHolder}
+              amountColor="var(--ink-secondary)"
+              emptyLabel="Nothing allotted-and-unsold with a holder cut right now."
+              isEstimate
+            />
+          </div>
         </div>
       )}
 
