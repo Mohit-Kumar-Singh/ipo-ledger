@@ -19,6 +19,12 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
   SOLD: 'badge-violet',
 }
 
+// Module-level, not recreated per render — `rows` feeds the byIpo useMemo
+// below, so a fresh `?? []` allocated inline on every render (during the
+// query's pending window) was an unstable dependency that useMemo could
+// never actually memoize against.
+const EMPTY_ROWS: ArchivedRow[] = []
+
 // Self-contained, collapsed-by-default card (same shape as the PAN access-log
 // and sell-instruction-PDF cards) listing applications whose IPO has been
 // archived/settled. Fetches its own scoped data (RLS limits it to what the
@@ -41,7 +47,7 @@ export function ArchivedApplicationsCard() {
       return (data ?? []) as unknown as ArchivedRow[]
     },
   })
-  const rows = archivedQuery.data ?? []
+  const rows = archivedQuery.data ?? EMPTY_ROWS
   const loading = archivedQuery.isPending
 
   const byIpo = useMemo(() => {

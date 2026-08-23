@@ -1345,6 +1345,12 @@ function dayKeyFor(iso: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Module-level, not recreated per render — `rows` feeds the hasInitializedOpenDays
+// effect and the dayGroups useMemo below, so a fresh `?? []` allocated inline
+// on every render (during the query's pending window) was an unstable
+// dependency neither could actually memoize/guard against.
+const EMPTY_PAN_LOG_ROWS: PanAccessLogRow[] = []
+
 // Moved here from the deleted Settings page, unchanged — admin-only, still
 // grouped by day and collapsible (most recent day open by default).
 function PanAccessLogSection() {
@@ -1368,7 +1374,7 @@ function PanAccessLogSection() {
       return (data ?? []) as unknown as PanAccessLogRow[]
     },
   })
-  const rows = panAccessLogQuery.data ?? []
+  const rows = panAccessLogQuery.data ?? EMPTY_PAN_LOG_ROWS
   const loading = panAccessLogQuery.isPending
   const [openDays, setOpenDays] = useState<Set<string>>(new Set())
   // Guards against a background refetch (staleTime elapsing on a revisit)

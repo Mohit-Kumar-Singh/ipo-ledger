@@ -107,6 +107,19 @@ function effectiveFunderAccount(
   return a.funder_override ?? a.bank_accounts
 }
 
+// Module-level, not recreated per render — used as the applicationsQuery
+// fallback below (`.data?.rows ?? EMPTY_APPLICATIONS`) while the query has
+// no data yet (first-ever load this session). A `?? []`/`?? new Map()`
+// inline would allocate a fresh reference on every single render during
+// that window, which is exactly the kind of unstable dependency
+// react-hooks/exhaustive-deps flags on every useMemo/useEffect reading
+// these — real unnecessary recomputation, not just lint noise, since
+// nothing here actually needs a new empty collection each render.
+const EMPTY_APPLICATIONS: ApplicationRow[] = []
+const EMPTY_DEMAT_INFO = new Map<string, { holder_name: string; pan_masked: string | null }>()
+const EMPTY_BANK_INFO = new Map<string, string>()
+const EMPTY_MARKER_NAMES = new Map<string, string>()
+
 export function ApplicationsPage() {
   const { profile } = useAuth()
   const location = useLocation()
@@ -285,10 +298,10 @@ export function ApplicationsPage() {
       return { rows, resolvedDematInfo, resolvedBankInfo, mandateMarkerNames }
     },
   })
-  const applications = applicationsQuery.data?.rows ?? []
-  const resolvedDematInfo = applicationsQuery.data?.resolvedDematInfo ?? new Map()
-  const resolvedBankInfo = applicationsQuery.data?.resolvedBankInfo ?? new Map()
-  const mandateMarkerNames = applicationsQuery.data?.mandateMarkerNames ?? new Map()
+  const applications = applicationsQuery.data?.rows ?? EMPTY_APPLICATIONS
+  const resolvedDematInfo = applicationsQuery.data?.resolvedDematInfo ?? EMPTY_DEMAT_INFO
+  const resolvedBankInfo = applicationsQuery.data?.resolvedBankInfo ?? EMPTY_BANK_INFO
+  const mandateMarkerNames = applicationsQuery.data?.mandateMarkerNames ?? EMPTY_MARKER_NAMES
   const loading = applicationsQuery.isPending
   const loadError = applicationsQuery.error instanceof Error ? applicationsQuery.error.message : null
 
@@ -300,13 +313,24 @@ export function ApplicationsPage() {
     // Live-refresh on any application change — covers e.g. an admin
     // creating/editing an application funded by a member's linked bank/UPI
     // account, so that member's list updates without a manual refresh.
+    // Invalidates directly rather than calling loadApplications() — this
+    // effect intentionally has an empty dependency array (subscribe once on
+    // mount, not on every render), and loadApplications is a plain function
+    // redefined every render, so referencing it here without listing it was
+    // an exhaustive-deps warning. queryClient (a stable singleton) and
+    // applicationsQueryKey (always the same literal value) are the only
+    // two things this handler actually depends on, and neither needs the
+    // effect to re-run when they do.
     const channel = supabase
       .channel('applications-page')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => loadApplications())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
+        queryClient.invalidateQueries({ queryKey: applicationsQueryKey })
+      })
       .subscribe()
     return () => {
       supabase.removeChannel(channel)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Arriving from the Dashboard's "awaiting mandate approval" list links to

@@ -12,7 +12,6 @@ import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
-import { AllottedIcon } from '../../components/AllottedIcon'
 import type {
   AllotmentBoardRow,
   ApplicationStatus,
@@ -39,19 +38,14 @@ const notifBadgeClass: Record<Notification['status'], string> = {
   SIMULATED: 'badge-warning',
 }
 
-// One place both the table and the card read their status pill from, so the
-// two can never drift on which statuses render as an icon. SOLD and ALLOTTED
-// are icon-only, with the word kept in title/aria-label for anyone hovering or
-// on a screen reader; APPLIED and NOT_ALLOTTED stay as text because neither has
-// an icon that reads unambiguously at 14px.
+// One place both the table and the card read their status pill from, so
+// the two can never drift. SOLD stays icon-only (word kept in
+// title/aria-label for anyone hovering or on a screen reader); ALLOTTED's
+// icon was removed by request — every status now reads as plain text
+// except SOLD.
 function StatusBadge({ status }: { status: ApplicationStatus }) {
   const label = status.replace('_', ' ')
-  const icon =
-    status === 'SOLD' ? (
-      <CheckCircleFillIcon size={13} />
-    ) : status === 'ALLOTTED' ? (
-      <AllottedIcon size={14} />
-    ) : null
+  const icon = status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : null
   return (
     <span
       className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}`}
