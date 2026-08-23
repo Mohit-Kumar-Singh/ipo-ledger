@@ -164,21 +164,17 @@ export function buildFunderAllottedCards(
     else if (isOverride) existingHolder.isOverride = true
     card.totalLots += r.lots
     card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
+    // Only a CASE_2 shared account (its manager IS the funder, migration
+    // 0079) legitimately has no third party to split with here — NOT
+    // r.split_profit_with_funder, which defaults to false at the DB level
+    // (migration 0023) and is only ever actually set by an admin decision
+    // made at the moment of marking an application SOLD. Nothing has been
+    // decided yet for a still-ALLOTTED row, so this projection assumes the
+    // standard 3-way split rather than the column's idle pre-sale default —
+    // see the matching, more detailed comment on buildUnrealizedProfitLines.
     if (r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)) {
       card.splitWithFunder = false
     }
-    // The application's own "don't split with funder" override (the same
-    // checkbox AllotmentBoardPage's sale form and this app's SOLD-settlement
-    // math already respect) was never read here — this card-based
-    // projection (Dashboard's "Expected profit" tile, Payouts' "Expected —
-    // not yet sold") silently assumed every allotment always splits 50/50,
-    // disagreeing with buildUnrealizedProfitLines (which DOES read this
-    // flag) for the exact same application. Confirmed live: an application
-    // with split_profit_with_funder=false showed two different "profit"
-    // figures on the same Payouts page depending which section you looked
-    // at. r.split_profit_with_funder === false is an explicit off, not the
-    // default — undefined/null/true all still mean "split."
-    if (r.split_profit_with_funder === false) card.splitWithFunder = false
   }
   const cards = Array.from(cardsByIpo.values()).flat()
   for (const c of cards) {
@@ -376,7 +372,19 @@ export function buildUnrealizedProfitLines(
       dematHolderName: holderName,
       funderName: funder?.account_holder_name ?? null,
       profitPersonName,
-      splitWithFunder: isCase2 ? false : (r.split_profit_with_funder ?? false),
+      // NOT r.split_profit_with_funder — that column defaults to false at
+      // the DB level (migration 0023) and is only ever actually SET by an
+      // admin decision at the moment of marking an application SOLD (the
+      // "Split remaining 50/50" checkbox on AllotmentBoardPage's sale
+      // form). For anything still just ALLOTTED, nobody has decided
+      // anything yet — reading the column here silently treated every
+      // not-yet-sold application as "don't split," which is the column's
+      // idle default, not a real choice. The standard 3-way split (holder
+      // cut, then the remainder 50/50 between funder and admin) is the
+      // correct assumption for a projection with no sale-time decision on
+      // record yet; only a CASE_2 shared account (whose manager IS the
+      // funder) genuinely has no third party to split with.
+      splitWithFunder: !isCase2,
     })
     lines.push({
       ipoName: r.ipos.company_name,
