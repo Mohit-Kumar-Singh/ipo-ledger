@@ -587,9 +587,23 @@ export function ProfilePage() {
           (icon+wordmark, sized for phone) since this is the one page that's
           always the first thing tapped from the bottom tab bar; the theme
           toggle sits in this same row instead of its own dedicated card
-          further down. */}
-      <div className="flex items-center justify-between gap-2">
-        <Logo size={38} />
+          further down. items-start (was items-center) now that the left
+          side is two lines (logo + version) instead of one, so the right
+          side's icon buttons stay pinned to the top rather than centering
+          against the taller stack. */}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <Logo size={38} />
+          {/* Moved here from the identity card below (by request) — right
+              under the page's own title reads as "which build of the app,"
+              not "part of my account details," which is what it actually
+              is. lg:hidden — desktop sessions get this from the browser's
+              own dev tools/URL if it's ever needed; the phone/tablet nav
+              this page is the entry point for doesn't have that option. */}
+          <p className="mt-0.5 text-[10px] lg:hidden" style={{ color: 'var(--ink-muted)' }}>
+            v{__APP_VERSION__}
+          </p>
+        </div>
         <div className="flex items-center gap-0.5">
           <SharePortalButton />
           <ThemeToggle iconOnly />
@@ -623,9 +637,6 @@ export function ProfilePage() {
             </div>
             <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
               {session?.user.email ?? session?.user.phone ?? '—'}
-            </p>
-            <p className="text-[10px] lg:hidden" style={{ color: 'var(--ink-muted)' }}>
-              v{__APP_VERSION__}
             </p>
           </div>
         </div>
@@ -1021,22 +1032,23 @@ export function ProfilePage() {
         </div>
       </div>
 
-      {/* -mb-4 (lg:mb-0, since AppShell's extra bottom clearance is phone/
+      {/* -mb-1 (lg:mb-0, since AppShell's extra bottom clearance is phone/
           tablet-only — see its own comment on <main>'s paddingBottom) pulls
-          this closer to the floating tab bar below it, so the gap reads
-          closer to the tight space-y-2 used inside "More" above, instead
-          of the much larger ~4.5rem AppShell reserves site-wide so that
-          fixed-position bar never covers a page's last content. Kept
-          deliberately modest (1rem, not a literal match to the 8px "More"
-          section gap) — AppShell's own clearance is sized to the tab bar's
-          actual rendered height, not empty space, so pulling much further
-          risks this button ending up partly under the bar. Scoped to this
-          page only, not AppShell itself, which every other page also
-          depends on for the same protection. */}
+          this a little closer to the floating tab bar below it than the
+          full ~4.5rem AppShell reserves site-wide so that fixed-position
+          bar never covers a page's last content — that much clearance read
+          as an oversized empty gap under this specific button.
+          Previously -mb-4 (1rem), which this comment predicted might crowd
+          the bar and turned out to actually do it — confirmed live, the
+          button ended up partly under the bar rather than just closer to
+          it. -mb-1 keeps some of the intentional pull-in without eating
+          into AppShell's own clearance margin. Scoped to this page only,
+          not AppShell itself, which every other page also depends on for
+          the same protection. */}
       <button
         type="button"
         onClick={signOut}
-        className="-mb-4 flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold lg:mb-0"
+        className="-mb-1 flex w-full items-center justify-center gap-2 rounded-2xl border py-3 text-sm font-semibold lg:mb-0"
         style={{ borderColor: 'var(--critical-tint)', background: 'var(--critical-tint)', color: 'var(--critical-text)' }}
       >
         <SignOutIcon size={16} fill="var(--critical-text)" />
