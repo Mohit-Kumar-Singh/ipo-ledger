@@ -559,6 +559,14 @@ interface MatchedRow extends ScrapedRow {
   // invalid BOID/PAN combination, for one) that guessMandateStatus's keyword
   // fallback would otherwise silently absorb into "PENDING."
   unusualStatus: boolean
+  // A UPI ID was scraped but doesn't match any bank_accounts row on file —
+  // the application still imports (bank_account_id null, same as any
+  // self-funded row), it just isn't attributed to a real funder yet. That's
+  // easy to miss silently, since a row like that looks the same as a
+  // genuinely self-funded one once imported; flagged so it gets a look
+  // (add the UPI as a bank/UPI account, or link it to the right one) rather
+  // than quietly defaulting to "no funder."
+  newUpi: boolean
 }
 
 function normalize(s: string): string {
@@ -1063,6 +1071,7 @@ export function IpojiSyncPanel({
           amountNum,
           duplicateOfExistingId: otherActive?.id ?? null,
           unusualStatus: !isKnownIpojiStatus(r.status),
+          newUpi: !!r.upiId && !matchedBank,
         }
       }),
     )
@@ -1387,7 +1396,10 @@ export function IpojiSyncPanel({
                 const multiLot = rows.filter((r) => r.lots != null && r.lots > 1 && !r.lotsGuessed)
                 const duplicates = rows.filter((r) => r.duplicateOfExistingId)
                 const unusualStatus = rows.filter((r) => r.unusualStatus)
-                if (multiLot.length === 0 && duplicates.length === 0 && unusualStatus.length === 0) return null
+                const newUpis = rows.filter((r) => r.newUpi)
+                if (multiLot.length === 0 && duplicates.length === 0 && unusualStatus.length === 0 && newUpis.length === 0) {
+                  return null
+                }
                 // Same funder label the table's own "Funder (UPI)" column
                 // uses — a bare UPI ID isn't enough to double-check against
                 // without knowing whose account it resolved to (or that it
@@ -1439,6 +1451,22 @@ export function IpojiSyncPanel({
                             <li key={i}>
                               {r.applicant} — {r.matchedIpo?.company_name ?? r.ipo} — funder: {funderLabel(r)} —
                               status: "{r.status}"
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {newUpis.length > 0 && (
+                      <div className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                        <p>
+                          ⚠ {newUpis.length} row{newUpis.length === 1 ? '' : 's'} funded through a UPI ID not on
+                          file — will import with no funder attributed unless you add it as a bank/UPI account
+                          first:
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 font-normal">
+                          {newUpis.map((r, i) => (
+                            <li key={i}>
+                              {r.applicant} — {r.matchedIpo?.company_name ?? r.ipo} — {r.upiId}
                             </li>
                           ))}
                         </ul>
@@ -1524,7 +1552,7 @@ export function IpojiSyncPanel({
                             r.matchedBank.account_holder_name ?? r.upiId
                           ) : (
                             <span title={r.upiId} style={{ color: 'var(--warning-text)' }}>
-                              no funder account for {r.upiId}
+                              ⚠ no funder account for {r.upiId}
                             </span>
                           )}
                         </td>
