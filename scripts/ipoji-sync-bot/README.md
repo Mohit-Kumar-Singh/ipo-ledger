@@ -10,9 +10,11 @@ new-UPI warnings).
 
 It runs entirely on your own machine. Your ipoji password and portal
 password are never seen by, typed into, or stored by this script — you log
-into both manually, once, in the real browser window it opens, and Chromium
+into both manually, once, in the real browser window it opens, and Firefox
 saves that session the same way it would in your normal browser. Every run
 after that reuses the saved session automatically.
+
+Runs Firefox, not Chrome — see "Why Firefox, not Chrome" below.
 
 ## Setup (one-time)
 
@@ -22,7 +24,7 @@ From this folder (`scripts/ipoji-sync-bot/`):
 npm install
 ```
 
-This also downloads a Chromium build for Playwright to drive (via the
+This also downloads a Firefox build for Playwright to drive (via the
 `postinstall` script) — a few hundred MB, one-time.
 
 If your deployed portal isn't at `http://localhost:5173`, set `PORTAL_URL`
@@ -34,7 +36,7 @@ before running — see "Configuring the portal URL" below.
 npm start
 ```
 
-A real Chromium window opens. First run:
+A real Firefox window opens. First run:
 
 1. It navigates to `ipoji.com/bids`. If you're not logged in yet, it pauses
    and asks you to log in manually in that window (go to **Orders/Bids ->
@@ -72,7 +74,7 @@ PORTAL_URL=https://your-deployed-portal-url npm start
 
 ## Where your session lives
 
-`./browser-profile/` — a local Chromium profile directory (cookies, local
+`./browser-profile/` — a local Firefox profile directory (cookies, local
 storage, etc.) created on first run. This is what makes you not need to log
 in every single time. It's already gitignored — never commit it, it holds
 live session cookies for both ipoji and the portal.
@@ -81,8 +83,27 @@ To force a fresh login (e.g. you changed your password, or want to switch
 which account this runs as), just delete that folder and run `npm start`
 again.
 
+## Why Firefox, not Chrome
+
+First version of this script drove Chromium (Playwright's bundled "Chrome
+for Testing" build). Google's own "Sign in with Google" refused it outright
+("This browser or app may not be secure") — Google's OAuth actively detects
+automation-driven Chromium and blocks it. Switching to real installed
+Chrome (`channel: 'chrome'`) didn't fix it either, confirmed live: Google is
+flagging the CDP attachment itself (the protocol Playwright/Selenium/
+Puppeteer all use to drive Chrome-family browsers), not which particular
+Chrome build it is. Playwright drives Firefox through a different protocol
+that isn't part of that detection, so Google's OAuth treats it as an
+ordinary browser and sign-in works normally.
+
 ## If something breaks
 
+- **"Couldn't sign you in" / "This browser or app may not be secure" when
+  using "Continue with Google" on ipoji, even though this runs Firefox** —
+  shouldn't happen (see above), but if Google ever extends the same
+  detection to Firefox, the practical workaround is to log into ipoji with
+  a non-Google method instead (email/phone/OTP, if ipoji offers one), since
+  that sidesteps Google's OAuth entirely.
 - **"Could not find SYNC_SCRIPT" / "Could not find the end of SYNC_SCRIPT"**
   — the panel component's source structure changed since this script was
   written. Open `web/src/components/IpojiSyncPanel.tsx`, find where

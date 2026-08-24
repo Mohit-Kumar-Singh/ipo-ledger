@@ -1,12 +1,23 @@
 // Local automation for the ipoji -> portal sync flow. Run with `npm start`
 // (or `node sync-from-ipoji.mjs`) from this directory.
 //
+// Runs Firefox, not Chrome/Chromium — Google's own "Sign in with Google"
+// actively detects and refuses ANY Chromium-family browser Playwright
+// attaches to via CDP (the protocol Chrome automation uses), real installed
+// Chrome included once Playwright is driving it ("This browser or app may
+// not be secure"). Confirmed live: switching the bundled test-Chromium
+// build for real Chrome (channel: 'chrome') didn't clear it either — Google
+// is flagging the CDP attachment itself, not which Chrome build it is.
+// Playwright drives Firefox through a different (non-CDP) protocol, which
+// isn't part of that detection, so Google's OAuth treats it as an ordinary
+// browser.
+//
 // What it does:
-//   1. Opens a real (visible) Chromium window against ipoji.com/bids, using
+//   1. Opens a real (visible) Firefox window against ipoji.com/bids, using
 //      a persistent browser profile stored in ./browser-profile — your
-//      ipoji login session is saved there by Chromium itself (cookies),
-//      the same way a normal browser remembers you're logged in. This
-//      script never sees, asks for, or stores your ipoji password.
+//      ipoji login session is saved there by Firefox itself (cookies), the
+//      same way a normal browser remembers you're logged in. This script
+//      never sees, asks for, or stores your ipoji password.
 //   2. Injects the EXACT same sync script the portal's ipoji-sync panel
 //      already asks you to paste into DevTools manually — read straight out
 //      of web/src/components/IpojiSyncPanel.tsx at run time, not copied
@@ -28,13 +39,13 @@
 // automated run can't judge.
 //
 // First-time setup:
-//   npm install              (also downloads a Chromium build for Playwright)
+//   npm install              (also downloads a Firefox build for Playwright)
 //   set PORTAL_URL if it's not the local dev server — see README.md
 //
 // Every run after that: npm start. The browser window opens, logs you in
 // automatically if the saved session is still valid, and does the rest.
 
-import { chromium } from 'playwright'
+import { firefox } from 'playwright'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
@@ -86,8 +97,8 @@ async function main() {
   console.log('Reading the current sync script from the repo...')
   const syncScript = extractSyncScript()
 
-  console.log(`Launching Chromium (profile: ${PROFILE_DIR})...`)
-  const context = await chromium.launchPersistentContext(PROFILE_DIR, {
+  console.log(`Launching Firefox (profile: ${PROFILE_DIR})...`)
+  const context = await firefox.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 900 },
   })
