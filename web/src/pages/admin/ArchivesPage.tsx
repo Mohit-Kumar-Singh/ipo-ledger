@@ -198,7 +198,15 @@ export function ArchivesPage() {
             const items = rowsByIpo.get(ipo.id) ?? []
             const isOpen = expanded.has(ipo.id)
             const counts = {
-              allotted: items.filter((r) => r.status === 'ALLOTTED').length,
+              // SOLD counts as allotted too — it's a further stage of the
+              // same outcome, not a separate bucket that skipped allotment.
+              // The page-header total just above already uses this same
+              // definition ("every application that ever reached that
+              // state, including ones later sold") — this used to disagree
+              // with it, showing "1 allotted" + "1 sold" as if they were
+              // exclusive when someone who was allotted and then sold
+              // should count as allotted in both places.
+              allotted: items.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD').length,
               notAllotted: items.filter((r) => r.status === 'NOT_ALLOTTED').length,
               sold: items.filter((r) => r.status === 'SOLD').length,
             }
@@ -241,16 +249,31 @@ export function ArchivesPage() {
             // PayoutsPage uses) across every SOLD application under this
             // IPO — only meaningful once something's actually been sold.
             const totalProfit = Array.from(splitByAppId.values()).reduce((sum, result) => sum + result.profitPersonShare, 0)
+            // Compact, single-line, plain-text summary rather than a row of
+            // colored pill badges — Archives is a put-away section by
+            // design, and a badge per status was both visually loud for
+            // data nobody's acting on anymore AND the direct cause of the
+            // overflow bug (a shrink-0 flex group fighting its own
+            // flex-wrap). One wrapping text line, styled like the subtitle
+            // line above it, can't overflow the same way — it wraps a WORD
+            // at a time, not a whole pill at a time. Profit is the one
+            // figure worth a little visual weight, so it keeps its own
+            // accent color inline; everything else is plain muted text.
+            const summaryParts = [
+              counts.notAllotted > 0 ? `${counts.notAllotted} not allotted` : null,
+              counts.allotted > 0 ? `${counts.allotted} allotted` : null,
+              counts.sold > 0 ? `${counts.sold} sold` : null,
+            ].filter(Boolean)
             return (
               <div key={ipo.id} className="card stagger-item p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-wrap items-start justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => toggleExpanded(ipo.id)}
                     aria-expanded={isOpen}
-                    className="flex min-w-0 items-center gap-1.5 text-left"
+                    className="flex min-w-0 items-start gap-1.5 text-left"
                   >
-                    <span className="shrink-0 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                    <span className="shrink-0 pt-0.5 text-sm" style={{ color: 'var(--ink-muted)' }}>
                       {isOpen ? '▾' : '▸'}
                     </span>
                     <div className="min-w-0">
@@ -265,40 +288,32 @@ export function ArchivesPage() {
                             : 'No dates'}
                         {` · ${items.length} application${items.length === 1 ? '' : 's'}`}
                       </p>
+                      {(summaryParts.length > 0 || totalProfit !== 0) && (
+                        <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          {summaryParts.join(' · ')}
+                          {totalProfit !== 0 && (
+                            <>
+                              {summaryParts.length > 0 ? ' · ' : ''}
+                              <span style={{ color: 'var(--good-text)' }}>{rupees(totalProfit)} profit</span>
+                            </>
+                          )}
+                        </p>
+                      )}
                     </div>
                   </button>
-                  {/* No shrink-0 here on purpose — it was forcing this group
-                      to lay out at its full unwrapped width (as if it were
-                      one long line) before flex-wrap ever got a chance to
-                      wrap the badges inside it, so a card with enough
-                      badges (Dhoot Transmission: not-allotted + allotted +
-                      sold + profit + Unarchive) overflowed off the right
-                      edge on mobile instead of wrapping onto a second line.
-                      Letting this shrink to the row's actual available
-                      width is what lets its own flex-wrap do anything. */}
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {counts.notAllotted > 0 && <span className="badge badge-neutral text-xs">{counts.notAllotted} not allotted</span>}
-                    {counts.allotted > 0 && <span className="badge badge-good text-xs">{counts.allotted} allotted</span>}
-                    {counts.sold > 0 && <span className="badge badge-violet text-xs">{counts.sold} sold</span>}
-                    {totalProfit !== 0 && (
-                      <span className="badge text-xs" style={{ background: 'var(--good-tint)', color: 'var(--good-text)' }}>
-                        {rupees(totalProfit)} profit
-                      </span>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={() => unarchive(ipo)}
-                        disabled={unarchiving === ipo.id}
-                        title="Unarchive"
-                        aria-label={`Unarchive ${ipo.company_name}`}
-                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
-                        style={{ color: 'var(--accent)' }}
-                      >
-                        <UndoIcon size={13} />
-                        {unarchiving === ipo.id ? 'Restoring…' : 'Unarchive'}
-                      </button>
-                    )}
-                  </div>
+                  {isAdmin && (
+                    <button
+                      onClick={() => unarchive(ipo)}
+                      disabled={unarchiving === ipo.id}
+                      title="Unarchive"
+                      aria-label={`Unarchive ${ipo.company_name}`}
+                      className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-50"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      <UndoIcon size={13} />
+                      {unarchiving === ipo.id ? 'Restoring…' : 'Unarchive'}
+                    </button>
+                  )}
                 </div>
 
                 {isOpen && (
