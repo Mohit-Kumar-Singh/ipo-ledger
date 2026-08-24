@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   CheckCircleIcon,
-  CheckCircleFillIcon,
   ClockIcon,
   LawIcon,
   CreditCardIcon,
@@ -134,12 +133,10 @@ interface DashboardData {
   // price band on file — same per-lot math as NotificationsPage's funder
   // "Allotment updates" cards (buildFunderAllottedCards/expectedProfitBreakdown,
   // shared via lib/expectedProfit.ts so the two numbers can't drift apart).
-  // Deliberately excludes SOLD applications — see confirmedProfitTotal.
-  expectedProfitTotal: number
-  // Real, already-SOLD profit (buildBookedProfitLines) — kept as its own
-  // total rather than folded into expectedProfitTotal above, so a confirmed
+  // Deliberately excludes SOLD applications — that real, booked profit lives
+  // on the Payouts page (Realized/My profit), not here, so a confirmed
   // number is never shown inside a tile labeled "Expected."
-  confirmedProfitTotal: number
+  expectedProfitTotal: number
   expectedProfitByIpo: ExpectedProfitIpoBlock[]
 }
 
@@ -679,21 +676,14 @@ export function DashboardPage() {
     // Projected only — ALLOTTED, not yet sold. Used to also add
     // bookedProfitLines (already-SOLD) into this same total, which meant a
     // real, confirmed number sat inside a tile labeled "Expected," implying
-    // it was still just a guess. Booked profit gets its own confirmedProfitTotal
-    // below instead — the two are never summed into one figure anywhere on
-    // this page, same "never blended" rule Payouts' Realized/Unrealized
-    // split already follows.
+    // it was still just a guess. That real/booked figure lives on the
+    // Payouts page (Realized/My profit) instead — the two are never summed
+    // into one figure here, same "never blended" rule Payouts' Realized/
+    // Unrealized split already follows.
     const expectedProfitTotal = profitCards.reduce(
       (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
       0,
     )
-    // Confirmed profit — an application counts here the moment it's marked
-    // SOLD with a sell_price on file, regardless of whether the money has
-    // actually moved yet (still sitting with the account holder, or not yet
-    // paid out to a funder) — "confirmed" describes the SALE, not the
-    // payout state. buildBookedProfitLines already encodes exactly this
-    // (status === 'SOLD' && sell_price != null, nothing about settlement_payments).
-    const confirmedProfitTotal = bookedProfitLines.reduce((sum, l) => sum + l.profit, 0)
     const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines)
 
     // Real mandate_status (0047/0048), not the previous proxy of "every
@@ -739,7 +729,6 @@ export function DashboardPage() {
       ipoProgress,
       highGmpAlerts,
       expectedProfitTotal,
-      confirmedProfitTotal,
       expectedProfitByIpo,
       // boardRows (v_allotment_board) is already RLS-scoped per viewer —
       // a funder-only member only ever sees rows they're associated
@@ -862,13 +851,10 @@ export function DashboardPage() {
   // progress ring), not an error.
   const attributionByIpoId = new Map(data.attribution.map((a) => [a.ipoId, a]))
 
-  // Same per-IPO blocks expectedProfitByIpo already built, split into the
-  // two tiles' own drill-downs so each panel's line items actually sum to
-  // its own headline number instead of the panel silently mixing in the
-  // other tile's (booked vs still-projected) lines.
-  const confirmedProfitByIpo = data.expectedProfitByIpo
-    .map((b) => ({ ...b, funders: b.funders.filter((f) => f.booked) }))
-    .filter((b) => b.funders.length > 0)
+  // Same per-IPO blocks expectedProfitByIpo already built, filtered down to
+  // just the still-projected (non-booked) lines so this tile's drill-down
+  // panel actually sums to its own headline number instead of silently
+  // mixing in already-SOLD lines too.
   const unrealizedProfitByIpo = data.expectedProfitByIpo
     .map((b) => ({ ...b, funders: b.funders.filter((f) => !f.booked) }))
     .filter((b) => b.funders.length > 0)
@@ -921,12 +907,11 @@ export function DashboardPage() {
       </div>
 
       {/* Sized down (smaller padding/icon/text in StatTile itself) so all
-          7 tiles fit in one row instead of wrapping to a second. Both
-          roles get all 7 — "Owed to you"/"Expected profit"/"Confirmed
-          profit" used to be admin-only (4 tiles for a funder), but they're
-          RLS-scoped to the viewer's own data either way, so a funder gets
-          the same count. */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+          6 tiles fit in one row instead of wrapping to a second. Both
+          roles get 6 now — "Owed to you"/"Expected profit" used to be
+          admin-only (4 tiles for a funder), but they're RLS-scoped to the
+          viewer's own data either way, so a funder gets the same count. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {/* Every application whose mandate isn't CANCELLED — a cancelled
             one never actually had money move, so it's not really "applied"
             in any sense worth counting (same reasoning as the accounts-left
@@ -1004,21 +989,6 @@ export function DashboardPage() {
           format={(n) => `₹${n.toLocaleString('en-IN')}`}
           to="/notifications"
           panel={<ExpectedProfitPanel blocks={unrealizedProfitByIpo} />}
-        />
-        {/* Real, already-SOLD profit — kept as its own tile rather than
-            folded into "Expected profit" above (see confirmedProfitTotal's
-            own comment in load()). Counts the moment a sale's logged,
-            whether or not the money's actually moved yet — same booked
-            lines expectedProfitByIpo already tags "(booked)", filtered down
-            to just those here. */}
-        <StatTile
-          icon={CheckCircleFillIcon}
-          label="Confirmed profit"
-          value={data.confirmedProfitTotal}
-          tone="good"
-          format={(n) => `₹${n.toLocaleString('en-IN')}`}
-          to="/payouts"
-          panel={<ExpectedProfitPanel blocks={confirmedProfitByIpo} />}
         />
       </div>
 
@@ -1524,8 +1494,8 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-64" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-        {Array.from({ length: 7 }).map((_, i) => (
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {Array.from({ length: 6 }).map((_, i) => (
           <div key={i} className="glass-card space-y-2.5 p-3">
             <Skeleton className="h-8 w-8" />
             <Skeleton className="h-4 w-28" />

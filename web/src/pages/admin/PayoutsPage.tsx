@@ -714,25 +714,28 @@ export function PayoutsPage() {
         )}
       </div>
 
-      {/* Real overpayment events — see the overpayments array's own comment
-          above for why the top summary card can't surface these on its own
-          (its totals clamp a negative remainder to 0). Only rendered when
+      {/* Real overpayment events — the top summary card's totals clamp a
+          negative remainder to 0 per party (can't net one funder's credit
+          against a different funder's balance in one combined number), so
+          this is the one place that actually shows "you're owed this back."
+          Same "−₹X (overpaid)" figure/wording each IPO's own settlement
+          card already uses for this exact state — see settlement.ts's
+          SettlementCard (remainingToFunder/remainingFromHolder can go
+          negative on purpose, never clamped there). Only rendered when
           there's actually one to show. */}
       {overpayments.length > 0 && (
-        <div className="card space-y-1.5 p-4 text-sm">
+        <div className="card space-y-2 p-4 text-sm">
           <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-            Overpaid
+            Overpaid — owed back to you
           </p>
           {overpayments.map((o) => (
             <div key={o.key} className="flex items-center justify-between gap-3">
               <span style={{ color: 'var(--ink-secondary)' }}>
-                {o.direction === 'to funder'
-                  ? `Sent ${o.name} more than owed`
-                  : `Collected more than owed from ${o.name}`}{' '}
-                on <span style={{ color: 'var(--ink-primary)' }}>{o.ipoName}</span>
+                <span style={{ color: 'var(--ink-primary)', fontWeight: 500 }}>{o.name}</span> ·{' '}
+                {o.ipoName} — {o.direction === 'to funder' ? 'they owe this back to you' : 'you owe this back to them'}
               </span>
               <span className="shrink-0 font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
-                {rupees(o.amount)}
+                −{rupees(o.amount)} (overpaid)
               </span>
             </div>
           ))}
