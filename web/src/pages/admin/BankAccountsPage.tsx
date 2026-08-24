@@ -267,9 +267,9 @@ export function BankAccountsPage() {
                     disabled={linking === b.id}
                     onChange={(e) => e.target.value && linkMember(b.id, e.target.value)}
                     className="input h-7 w-auto text-xs"
-                    aria-label={`Link ${b.account_holder_name} to a member`}
+                    aria-label={`Link ${b.account_holder_name} to a funder`}
                   >
-                    <option value="">{linking === b.id ? 'Linking…' : 'Link to member…'}</option>
+                    <option value="">{linking === b.id ? 'Linking…' : 'Link to funder…'}</option>
                     {linkableMembers.map((m) => (
                       <option key={m.id} value={m.id}>
                         {m.full_name}
@@ -378,7 +378,7 @@ function BankForm({
     // unlinked UNLESS the admin explicitly picked who this new account
     // belongs to via linkedUserId — that's not a claim of ownership by the
     // admin, it's recording whose it actually is, same as the separate
-    // "Link to member" action elsewhere on this page just done inline.
+    // "Link to funder" action elsewhere on this page just done inline.
     const { error } = existing
       ? await supabase.from('bank_accounts').update(payload).eq('id', existing.id)
       : await supabase
@@ -410,7 +410,7 @@ function BankForm({
         </datalist>
       </Field>
       {isAdmin && !existing && linkableMembers.length > 0 && (
-        <Field label="Link to member" hint="if this UPI belongs to someone already on the portal">
+        <Field label="Link to funder" hint="if this UPI belongs to someone already on the portal">
           <select value={linkedUserId} onChange={(e) => setLinkedUserId(e.target.value)} className="input">
             <option value="">Not linked</option>
             {linkableMembers.map((m) => (
