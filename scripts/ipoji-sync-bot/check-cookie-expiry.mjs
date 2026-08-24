@@ -26,13 +26,29 @@ function base64UrlDecode(segment) {
   return Buffer.from(padded, 'base64').toString('utf8')
 }
 
-function decodeJwtExpiry(value) {
+function expFromJwtString(value) {
   const parts = value.split('.')
   if (parts.length !== 3) return null
   try {
     const payload = JSON.parse(base64UrlDecode(parts[1]))
-    if (typeof payload.exp !== 'number') return null
-    return new Date(payload.exp * 1000)
+    return typeof payload.exp === 'number' ? new Date(payload.exp * 1000) : null
+  } catch {
+    return null
+  }
+}
+
+// ipoji's own accessToken cookie isn't a raw JWT — it's a JWT that's been
+// base64-encoded one more time before being stored as the cookie value
+// (confirmed live: the raw value has no dots at all; base64-decoding it
+// once produces a normal three-segment JWT starting with the standard
+// "eyJhbGc..." header prefix). Tries the value as-is first, then falls
+// back to one layer of base64 unwrapping before giving up.
+function decodeJwtExpiry(value) {
+  const direct = expFromJwtString(value)
+  if (direct) return direct
+  try {
+    const unwrapped = Buffer.from(value, 'base64').toString('utf8')
+    return expFromJwtString(unwrapped)
   } catch {
     return null
   }
