@@ -61,6 +61,20 @@ session for your ipoji account. Re-export it whenever the session expires
 (the script will tell you clearly if that's happened, rather than silently
 scraping nothing).
 
+**How long does an export actually last?** Depends on the specific cookie —
+`accessToken`'s value is a JWT, which carries its own internal expiry
+separate from whether the browser considers it a "session" cookie. Rather
+than guess, check your actual export:
+
+```bash
+npm run check-cookies
+```
+
+Reads `ipoji-cookies.json` and prints when each cookie (and, for
+JWT-shaped values, the token's own internal expiry) actually runs out —
+entirely locally, it never sends the cookie values anywhere, only decodes
+and prints the public expiry field a JWT already carries in plain sight.
+
 ## Setup (one-time)
 
 From this folder (`scripts/ipoji-sync-bot/`):
