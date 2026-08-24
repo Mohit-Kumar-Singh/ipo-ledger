@@ -35,6 +35,12 @@ const SharedAccountsPage = lazy(() =>
 )
 const ArchivesPage = lazy(() => import('./pages/admin/ArchivesPage').then((m) => ({ default: m.ArchivesPage })))
 const UsersPage = lazy(() => import('./pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })))
+const PanAccessLogPage = lazy(() =>
+  import('./pages/admin/PanAccessLogPage').then((m) => ({ default: m.PanAccessLogPage })),
+)
+const LinkedAccountsPage = lazy(() =>
+  import('./pages/LinkedAccountsPage').then((m) => ({ default: m.LinkedAccountsPage })),
+)
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
 function App() {
@@ -63,6 +69,8 @@ function App() {
                       <Route path="/notifications" element={<NotificationsPage />} />
                       <Route path="/archives" element={<ArchivesPage />} />
                       <Route path="/users" element={<UsersPage />} />
+                      <Route path="/pan-access-log" element={<PanAccessLogPage />} />
+                      <Route path="/linked-accounts" element={<LinkedAccountsPage />} />
                       <Route path="/profile" element={<ProfilePage />} />
                     </Route>
                   </Route>
