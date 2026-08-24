@@ -246,10 +246,36 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
     }
   }
 
-  // Live/final subscription figures ("... IPO Subscription Status" table) —
-  // only present once bidding has started, so this stays null for IPOs that
-  // haven't opened yet. Matched by header text ("Retail") rather than a
-  // class name, since this table doesn't carry a distinctive selector and
+  // Live intraday total FIRST — ipoji's own "Live Subscription Details"
+  // widget (`#subscription .subscription-status`, one `.progress-label` row
+  // per category, each holding exactly 2 <span>s: [label, value]) — real
+  // example that surfaced this: with a brand-new "days after bidding closed"
+  // check the day-wise table below still returned an old day's number
+  // ("58.16x" it turns out was already live here) because that table only
+  // gets a new row once at the END of each bidding day, while this widget is
+  // the actual up-to-the-minute running total and is always at least as
+  // fresh. Server-rendered (confirmed present in the raw fetched HTML, not
+  // just after client hydration), so a plain fetch sees it same as a
+  // browser. Matched by its own "Retail" row (there's a duplicate,
+  // differently-labeled "Retail Individual Investors (RIIs)" row with the
+  // same value — matching the short exact-text one is simplest) rather than
+  // the longer label, which is more likely to pick up a wording tweak.
+  // deno-lint-ignore no-explicit-any
+  for (const label of Array.from(doc.querySelectorAll('.subscription-status .progress-label')) as any[]) {
+    // deno-lint-ignore no-explicit-any
+    const spans = Array.from(label.querySelectorAll('span')) as any[]
+    const name = spans[0]?.textContent?.trim().toLowerCase()
+    const value = spans[1]?.textContent?.trim()
+    if (name === 'retail' && value) {
+      result.retail_subscription_rate = value
+      break
+    }
+  }
+
+  // Fallback only — the day-wise "IPO Subscription Status" history table,
+  // for the rare case the live widget above isn't rendered (e.g. very early
+  // in bidding). Matched by header text ("Retail") rather than a class name,
+  // since this table doesn't carry a distinctive selector of its own and
   // text-matching is more resilient to markup tweaks than chasing classes.
   //
   // A second, DIFFERENT table with its own "Retail" header column also
@@ -261,33 +287,34 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
   // Retail header" happened to still pick the right one there — but nothing
   // guarantees that ordering holds for every company, and matching the wrong
   // one would silently store an application count (e.g. "1,234") as if it
-  // were a multiplier, which is exactly what "retail subscription showing
-  // wrong" would look like. Requiring "QIB" as a header too is the real
+  // were a multiplier. Requiring "QIB" as a header too is the real
   // subscription-status table's distinguishing trait (the application-count
   // table doesn't have it) and removes the ambiguity regardless of DOM
   // order; requiring the matched value to actually end in "x" is a second,
   // independent guard against ever storing a bare count.
-  // deno-lint-ignore no-explicit-any
-  for (const table of Array.from(doc.querySelectorAll('table')) as any[]) {
-    const headerRow = table.querySelector('thead tr') ?? table.querySelector('tr')
-    if (!headerRow) continue
-    const headers = Array.from(headerRow.querySelectorAll('th,td')).map(
-      // deno-lint-ignore no-explicit-any
-      (c: any) => c.textContent?.trim().toLowerCase() ?? '',
-    )
-    const retailIdx = headers.indexOf('retail')
-    if (retailIdx === -1 || !headers.includes('qib')) continue
+  if (!result.retail_subscription_rate) {
+    // deno-lint-ignore no-explicit-any
+    for (const table of Array.from(doc.querySelectorAll('table')) as any[]) {
+      const headerRow = table.querySelector('thead tr') ?? table.querySelector('tr')
+      if (!headerRow) continue
+      const headers = Array.from(headerRow.querySelectorAll('th,td')).map(
+        // deno-lint-ignore no-explicit-any
+        (c: any) => c.textContent?.trim().toLowerCase() ?? '',
+      )
+      const retailIdx = headers.indexOf('retail')
+      if (retailIdx === -1 || !headers.includes('qib')) continue
 
-    const bodyRows = Array.from(table.querySelectorAll('tbody tr'))
-    const dataRows = bodyRows.length > 0 ? bodyRows : Array.from(table.querySelectorAll('tr')).slice(1)
-    // deno-lint-ignore no-explicit-any
-    const lastRow = dataRows.at(-1) as any
-    if (!lastRow) continue
-    const cells = Array.from(lastRow.querySelectorAll('td,th'))
-    // deno-lint-ignore no-explicit-any
-    const value = (cells[retailIdx] as any)?.textContent?.replace(/\s+/g, '').trim()
-    if (value && /x$/i.test(value)) result.retail_subscription_rate = value
-    break
+      const bodyRows = Array.from(table.querySelectorAll('tbody tr'))
+      const dataRows = bodyRows.length > 0 ? bodyRows : Array.from(table.querySelectorAll('tr')).slice(1)
+      // deno-lint-ignore no-explicit-any
+      const lastRow = dataRows.at(-1) as any
+      if (!lastRow) continue
+      const cells = Array.from(lastRow.querySelectorAll('td,th'))
+      // deno-lint-ignore no-explicit-any
+      const value = (cells[retailIdx] as any)?.textContent?.replace(/\s+/g, '').trim()
+      if (value && /x$/i.test(value)) result.retail_subscription_rate = value
+      break
+    }
   }
 
   // Category-wise reservation % (retail/QIB/NII/anchor/...) lives in an embedded
