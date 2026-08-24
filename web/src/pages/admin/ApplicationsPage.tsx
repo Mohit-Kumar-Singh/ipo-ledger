@@ -3,7 +3,7 @@ import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
 import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, TrashIcon, UnfoldIcon } from '@primer/octicons-react'
-import { Plus, X } from 'lucide-react'
+import { Bot, Plus, X } from 'lucide-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -662,6 +662,26 @@ export function ApplicationsPage() {
                 >
                   {ipojiSyncOpen ? <X size={16} /> : <img src="/ipoji-logo.png" alt="ipoji" width={22} height={22} />}
                 </button>
+              )}
+              {/* Launches the local automation bot (scripts/ipoji-sync-bot)
+                  via a custom ipojisyncbot:// link — only does anything on a
+                  machine that's run register-protocol.ps1 there first; on
+                  any other machine/browser this just does nothing (no
+                  registered handler), which is the correct fallback for an
+                  admin-only power-user shortcut, not a broken button. The
+                  browser will ask once whether to allow opening it, same as
+                  any first-time custom-protocol link (mailto:, vscode:,
+                  etc.) — that prompt is expected, not an error. */}
+              {isAdmin && (
+                <a
+                  href="ipojisyncbot://run"
+                  aria-label="Run local ipoji sync bot"
+                  title="Run the local ipoji sync bot — only works on a machine set up for it, see scripts/ipoji-sync-bot/README.md"
+                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  style={{ color: 'var(--ink-secondary)' }}
+                >
+                  <Bot size={16} />
+                </a>
               )}
             </>
           )}

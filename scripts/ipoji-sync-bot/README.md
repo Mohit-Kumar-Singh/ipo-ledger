@@ -105,6 +105,38 @@ A real Firefox window opens. First run:
 On later runs, both logins are usually already saved, so it just opens the
 window and runs straight through to the Preview step with no prompts.
 
+## Running it from the portal (optional, one-time setup)
+
+Instead of opening a terminal every time, the Applications page has a robot
+icon next to "Sync from ipoji" that launches this bot directly — a custom
+`ipojisyncbot://` link the browser hands off to Windows, the same mechanism
+`mailto:` links open your email client with. One-time setup, per Windows
+account, per machine:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File register-protocol.ps1
+```
+
+That registers the link handler under your Windows user (no admin rights
+needed) pointing at `launch.bat` in this folder, which just runs `npm start`
+with `PORTAL_URL` already set to the deployed portal. After that, clicking
+the robot icon on the Applications page opens a terminal window and runs the
+whole flow exactly like `npm start` would, ending on the same Preview
+screen for you to review and Import.
+
+The first time you click it, your browser will ask whether to allow opening
+an `ipojisyncbot://` link — that's expected (same as any first-time custom
+protocol link), click Allow/Open, and it can offer to remember that choice
+so it doesn't ask again.
+
+This only does anything on a machine that's run the registration step above
+— on any other machine or browser, clicking the icon just does nothing (no
+handler registered), which is expected for what's really a personal
+shortcut, not a feature for every admin.
+
+If you ever move this folder, re-run `register-protocol.ps1` — it points at
+an absolute path, which breaks if the folder moves.
+
 ## Configuring the portal URL
 
 Defaults to `http://localhost:5173` (the dev server). To point it at your
@@ -134,6 +166,12 @@ again.
 
 ## If something breaks
 
+- **Clicking the robot icon on the Applications page does nothing** — the
+  registration step (`register-protocol.ps1`) hasn't been run on this
+  machine yet, or was run for a different folder location. Run it (see
+  "Running it from the portal" above), or test the link directly without
+  the browser first: Win+R, type `ipojisyncbot://run`, Enter — if that also
+  does nothing, the registration didn't take; re-run the script.
 - **"Firefox exited immediately on launch"** — a Firefox window from an
   earlier run of this bot is still open somewhere (check the taskbar and
   Task Manager for `firefox.exe`). Firefox refuses to open a second
