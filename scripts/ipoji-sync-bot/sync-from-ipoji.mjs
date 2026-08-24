@@ -243,16 +243,32 @@ async function main() {
   const portalPage = await context.newPage()
   await portalPage.goto(`${PORTAL_URL}/applications`, { waitUntil: 'domcontentloaded' })
 
-  const syncButton = portalPage.getByRole('button', { name: 'Sync from ipoji' })
-  const syncButtonVisible = await syncButton.isVisible({ timeout: 8000 }).catch(() => false)
-  if (syncButtonVisible) {
-    await syncButton.click()
-  }
-  // If the button wasn't found (panel already open, or you're not logged
-  // into the portal as an admin in this profile yet), the textarea.waitFor
-  // below will time out with a clear error instead of silently doing nothing.
+  // Wait for the page to actually settle (admin gating + the initial data
+  // fetch both happen client-side after the route loads, and a real
+  // deployed page's first load after a fresh login can take a while longer
+  // than a local dev server) before looking for anything inside it —
+  // otherwise the sync-button click below can race the page and silently
+  // miss, which is exactly what happened before this: it fell through to
+  // "click Preview yourself" instead of failing loudly.
+  console.log('Waiting for the Applications page to finish loading...')
+  await portalPage.getByRole('heading', { name: 'Applications' }).waitFor({ state: 'visible', timeout: 45000 })
 
   const textarea = portalPage.getByPlaceholder('Paste what the script showed you here, then press Enter…')
+  const alreadyOpen = await textarea.isVisible({ timeout: 2000 }).catch(() => false)
+  if (!alreadyOpen) {
+    const syncButton = portalPage.getByRole('button', { name: 'Sync from ipoji' })
+    try {
+      await syncButton.click({ timeout: 20000 })
+      console.log('Clicked "Sync from ipoji".')
+    } catch (err) {
+      throw new Error(
+        'Could not find/click the "Sync from ipoji" button on the Applications page within 20s. ' +
+          'Likely means the logged-in account here isn\'t an admin, or the page changed. Left the browser ' +
+          `open on that page so you can check what's actually showing. (underlying error: ${err.message})`,
+      )
+    }
+  }
+
   await textarea.waitFor({ state: 'visible', timeout: 20000 })
   await textarea.fill(JSON.stringify(rows, null, 2))
 
