@@ -370,15 +370,32 @@ export function PayoutsPage() {
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
       if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
-      const allRows = ((allRowsRes.data ?? []) as unknown as ProfitProjectionRow[]).filter((r) => !r.ipos?.is_archived)
+      // Deliberately NOT filtering out archived IPOs here — archiving is a
+      // housekeeping/declutter action for the ACTIVE-tracking pages
+      // (Dashboard, Applications, Allotment board all filter it out because
+      // there's nothing left to DO on an archived IPO), never a "this money
+      // never happened" action. This feeds buildPayoutAnalytics, which is
+      // this page's own lifetime "Profit till date" / ROI / IPO-wise
+      // breakdown — auto-archive only ever fires once an IPO is FULLY
+      // settled (every row SOLD-and-paid or NOT_ALLOTTED, see
+      // lib/autoArchive.ts), meaning the single most common real-world case
+      // (a fully paid-out, sold IPO) used to have its own realized profit
+      // silently drop out of every lifetime total the moment it archived —
+      // permanently, since nothing un-archives it on its own. Confirmed via
+      // a real user report: profit from a sold, archived IPO (Dhoot
+      // Transmission) was simply gone from Payouts.
+      const allRows = (allRowsRes.data ?? []) as unknown as ProfitProjectionRow[]
 
       if (expectedRes.error) {
         showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
         return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>() }
       }
-      const expectedRowsBase = ((expectedRes.data ?? []) as unknown as ProfitProjectionRow[]).filter(
-        (r) => !r.ipos?.is_archived,
-      )
+      // Archived IPOs can't actually have ALLOTTED-not-yet-sold rows in
+      // practice (auto-archive requires every row already resolved), so
+      // this filter was never doing anything real for THIS query — kept
+      // consistent with allRows above rather than leaving one query
+      // archived-filtered and the other not for no functional reason.
+      const expectedRowsBase = (expectedRes.data ?? []) as unknown as ProfitProjectionRow[]
       const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
       const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
       // Symbols from BOTH the funder-card projection and the broader

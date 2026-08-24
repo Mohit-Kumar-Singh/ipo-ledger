@@ -282,7 +282,17 @@ export function buildBookedProfitLines(
 ): BookedProfitLine[] {
   const lines: BookedProfitLine[] = []
   for (const r of rows) {
-    if (r.status !== 'SOLD' || !r.ipos || r.ipos.is_archived) continue
+    // Archived-or-not is deliberately NOT checked here — that's a caller-
+    // level decision (Dashboard's "Expected profit" tile wants active-only;
+    // Payouts' lifetime "Profit till date" explicitly does not, since
+    // archiving only ever happens once an IPO is fully settled and paid
+    // out, meaning "archived" is the single most common state for a real,
+    // already-realized profit to end up in). This function used to bake the
+    // exclusion in here, which meant no caller could ever see archived
+    // profit even if it filtered nothing itself — confirmed as the actual
+    // cause of a sold, fully-paid IPO's profit silently vanishing from
+    // Payouts the moment it archived.
+    if (r.status !== 'SOLD' || !r.ipos) continue
     if (r.sell_price == null || r.bid_amount == null) continue
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
@@ -354,7 +364,11 @@ export function buildUnrealizedProfitLines(
 ): UnrealizedProfitLine[] {
   const lines: UnrealizedProfitLine[] = []
   for (const r of rows) {
-    if (r.status !== 'ALLOTTED' || !r.ipos || r.ipos.is_archived) continue
+    // Same reasoning as buildBookedProfitLines above — archived status is a
+    // caller decision, not baked in here. Practically near-impossible to hit
+    // for an ALLOTTED row anyway (auto-archive requires every row on the
+    // IPO already resolved), kept only for consistency with that function.
+    if (r.status !== 'ALLOTTED' || !r.ipos) continue
     if (r.bid_amount == null || !r.ipos.price_high) continue
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'

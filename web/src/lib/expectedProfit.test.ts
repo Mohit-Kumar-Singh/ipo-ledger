@@ -181,6 +181,20 @@ describe('buildBookedProfitLines (REALIZED — respects the real, sale-time deci
     // remainder; forced off (case2), they get the whole remainder — strictly more.
     expect(withCase2.profit).toBeGreaterThan(withoutCase2.profit)
   })
+
+  // Real user report: a sold, fully-paid-out IPO's realized profit
+  // disappeared from Payouts the instant it archived (auto-archive fires
+  // precisely once every row is SOLD-and-paid — i.e. this is the single
+  // most common state a real, already-realized profit ends up in, not an
+  // edge case). Root cause was here: this function used to hard-exclude
+  // ipos.is_archived rows itself, so no caller could ever see archived
+  // profit no matter what it fetched or filtered upstream. Archived-or-not
+  // is now a caller decision (see the comment on the function itself);
+  // this pins that a SOLD row under an archived IPO still counts.
+  it("regression: a SOLD row under an archived IPO still counts — archiving isn't 'this profit never happened'", () => {
+    const r = row({ status: 'SOLD', sell_price: 1132, ipos: { ...row().ipos!, is_archived: true } })
+    expect(buildBookedProfitLines([r], 'Admin')).toHaveLength(1)
+  })
 })
 
 describe('buildUnrealizedProfitLines (PROJECTED — ignores the idle pre-sale column)', () => {
