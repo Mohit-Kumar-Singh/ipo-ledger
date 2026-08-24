@@ -251,6 +251,22 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
   // haven't opened yet. Matched by header text ("Retail") rather than a
   // class name, since this table doesn't carry a distinctive selector and
   // text-matching is more resilient to markup tweaks than chasing classes.
+  //
+  // A second, DIFFERENT table with its own "Retail" header column also
+  // appears once an IPO reaches Allotment Out — "Total no. of applications /
+  // bHNI / sHNI / Retail" (a raw application COUNT per category, not a
+  // subscription MULTIPLE). Live-checked against ipoji.com: on an
+  // Allotment-Out IPO's page this application-count table sits right after
+  // the real subscription-status table, so matching on "any table with a
+  // Retail header" happened to still pick the right one there — but nothing
+  // guarantees that ordering holds for every company, and matching the wrong
+  // one would silently store an application count (e.g. "1,234") as if it
+  // were a multiplier, which is exactly what "retail subscription showing
+  // wrong" would look like. Requiring "QIB" as a header too is the real
+  // subscription-status table's distinguishing trait (the application-count
+  // table doesn't have it) and removes the ambiguity regardless of DOM
+  // order; requiring the matched value to actually end in "x" is a second,
+  // independent guard against ever storing a bare count.
   // deno-lint-ignore no-explicit-any
   for (const table of Array.from(doc.querySelectorAll('table')) as any[]) {
     const headerRow = table.querySelector('thead tr') ?? table.querySelector('tr')
@@ -260,7 +276,7 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       (c: any) => c.textContent?.trim().toLowerCase() ?? '',
     )
     const retailIdx = headers.indexOf('retail')
-    if (retailIdx === -1) continue
+    if (retailIdx === -1 || !headers.includes('qib')) continue
 
     const bodyRows = Array.from(table.querySelectorAll('tbody tr'))
     const dataRows = bodyRows.length > 0 ? bodyRows : Array.from(table.querySelectorAll('tr')).slice(1)
@@ -270,7 +286,7 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
     const cells = Array.from(lastRow.querySelectorAll('td,th'))
     // deno-lint-ignore no-explicit-any
     const value = (cells[retailIdx] as any)?.textContent?.replace(/\s+/g, '').trim()
-    if (value) result.retail_subscription_rate = value
+    if (value && /x$/i.test(value)) result.retail_subscription_rate = value
     break
   }
 
