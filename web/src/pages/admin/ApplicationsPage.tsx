@@ -582,6 +582,24 @@ export function ApplicationsPage() {
       ),
     [applications],
   )
+  // Every application on file for a given (ipo, demat) pair regardless of
+  // funder — a coarser lookup than the two above, used by the sync panel
+  // only to flag "this account already has an application here" when a
+  // scraped row doesn't match any of them by app number/bank (migration
+  // 0070 makes more than one genuinely legitimate, through different
+  // funders — this isn't a block, just a surfaced warning for a manual
+  // look, since it's equally what an accidental double-apply looks like).
+  const existingByIpoAndDemat = useMemo(
+    () =>
+      applications.reduce((map, a) => {
+        const key = `${a.ipo_id}_${a.demat_id}`
+        const list = map.get(key) ?? []
+        list.push({ id: a.id, mandate_status: a.mandate_status })
+        map.set(key, list)
+        return map
+      }, new Map<string, { id: string; mandate_status: Application['mandate_status'] }[]>()),
+    [applications],
+  )
 
   return (
     <div className="space-y-5">
@@ -659,6 +677,7 @@ export function ApplicationsPage() {
             banks={banks}
             existingByKey={existingByKey}
             existingByAppNumber={existingByAppNumber}
+            existingByIpoAndDemat={existingByIpoAndDemat}
             onImported={loadApplications}
             // The sync panel just inserted new IPO rows itself — force a
             // refetch rather than relying on formDataNeeded's existing

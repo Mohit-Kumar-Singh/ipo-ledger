@@ -184,7 +184,7 @@ const SYNC_SCRIPT = `(async () => {
       const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
       const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
       if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
-      const row = { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '', status: lines[amtIdx + 2] || '', upiId: '', panNumber: '' };
+      const row = { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '', status: lines[amtIdx + 2] || '', qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '', upiId: '', panNumber: '' };
       if (!row.appNumber) { errors.push({ card: i, stage: 'no-app-number', applicant: row.applicant }); rows.push(row); continue; }
       try {
         const icons = [...card.querySelectorAll('svg')];
@@ -304,11 +304,15 @@ const SYNC_SCRIPT = `(async () => {
   let stopRequested = false;
   const statusBox = document.createElement('div');
   statusBox.id = '__ipojiAutoBox';
-  statusBox.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999999;background:#1a1a2e;color:#fff;' +
-    'padding:12px 16px;border-radius:10px;font:13px sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.4);max-width:320px;display:flex;flex-direction:column;gap:8px;';
+  // Same dark palette as the accumulator box below (and the portal itself,
+  // in dark mode) — see that box's style block for where these hex values
+  // come from (web/src/index.css's :root[data-theme='dark'] tokens).
+  statusBox.style.cssText = 'position:fixed;bottom:16px;right:16px;z-index:999999;background:#0b0e15;color:#e2e8f0;' +
+    'border:1px solid rgba(148,163,184,.22);' +
+    'padding:12px 16px;border-radius:12px;font:13px -apple-system,BlinkMacSystemFont,\\'Segoe UI\\',Inter,sans-serif;box-shadow:0 12px 32px rgba(0,0,0,.6);max-width:320px;display:flex;flex-direction:column;gap:8px;';
   statusBox.innerHTML =
     '<div id="__ipojiAutoMsg" style="white-space:pre-wrap;"></div>' +
-    '<button id="__ipojiAutoStop" style="align-self:flex-start;padding:5px 12px;border-radius:6px;border:1px solid #555;background:#2a2a3e;color:#fff;cursor:pointer;font-size:12px;">Stop and show data scraped so far</button>';
+    '<button id="__ipojiAutoStop" style="align-self:flex-start;padding:6px 14px;border-radius:8px;border:1px solid rgba(148,163,184,.22);background:#12151f;color:#e2e8f0;cursor:pointer;font-size:12px;font-weight:500;">Stop and show data scraped so far</button>';
   document.body.appendChild(statusBox);
   const msgEl = statusBox.querySelector('#__ipojiAutoMsg');
   const setStatus = (msg) => { msgEl.textContent = msg; console.log('[ipoji auto]', msg); };
@@ -394,43 +398,49 @@ const SYNC_SCRIPT = `(async () => {
 
   const style = document.createElement('style');
   style.id = '__ipojiAccumStyle';
+  // Same dark palette as the portal itself (web/src/index.css's
+  // :root[data-theme='dark'] tokens, hardcoded here since this script runs
+  // on ipoji.com's own page and can't reach that stylesheet): surface
+  // #0b0e15, ink-primary #e2e8f0, border-strong rgba(148,163,184,.22),
+  // accent green btn-primary-bg #10b981, good/warning/critical tints.
   style.textContent = \`
-    #__ipojiAccumBox { font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    #__ipojiAccumBox { font-family: 'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
     #__ipojiAccumBox * { box-sizing: border-box; }
     #__ipojiAccumBox button { font-family: inherit; }
     .ia-btn { border-radius: 999px; padding: 9px 18px; font-size: 13px; font-weight: 600; cursor: pointer; border: 1px solid transparent; transition: filter .15s; }
-    .ia-btn:hover { filter: brightness(0.96); }
-    .ia-btn-primary { background: #4f46e5; color: #fff; }
-    .ia-btn-secondary { background: #eef0ff; color: #4f46e5; }
-    .ia-btn-danger { background: #fdecea; color: #d93025; }
-    .ia-btn-ghost { background: transparent; color: #6b7280; }
-    .ia-pill { display: inline-flex; align-items: center; gap: 6px; background: #e8f5e9; color: #1e7e34; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
-    .ia-pill-warn { background: #fff4e5; color: #b26a00; }
+    .ia-btn:hover { filter: brightness(1.1); }
+    .ia-btn-primary { background: #10b981; color: #fff; }
+    .ia-btn-secondary { background: #12151f; color: #e2e8f0; border-color: rgba(148,163,184,.22); }
+    .ia-btn-danger { background: #f87171; color: #fff; }
+    .ia-btn-ghost { background: transparent; color: #64748b; }
+    .ia-pill { display: inline-flex; align-items: center; gap: 6px; background: rgba(52,211,153,.14); color: #34d399; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 600; }
+    .ia-pill-warn { background: rgba(251,191,36,.14); color: #fbbf24; }
   \`;
   document.head.appendChild(style);
 
   const box = document.createElement('div');
   box.id = '__ipojiAccumBox';
-  box.style.cssText = 'position:fixed;inset:5% 6%;z-index:999999;background:#f4f5fb;color:#1a1a2e;' +
-    'border-radius:18px;padding:0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(30,20,80,.35);';
+  box.style.cssText = 'position:fixed;inset:5% 6%;z-index:999999;background:#0b0e15;color:#e2e8f0;' +
+    'border:1px solid rgba(148,163,184,.22);' +
+    'border-radius:18px;padding:0;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 64px rgba(0,0,0,.65);';
 
   const statusLine = Object.entries(statusCounts).map(([s, n]) => s + ': <b>' + n + '</b>').join(' &nbsp;\\u00b7&nbsp; ');
 
   box.innerHTML =
-    '<div style="padding:18px 22px;background:#fff;border-bottom:1px solid #ececf5;display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
+    '<div style="padding:18px 22px;background:#0b0e15;border-bottom:1px solid rgba(148,163,184,.14);display:flex;align-items:center;justify-content:space-between;gap:10px;">' +
       '<div>' +
-        '<div style="font-size:15px;font-weight:700;color:#2b2350;">ipoji sync \\u2014 ' + (stopRequested ? 'stopped early' : 'auto-pagination done') + '</div>' +
-        '<div style="font-size:12px;color:#8a8aa3;margin-top:2px;">' + stoppedReason + '</div>' +
+        '<div style="font-size:15px;font-weight:700;color:#e2e8f0;">ipoji sync \\u2014 ' + (stopRequested ? 'stopped early' : 'auto-pagination done') + '</div>' +
+        '<div style="font-size:12px;color:#64748b;margin-top:2px;">' + stoppedReason + '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-shrink:0;">' +
         (totalErrors > 0 ? '<span class="ia-pill ia-pill-warn">\\u26a0 ' + totalErrors + ' issue(s)</span>' : '') +
         '<span class="ia-pill">\\u2713 ' + total + ' total stored</span>' +
       '</div>' +
     '</div>' +
-    '<div style="padding:10px 22px;background:#fbfbff;border-bottom:1px solid #ececf5;font-size:12px;color:#6b6b85;">' +
+    '<div style="padding:10px 22px;background:#12151f;border-bottom:1px solid rgba(148,163,184,.14);font-size:12px;color:#94a3b8;">' +
       (statusLine || 'No rows stored') +
     '</div>' +
-    '<div style="display:flex;gap:10px;padding:14px 22px;background:#fff;border-bottom:1px solid #ececf5;">' +
+    '<div style="display:flex;gap:10px;padding:14px 22px;background:#0b0e15;border-bottom:1px solid rgba(148,163,184,.14);">' +
       '<button id="__ipojiShowAll" class="ia-btn ia-btn-secondary">Show all (' + total + ')</button>' +
       '<button id="__ipojiCopyAll" class="ia-btn ia-btn-primary">\\ud83d\\udccb Copy all</button>' +
       '<div style="flex:1;"></div>' +
@@ -439,7 +449,7 @@ const SYNC_SCRIPT = `(async () => {
     '</div>' +
     '<div id="__ipojiCopyStatus" style="display:none;padding:10px 22px;font-size:12px;font-weight:600;"></div>' +
     '<textarea id="__ipojiAccumTA" style="flex:1;width:100%;border:0;outline:0;resize:none;' +
-      'padding:16px 22px;font:12px/1.6 \\'IBM Plex Mono\\',Consolas,monospace;color:#2b2350;background:#f4f5fb;display:none;" readonly></textarea>';
+      'padding:16px 22px;font:12px/1.6 \\'IBM Plex Mono\\',Consolas,monospace;color:#e2e8f0;background:#04060c;display:none;" readonly></textarea>';
   document.body.appendChild(box);
 
   const ta = document.getElementById('__ipojiAccumTA');
@@ -456,11 +466,11 @@ const SYNC_SCRIPT = `(async () => {
     statusEl.style.display = 'block';
     try {
       await navigator.clipboard.writeText(ta.value);
-      statusEl.style.background = '#e8f5e9'; statusEl.style.color = '#1e7e34';
+      statusEl.style.background = 'rgba(52,211,153,.14)'; statusEl.style.color = '#34d399';
       statusEl.textContent = '\\u2713 Copied ' + total + ' row(s) to clipboard.';
     } catch {
       ta.focus(); ta.select();
-      statusEl.style.background = '#fff4e5'; statusEl.style.color = '#b26a00';
+      statusEl.style.background = 'rgba(251,191,36,.14)'; statusEl.style.color = '#fbbf24';
       statusEl.textContent = 'Clipboard blocked by ipoji - text is selected, press Ctrl+C to copy.';
     }
   };
@@ -490,6 +500,11 @@ interface ScrapedRow {
   applicant: string
   appNumber: string
   status: string
+  // Straight off ipoji's own card ("Qty"/"Amount" fields) — used to derive
+  // the real lot count (qty ÷ the matched IPO's lot size) instead of always
+  // assuming 1 lot, see computeLotsAndAmount.
+  qty?: string
+  amount?: string
   upiId?: string
   panNumber?: string
   // Diagnostic only, set by the scrape script when it couldn't open/read the
@@ -520,12 +535,25 @@ interface MatchedRow extends ScrapedRow {
   // this drives flipping its badge from "added manually" to "synced".
   existingImportedFromIpoji: boolean
   guessedMandate: MandateStatus
-  // Not scraped — assumed the IPO's own minimum lot (matches every real
-  // application observed so far), computed once the IPO is matched.
-  // Editable afterward like any manually entered application for the rare
-  // case someone actually applied for more than one lot.
+  // Derived from ipoji's own scraped Qty ÷ the matched IPO's lot size when
+  // that parses cleanly — falls back to the old assumed-1-lot-at-cutoff
+  // default (see computeLotsAndAmount) only when it doesn't, e.g. no IPO
+  // matched yet or a malformed scrape. Editable afterward either way, like
+  // any manually entered application.
   lots: number | null
+  // True when `lots` above is the fallback assumption, not an actual
+  // reading of ipoji's Qty field — drives the "assumed, not scraped"
+  // caveat in the preview table so a real multi-lot bid that DID parse
+  // isn't confused with one that's just guessed at 1.
+  lotsGuessed: boolean
   amountNum: number | null
+  // Any OTHER active (non-cancelled) application already on file for this
+  // exact (ipo, demat) pair, surfaced only when THIS row doesn't itself
+  // match one (i.e. it's about to create a new row). A second real
+  // application through a different funder is legitimate (migration 0070),
+  // but it's also exactly what a matching bug or a genuine accidental
+  // double-apply looks like — flagged for a manual look, not blocked.
+  duplicateOfExistingId: string | null
 }
 
 function normalize(s: string): string {
@@ -667,16 +695,33 @@ function parseScrapedRows(text: string): { rows: ScrapedRow[]; skippedLabels: st
   return { rows, skippedLabels }
 }
 
-// One lot at the IPO's cutoff (highest) price — the retail default every
-// scraped application in practice matched exactly (ipoji's own qty/amount
-// were always lot_size and lot_size*price_high respectively before this was
-// dropped from scraping). Not scraped per-application anymore; see the
-// MatchedRow.lots comment for the multi-lot edge case this accepts.
-function defaultLotsAndAmount(ipo: Ipo | null): { lots: number | null; amount: number | null } {
-  if (!ipo) return { lots: null, amount: null }
-  const lots = 1
-  const amount = ipo.price_high != null ? ipo.lot_size * ipo.price_high : null
-  return { lots, amount }
+// ipoji's own Qty/Amount fields are scraped now (see ScrapedRow), so the
+// real lot count is Qty ÷ the matched IPO's lot size — the previous
+// hardcoded "always 1 lot" assumption only held because every application
+// observed so far happened to be the retail default; a genuine multi-lot
+// bid silently got treated as 1 lot with no way to tell from the preview
+// table. Falls back to that old assumption only when Qty didn't parse
+// cleanly (malformed scrape) or there's no matched IPO yet to divide by —
+// `lotsGuessed` tells the caller which case happened.
+function computeLotsAndAmount(
+  ipo: Ipo | null,
+  qtyRaw: string | undefined,
+  amountRaw: string | undefined,
+): { lots: number | null; amount: number | null; lotsGuessed: boolean } {
+  if (!ipo) return { lots: null, amount: null, lotsGuessed: false }
+  const qtyNum = qtyRaw ? Number(qtyRaw.replace(/[^0-9.]/g, '')) : NaN
+  const amountNum = amountRaw ? Number(amountRaw.replace(/[^0-9.]/g, '')) : NaN
+  if (Number.isFinite(qtyNum) && qtyNum > 0 && ipo.lot_size) {
+    const lots = Math.max(1, Math.round(qtyNum / ipo.lot_size))
+    const amount =
+      Number.isFinite(amountNum) && amountNum > 0
+        ? amountNum
+        : ipo.price_high != null
+          ? ipo.lot_size * ipo.price_high * lots
+          : null
+    return { lots, amount, lotsGuessed: false }
+  }
+  return { lots: 1, amount: ipo.price_high != null ? ipo.lot_size * ipo.price_high : null, lotsGuessed: true }
 }
 
 // Best-effort mapping from ipoji's own free-text status to this app's
@@ -802,6 +847,7 @@ export function IpojiSyncPanel({
   banks,
   existingByKey,
   existingByAppNumber,
+  existingByIpoAndDemat,
   onImported,
   onIposCreated,
   lookupsLoading,
@@ -839,6 +885,12 @@ export function IpojiSyncPanel({
       bank_account_id: string | null
     }
   >
+  // Every application already on file for a given (ipo, demat) pair
+  // regardless of funder — coarser than the two maps above, used only to
+  // flag "this account already has an application for this IPO" when a
+  // scraped row doesn't match one of them exactly (see duplicateOfExistingId
+  // on MatchedRow).
+  existingByIpoAndDemat: Map<string, { id: string; mandate_status: MandateStatus }[]>
   onImported: () => void
   // Called after this panel creates one or more IPOs that didn't exist in
   // the portal at all — lets the parent refresh its own `ipos` prop so a
@@ -915,7 +967,7 @@ export function IpojiSyncPanel({
         const matchedIpo = matchIpo(r.ipo, effectiveIpos)
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
         const matchedBank = matchBank(r.upiId, banks)
-        const { lots, amount: amountNum } = defaultLotsAndAmount(matchedIpo)
+        const { lots, amount: amountNum, lotsGuessed } = computeLotsAndAmount(matchedIpo, r.qty, r.amount)
         // App-number match FIRST — ipoji's own application number is the
         // real stable identity of a bid, and has to win over a
         // bank-account-derived key that isn't guaranteed stable run to run
@@ -950,6 +1002,19 @@ export function IpojiSyncPanel({
           matchedIpo && matchedDemat
             ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
             : undefined
+        // Only relevant when this row is about to create a brand-new
+        // application (no exact match above) — check whether this exact
+        // (ipo, demat) pair already has some OTHER active application on
+        // file under a different funder/app-number. Legitimate under
+        // migration 0070, but also exactly what an accidental double-apply
+        // or a matching miss looks like, so it's surfaced rather than
+        // silently imported as if it were the account's first bid here.
+        const otherActive =
+          !existing && matchedIpo && matchedDemat
+            ? (existingByIpoAndDemat.get(`${matchedIpo.id}_${matchedDemat.id}`) ?? []).find(
+                (a) => a.mandate_status !== 'CANCELLED',
+              )
+            : undefined
         return {
           ...r,
           matchedIpo,
@@ -963,7 +1028,9 @@ export function IpojiSyncPanel({
           existingBankAccountId: existing?.bank_account_id ?? null,
           guessedMandate: guessMandateStatus(r.status),
           lots,
+          lotsGuessed,
           amountNum,
+          duplicateOfExistingId: otherActive?.id ?? null,
         }
       }),
     )
@@ -1158,9 +1225,10 @@ export function IpojiSyncPanel({
                   'Notes: your ipoji login never touches this app — the script only reads what is already on ' +
                   'the page you are logged into, and this app only ever sees what you paste back in. ipoji blocks ' +
                   'the normal "Copy" button from working sometimes, so if Copy all fails, the text in that box is ' +
-                  'already selected — just press Ctrl+C. Lots/amount are not scraped — they are assumed to be ' +
-                  '1 lot at the IPO\'s own cutoff price (true for every application seen so far); edit an imported ' +
-                  'application afterward if someone actually applied for more than one lot. If a scraped ' +
+                  'already selected — just press Ctrl+C. Lots are read from ipoji\'s own Qty field when it parses ' +
+                  'cleanly (shown with a ⚠ in the review table if more than 1); otherwise it falls back to ' +
+                  'assuming 1 lot at the IPO\'s own cutoff price, marked "(assumed)". Edit an imported application ' +
+                  'afterward if that assumption was wrong. If a scraped ' +
                   'application\'s IPO is not in this portal at all yet, Preview fetches it from ipoji\'s own ' +
                   'current-IPO list and creates it automatically before matching.'
                 }
@@ -1283,6 +1351,30 @@ export function IpojiSyncPanel({
                 Mandate status is a best-effort guess from ipoji's own status text — double-check it
                 rather than treating it as certain.
               </p>
+              {(() => {
+                const multiLot = rows.filter((r) => r.lots != null && r.lots > 1 && !r.lotsGuessed)
+                const duplicates = rows.filter((r) => r.duplicateOfExistingId)
+                if (multiLot.length === 0 && duplicates.length === 0) return null
+                return (
+                  <div className="mt-2 space-y-1">
+                    {multiLot.length > 0 && (
+                      <p className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                        ⚠ {multiLot.length} row{multiLot.length === 1 ? '' : 's'} applied for more than 1 lot —{' '}
+                        {multiLot.map((r) => `${r.applicant} (${r.lots} lots)`).join(', ')}. Double-check before
+                        importing.
+                      </p>
+                    )}
+                    {duplicates.length > 0 && (
+                      <p className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                        ⚠ {duplicates.length} row{duplicates.length === 1 ? '' : 's'} would import a NEW application
+                        for an account that already has one on this IPO —{' '}
+                        {duplicates.map((r) => `${r.applicant} / ${r.matchedIpo?.company_name}`).join(', ')}. Could be
+                        a genuine second bid through a different funder, or a duplicate — check before importing.
+                      </p>
+                    )}
+                  </div>
+                )
+              })()}
               {/* A big multi-page batch is dozens/hundreds of rows — capped
                   height + its own scroll (both axes) keeps this table a
                   constant size regardless of how many rows matched, instead
@@ -1324,9 +1416,24 @@ export function IpojiSyncPanel({
                           )}
                         </td>
                         <td className="p-1.5">
-                          {r.lots != null ? `${r.lots} lot${r.lots === 1 ? '' : 's'}` : '—'}
+                          <span
+                            style={
+                              r.lots != null && r.lots > 1 && !r.lotsGuessed
+                                ? { color: 'var(--warning-text)', fontWeight: 600 }
+                                : undefined
+                            }
+                          >
+                            {r.lots != null ? `${r.lots} lot${r.lots === 1 ? '' : 's'}` : '—'}
+                            {r.lots != null && r.lots > 1 && !r.lotsGuessed ? ' ⚠' : ''}
+                          </span>
                           {r.amountNum != null && (
                             <span style={{ color: 'var(--ink-muted)' }}> (₹{r.amountNum.toLocaleString('en-IN')})</span>
+                          )}
+                          {r.lotsGuessed && (
+                            <span style={{ color: 'var(--ink-muted)' }} title="ipoji's Qty didn't parse — assumed 1 lot at cutoff price.">
+                              {' '}
+                              (assumed)
+                            </span>
                           )}
                         </td>
                         <td className="p-1.5">
@@ -1370,7 +1477,13 @@ export function IpojiSyncPanel({
                               <span style={{ color: 'var(--ink-muted)' }}>already applied</span>
                             )
                           ) : r.matchedIpo && r.matchedDemat && r.lots ? (
-                            <span style={{ color: 'var(--good-text)' }}>will import</span>
+                            r.duplicateOfExistingId ? (
+                              <span title="This account already has another active application for this IPO." style={{ color: 'var(--warning-text)' }}>
+                                ⚠ will import — possible duplicate
+                              </span>
+                            ) : (
+                              <span style={{ color: 'var(--good-text)' }}>will import</span>
+                            )
                           ) : (
                             <span style={{ color: 'var(--critical-text)' }}>skip</span>
                           )}
