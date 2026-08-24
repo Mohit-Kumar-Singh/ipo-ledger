@@ -162,10 +162,20 @@ async function main() {
   const syncScript = extractSyncScript()
 
   console.log(`Launching Firefox (profile: ${PROFILE_DIR})...`)
-  const context = await firefox.launchPersistentContext(PROFILE_DIR, {
-    headless: false,
-    viewport: { width: 1280, height: 900 },
-  })
+  let context
+  try {
+    context = await firefox.launchPersistentContext(PROFILE_DIR, {
+      headless: false,
+      viewport: { width: 1280, height: 900 },
+    })
+  } catch (err) {
+    throw new Error(
+      'Firefox exited immediately on launch. This almost always means a Firefox window from an earlier ' +
+        'run of this bot is still open — Firefox refuses to open a second instance against the same ' +
+        'profile folder. Close every Firefox window this bot opened (check the taskbar, and Task Manager ' +
+        `for any leftover firefox.exe process), then run again. (underlying error: ${err.message})`,
+    )
+  }
   const usedCookieFile = await loadIpojiCookies(context)
   const page = context.pages()[0] ?? (await context.newPage())
 
@@ -251,7 +261,9 @@ async function main() {
   console.log(
     '\nPasted into the portal and clicked Preview. Review the warnings in the table (multi-lot, ' +
       'possible duplicates, unusual status, new UPI), then click Import yourself when it looks right.\n' +
-      'Leaving both browser tabs open — close the window whenever you\'re done.',
+      'Leaving both browser tabs open so you can do that. IMPORTANT: close this Firefox window ' +
+      'before running the bot again — it holds a lock on the browser profile, and a second launch ' +
+      "against the same locked profile fails immediately (\"Firefox exited immediately on launch\").",
   )
 }
 

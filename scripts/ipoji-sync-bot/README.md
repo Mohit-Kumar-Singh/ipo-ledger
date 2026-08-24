@@ -134,6 +134,13 @@ again.
 
 ## If something breaks
 
+- **"Firefox exited immediately on launch"** — a Firefox window from an
+  earlier run of this bot is still open somewhere (check the taskbar and
+  Task Manager for `firefox.exe`). Firefox refuses to open a second
+  instance against the same profile folder, so it launches then
+  immediately exits. Close that window (this bot always leaves its browser
+  open at the end, on purpose, so you can review the result — see its
+  final message), then run `npm start` again.
 - **"Couldn't sign you in" / "This browser or app may not be secure" when
   using "Continue with Google" inside the automated window** — expected,
   see "Logging into ipoji" above. Set up `ipoji-cookies.json` instead of
