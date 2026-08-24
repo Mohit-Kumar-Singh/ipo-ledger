@@ -61,19 +61,32 @@ session for your ipoji account. Re-export it whenever the session expires
 (the script will tell you clearly if that's happened, rather than silently
 scraping nothing).
 
-**How long does an export actually last?** Depends on the specific cookie —
-`accessToken`'s value is a JWT, which carries its own internal expiry
-separate from whether the browser considers it a "session" cookie. Rather
-than guess, check your actual export:
+**How long does an export actually last?** Shorter than you'd think —
+confirmed live against a real export, `accessToken`'s own internal expiry
+(it's a JWT, base64-wrapped once more before ipoji stores it as the cookie
+value) was under an hour out from export time. The other cookies in the
+export last much longer, but that one is what actually gates being logged
+in. Practical upshot: **export right before you're about to run the bot**,
+not once and forget about it — treat it as "grab a fresh session," not "set
+up my login."
+
+Check any specific export's actual numbers rather than assuming:
 
 ```bash
 npm run check-cookies
 ```
 
 Reads `ipoji-cookies.json` and prints when each cookie (and, for
-JWT-shaped values, the token's own internal expiry) actually runs out —
-entirely locally, it never sends the cookie values anywhere, only decodes
-and prints the public expiry field a JWT already carries in plain sight.
+JWT-shaped values — including ipoji's base64-wrapped ones — the token's own
+internal expiry) actually runs out, entirely locally. Never sends the
+cookie values anywhere, only decodes and prints the public expiry field a
+JWT already carries in plain sight.
+
+Whether ipoji's frontend silently refreshes this token while a real browser
+tab sits open (common pattern, would mean the practical session lasts
+longer than the raw hour) isn't something this has been able to confirm
+either way yet — the safe assumption until proven otherwise is the short
+number above.
 
 ## Setup (one-time)
 
