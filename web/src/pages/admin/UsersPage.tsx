@@ -277,12 +277,13 @@ function UserRow({
         {(demat.length > 0 || bank.length > 0) && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {demat.map((d) => (
-              <span key={d.id} className="badge badge-info gap-1.5">
-                <PersonIcon size={11} /> {d.holder_name}
+              <span key={d.id} className="badge badge-info max-w-full gap-1.5">
+                <PersonIcon size={11} className="shrink-0" />
+                <span className="min-w-0 truncate">{d.holder_name}</span>
                 <button
                   onClick={() => unlinkDemat(d.id, d.holder_name)}
                   disabled={busyId === d.id}
-                  className="font-semibold disabled:opacity-50"
+                  className="shrink-0 font-semibold disabled:opacity-50"
                   style={{ color: 'var(--critical)' }}
                 >
                   ×
@@ -290,12 +291,13 @@ function UserRow({
               </span>
             ))}
             {bank.map((b) => (
-              <span key={b.id} className="badge badge-good gap-1.5">
-                <LawIcon size={11} /> {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
+              <span key={b.id} className="badge badge-good max-w-full gap-1.5">
+                <LawIcon size={11} className="shrink-0" />
+                <span className="min-w-0 truncate">{b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}</span>
                 <button
                   onClick={() => unlinkBank(b.id, b.account_holder_name ?? b.upi_id ?? 'this account')}
                   disabled={busyId === b.id}
-                  className="font-semibold disabled:opacity-50"
+                  className="shrink-0 font-semibold disabled:opacity-50"
                   style={{ color: 'var(--critical)' }}
                 >
                   ×
@@ -306,16 +308,25 @@ function UserRow({
         )}
       </div>
 
-      <div className="flex shrink-0 flex-wrap items-center gap-2">
+      {/* w-full (not shrink-0) on mobile — shrink-0 here used to force this
+          block to its own full max-content width (both selects + the "both"
+          badge on one line, ~404px measured) even after wrapping onto its
+          own row below the info block, overflowing the 375px card by ~50px
+          (confirmed via a live layout probe against this exact markup —
+          icons/pills spilling past the card edge). w-full lets it take the
+          actual available row width instead, so flex-wrap has room to
+          actually wrap the selects underneath each other; sm:w-auto keeps
+          the old side-by-side layout once there's enough space. */}
+      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
         {unlinkedDemat.length > 0 && (
           <select
             value=""
             disabled={busyId?.startsWith(`${profile.id}-`) ?? false}
             onChange={(e) => e.target.value && linkDemat(profile.id, e.target.value)}
-            className="input h-7 w-auto text-xs"
+            className="input h-7 w-full text-xs sm:w-auto"
             aria-label={`Link ${profile.full_name} to a demat account`}
           >
-            <option value="">Link to demat account…</option>
+            <option value="">Link to demat…</option>
             {unlinkedDemat.map((d) => (
               <option key={d.id} value={d.id}>
                 {d.holder_name}
@@ -328,10 +339,10 @@ function UserRow({
             value=""
             disabled={busyId?.startsWith(`${profile.id}-`) ?? false}
             onChange={(e) => e.target.value && linkBank(profile.id, e.target.value)}
-            className="input h-7 w-auto text-xs"
+            className="input h-7 w-full text-xs sm:w-auto"
             aria-label={`Link ${profile.full_name} to a funder UPI account`}
           >
-            <option value="">Link to funder (UPI)…</option>
+            <option value="">Link to funder…</option>
             {unlinkedBank.map((b) => (
               <option key={b.id} value={b.id}>
                 {b.account_holder_name ?? b.upi_id ?? 'Bank/UPI account'}
