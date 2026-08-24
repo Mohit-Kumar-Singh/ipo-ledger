@@ -33,6 +33,7 @@ import {
   expectedProfitBreakdown,
   type ProfitProjectionRow,
   type UnrealizedProfitLine,
+  type ListingCutoff,
 } from '../../lib/expectedProfit'
 import {
   buildSettlementCards,
@@ -395,7 +396,16 @@ export function PayoutsPage() {
       // this filter was never doing anything real for THIS query — kept
       // consistent with allRows above rather than leaving one query
       // archived-filtered and the other not for no functional reason.
-      const expectedRowsBase = (expectedRes.data ?? []) as unknown as ProfitProjectionRow[]
+      const expectedRowsBaseAll = (expectedRes.data ?? []) as unknown as ProfitProjectionRow[]
+      // Same listing-day cutoff as buildUnrealizedProfitLines below (see
+      // lib/expectedProfit.ts's ListingCutoff) — a row whose IPO lists
+      // today, before 10am IST, is held back from every projected-profit
+      // figure on this page, not just the analytics dashboard's own number,
+      // so "Expected profit"/expectedByFunder never disagree with it.
+      const { dateStr: todayIstStrLocal, hour: nowIstHourLocal } = nowIst()
+      const expectedRowsBase = expectedRowsBaseAll.filter(
+        (r) => !(r.ipos?.listing_date === todayIstStrLocal && nowIstHourLocal < 10),
+      )
       const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
       const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
       // Symbols from BOTH the funder-card projection and the broader
@@ -475,7 +485,13 @@ export function PayoutsPage() {
   const [rangePreset, setRangePreset] = useState<DateRangePreset>('this_month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
-  const todayIstStr = nowIst().dateStr
+  const { dateStr: todayIstStr, hour: nowIstHour } = nowIst()
+  // Same listing-day-before-10am hold-back as expectedRowsBase's own filter
+  // above (see lib/expectedProfit.ts's ListingCutoff) — scoped to this page
+  // only, so Dashboard/Notifications' own funder-facing projections are
+  // unaffected. useMemo'd on the hour so it only actually changes value once
+  // per hour, not on every render.
+  const listingCutoff: ListingCutoff = useMemo(() => ({ todayIstStr, hour: nowIstHour }), [todayIstStr, nowIstHour])
   const range = useMemo(
     () =>
       resolveDateRange(
@@ -486,8 +502,18 @@ export function PayoutsPage() {
     [rangePreset, todayIstStr, customStart, customEnd],
   )
   const analytics = useMemo(
-    () => buildPayoutAnalytics(allRows, boardQuery.data ?? EMPTY_BOARD_ROWS, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol),
-    [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol],
+    () =>
+      buildPayoutAnalytics(
+        allRows,
+        boardQuery.data ?? EMPTY_BOARD_ROWS,
+        payments,
+        range,
+        profitPersonName,
+        case2ManagerIds,
+        livePriceBySymbol,
+        listingCutoff,
+      ),
+    [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol, listingCutoff],
   )
   const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
   const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
@@ -572,8 +598,55 @@ export function PayoutsPage() {
       profitPersonName,
       livePriceBySymbol,
       case2ManagerIds,
+      listingCutoff,
     ),
   )
+  // Same figure Dashboard's own "Expected profit" tile shows (ALLOTTED,
+  // not-yet-sold applications only — never blended with realized/booked
+  // profit, which settlementCards/totalMyProfit above already covers) — now
+  // surfaced here too so this page's own top summary card doesn't make you
+  // go to Dashboard to see it. expectedCards already has the listing-cutoff
+  // filter applied (see the queryFn above), so this and expectedByFunder
+  // never disagree.
+  const totalExpectedProfit = expectedCards.reduce(
+    (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
+    0,
+  )
+  // Real overpayment events — a settlement card whose logged payments add up
+  // to MORE than what was actually owed on that side. Surfaced explicitly
+  // (not just the "(overpaid)" annotation buried inside each IPO's own
+  // settlement card) because the top summary strip's totalStillToFunder/
+  // totalStillFromHolder above deliberately clamp negative remainders to 0
+  // — an overpayment otherwise silently disappears from every headline
+  // number on this page instead of showing up as real money to account for.
+  interface OverpaymentRow {
+    key: string
+    name: string
+    ipoName: string
+    amount: number
+    direction: 'to funder' | 'from holder'
+  }
+  const overpayments: OverpaymentRow[] = []
+  for (const c of settlementCards) {
+    if (c.hasFunder && !c.isFunderSelf && c.remainingToFunder < -SETTLED_EPSILON) {
+      overpayments.push({
+        key: `${c.applicationId}-funder`,
+        name: c.funderName ?? 'Unknown',
+        ipoName: c.ipoName,
+        amount: -c.remainingToFunder,
+        direction: 'to funder',
+      })
+    }
+    if (!c.isDematHolderSelf && c.remainingFromHolder < -SETTLED_EPSILON) {
+      overpayments.push({
+        key: `${c.applicationId}-holder`,
+        name: c.holderName,
+        ipoName: c.ipoName,
+        amount: -c.remainingFromHolder,
+        direction: 'from holder',
+      })
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -592,8 +665,16 @@ export function PayoutsPage() {
             are the LIVE remaining figures (after settlement_payments), not
             the gross totals — "Still to send" is what actually still needs
             moving out of your own pocket right now. */}
-        {settlementCards.length > 0 && (
-          <div className="card flex shrink-0 items-center gap-4 px-4 py-2.5 text-sm">
+        {(settlementCards.length > 0 || expectedCards.length > 0) && (
+          // grid grid-cols-2, not flex+shrink-0 — the old flex layout's
+          // shrink-0 kept the card at its full unwrapped content width no
+          // matter how narrow the viewport got (shrink-0 blocks the very
+          // shrinking flex-wrap needs to ever trigger), which silently ran
+          // the 4th figure (added here) off the right edge of the screen on
+          // mobile instead of wrapping it onto a second row. w-full sm:w-auto
+          // lets the card take the full row on mobile — same fix pattern as
+          // UsersPage's own mobile-overflow fix.
+          <div className="card grid w-full grid-cols-2 gap-x-4 gap-y-3 px-4 py-2.5 text-sm sm:flex sm:w-auto sm:items-center">
             <div>
               <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
                 Still owed to you
@@ -618,9 +699,45 @@ export function PayoutsPage() {
                 {rupees(totalMyProfit)}
               </p>
             </div>
+            {/* Projected only (ALLOTTED, not yet sold) — never blended into
+                My profit above, which is real/confirmed money from already-
+                SOLD applications. See totalExpectedProfit's own comment. */}
+            <div>
+              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                Expected profit
+              </p>
+              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--accent)' }}>
+                {rupees(totalExpectedProfit)}
+              </p>
+            </div>
           </div>
         )}
       </div>
+
+      {/* Real overpayment events — see the overpayments array's own comment
+          above for why the top summary card can't surface these on its own
+          (its totals clamp a negative remainder to 0). Only rendered when
+          there's actually one to show. */}
+      {overpayments.length > 0 && (
+        <div className="card space-y-1.5 p-4 text-sm">
+          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+            Overpaid
+          </p>
+          {overpayments.map((o) => (
+            <div key={o.key} className="flex items-center justify-between gap-3">
+              <span style={{ color: 'var(--ink-secondary)' }}>
+                {o.direction === 'to funder'
+                  ? `Sent ${o.name} more than owed`
+                  : `Collected more than owed from ${o.name}`}{' '}
+                on <span style={{ color: 'var(--ink-primary)' }}>{o.ipoName}</span>
+              </span>
+              <span className="shrink-0 font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
+                {rupees(o.amount)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* === Profit & Payout Analytics dashboard (v1.187.0) === */}
       <div className="space-y-5">

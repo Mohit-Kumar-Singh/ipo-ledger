@@ -44,6 +44,7 @@ import {
   type ProfitProjectionRow,
   type BookedProfitLine,
   type UnrealizedProfitLine,
+  type ListingCutoff,
 } from './expectedProfit'
 import { buildSettlementCards } from './settlement'
 import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
@@ -220,6 +221,11 @@ export function buildPayoutAnalytics(
   profitPersonName: string,
   case2ManagerIds: Set<string>,
   livePriceBySymbol: Record<string, number | null>,
+  // Optional — only PayoutsPage passes this (see lib/expectedProfit.ts's
+  // ListingCutoff). Held back for a still-ALLOTTED row whose IPO lists
+  // today, before 10am IST — the first hour of trading can still be NSE's
+  // pre-open indicative price, not a real one.
+  listingCutoff?: ListingCutoff,
 ): PayoutAnalytics {
   // "Applications during the period" is anchored to applied_at throughout —
   // the one date every application unambiguously has, present from the
@@ -231,9 +237,13 @@ export function buildPayoutAnalytics(
   const realizedLines = buildBookedProfitLines(allRows, profitPersonName, case2ManagerIds).filter((l) =>
     inRange(l.realizedAt, range),
   )
-  const unrealizedLines = buildUnrealizedProfitLines(allRows, profitPersonName, livePriceBySymbol, case2ManagerIds).filter(
-    (l) => inRange(l.allottedAt, range),
-  )
+  const unrealizedLines = buildUnrealizedProfitLines(
+    allRows,
+    profitPersonName,
+    livePriceBySymbol,
+    case2ManagerIds,
+    listingCutoff,
+  ).filter((l) => inRange(l.allottedAt, range))
 
   const realizedProfit = realizedLines.reduce((s, l) => s + l.profit, 0)
   const unrealizedProfit = unrealizedLines.reduce((s, l) => s + l.profit, 0)

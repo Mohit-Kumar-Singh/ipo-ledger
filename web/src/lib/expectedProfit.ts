@@ -356,11 +356,27 @@ export interface UnrealizedProfitLine {
   priceSource: 'live' | 'gmp'
 }
 
+// Optional — only PayoutsPage's calls pass this (see its own note on why
+// this is scoped to that page and not the shared Dashboard/Notifications
+// callers of this same function). When given, any row whose IPO lists TODAY
+// and it's still before 10am IST gets skipped entirely rather than counted
+// off a live quote that may still be NSE's pre-open indicative price, not a
+// real traded one.
+export interface ListingCutoff {
+  todayIstStr: string
+  hour: number
+}
+
+function blockedByListingCutoff(listingDate: string | null | undefined, cutoff?: ListingCutoff): boolean {
+  return !!cutoff && listingDate === cutoff.todayIstStr && cutoff.hour < 10
+}
+
 export function buildUnrealizedProfitLines(
   rows: ProfitProjectionRow[],
   profitPersonName: string,
   livePriceBySymbol: Record<string, number | null>,
   case2ManagerIds: Set<string> = new Set(),
+  listingCutoff?: ListingCutoff,
 ): UnrealizedProfitLine[] {
   const lines: UnrealizedProfitLine[] = []
   for (const r of rows) {
@@ -370,6 +386,7 @@ export function buildUnrealizedProfitLines(
     // IPO already resolved), kept only for consistency with that function.
     if (r.status !== 'ALLOTTED' || !r.ipos) continue
     if (r.bid_amount == null || !r.ipos.price_high) continue
+    if (blockedByListingCutoff(r.ipos.listing_date, listingCutoff)) continue
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
