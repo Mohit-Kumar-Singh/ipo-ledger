@@ -8,13 +8,58 @@ and leaves clicking **Import** to you, on purpose (that's the step where
 you actually look at the multi-lot / possible-duplicate / unusual-status /
 new-UPI warnings).
 
-It runs entirely on your own machine. Your ipoji password and portal
-password are never seen by, typed into, or stored by this script — you log
-into both manually, once, in the real browser window it opens, and Firefox
-saves that session the same way it would in your normal browser. Every run
-after that reuses the saved session automatically.
+It runs entirely on your own machine. Your ipoji password is never seen by,
+typed into, or stored by this script — see "Logging into ipoji" below for
+why that's a hard requirement here, not just a nice-to-have. Your portal
+password isn't either; log in there once in the automated window and the
+saved browser profile remembers it on later runs.
 
-Runs Firefox, not Chrome — see "Why Firefox, not Chrome" below.
+## Logging into ipoji — read this first
+
+Google's "Sign in with Google" refuses to complete inside ANY browser
+Playwright is driving — confirmed live, this isn't specific to Chrome or to
+the first version of this script. Every automation framework (Playwright,
+Selenium, Puppeteer) marks the browser it controls as automated, on every
+engine, and Google's sign-in explicitly checks for that and blocks it. This
+script does not try to hide that marker to get around Google's check — that
+would be circumventing bot-detection on your own account, which isn't
+something to route around even when it's inconvenient.
+
+The actual fix: **don't let this script attempt the sign-in at all.**
+
+1. Log into ipoji normally, in your regular everyday browser (Chrome,
+   Firefox, whatever you already use day to day) — completely unautomated,
+   so Google's sign-in works exactly as it always does for you.
+2. Export that session's cookies (see "Exporting your ipoji cookies" below)
+   to `ipoji-cookies.json` in this folder.
+3. This script loads those cookies into its own browser *before* it ever
+   navigates to ipoji — so it shows up already logged in, the same way
+   syncing a saved session across devices doesn't "log in" either. It never
+   goes near the Google sign-in flow.
+
+If `ipoji-cookies.json` isn't present, the script still lets you try
+logging in directly in the automated window as a fallback — but be aware
+"Continue with Google" specifically is very likely to get blocked there.
+The cookie file is the reliable path.
+
+## Exporting your ipoji cookies
+
+Any cookie-export browser extension that outputs JSON works; **Cookie-Editor**
+(by cgagnier — free, open-source, available for both Chrome and Firefox) is
+a common, well-known choice:
+
+1. Install "Cookie-Editor" from your browser's extension store.
+2. Log into `ipoji.com` normally in that browser.
+3. With an ipoji.com tab open and active, click the Cookie-Editor icon.
+4. Click **Export** (top toolbar) → choose the **JSON** format → this
+   copies the cookies to your clipboard.
+5. Paste that into a new file named `ipoji-cookies.json`, saved directly in
+   this folder (`scripts/ipoji-sync-bot/ipoji-cookies.json`).
+
+That file is already gitignored — never commit it, it's a live login
+session for your ipoji account. Re-export it whenever the session expires
+(the script will tell you clearly if that's happened, rather than silently
+scraping nothing).
 
 ## Setup (one-time)
 
@@ -38,9 +83,13 @@ npm start
 
 A real Firefox window opens. First run:
 
-1. It navigates to `ipoji.com/bids`. If you're not logged in yet, it pauses
-   and asks you to log in manually in that window (go to **Orders/Bids ->
-   Current** tab), then press Enter in the terminal to continue.
+1. It loads `ipoji-cookies.json` if present (see "Logging into ipoji"
+   above) and navigates to `ipoji.com/bids` — you should land there already
+   logged in. If it's not present and you're not logged in, it pauses and
+   offers to let you try logging in manually in that window, then press
+   Enter in the terminal to continue (heads up: Google sign-in is likely to
+   be blocked there — see above for why the cookie file is the reliable
+   path).
 2. It injects the same sync script the portal's "Copy sync script" button
    gives you — read live from `web/src/components/IpojiSyncPanel.tsx`, so
    it can never drift out of sync with what the portal actually does — and
@@ -83,27 +132,15 @@ To force a fresh login (e.g. you changed your password, or want to switch
 which account this runs as), just delete that folder and run `npm start`
 again.
 
-## Why Firefox, not Chrome
-
-First version of this script drove Chromium (Playwright's bundled "Chrome
-for Testing" build). Google's own "Sign in with Google" refused it outright
-("This browser or app may not be secure") — Google's OAuth actively detects
-automation-driven Chromium and blocks it. Switching to real installed
-Chrome (`channel: 'chrome'`) didn't fix it either, confirmed live: Google is
-flagging the CDP attachment itself (the protocol Playwright/Selenium/
-Puppeteer all use to drive Chrome-family browsers), not which particular
-Chrome build it is. Playwright drives Firefox through a different protocol
-that isn't part of that detection, so Google's OAuth treats it as an
-ordinary browser and sign-in works normally.
-
 ## If something breaks
 
 - **"Couldn't sign you in" / "This browser or app may not be secure" when
-  using "Continue with Google" on ipoji, even though this runs Firefox** —
-  shouldn't happen (see above), but if Google ever extends the same
-  detection to Firefox, the practical workaround is to log into ipoji with
-  a non-Google method instead (email/phone/OTP, if ipoji offers one), since
-  that sidesteps Google's OAuth entirely.
+  using "Continue with Google" inside the automated window** — expected,
+  see "Logging into ipoji" above. Set up `ipoji-cookies.json` instead of
+  trying to sign in inside the automated browser directly.
+- **"ipoji-cookies.json loaded but the page still shows logged out"** — the
+  exported session has expired. Re-export fresh cookies (same steps as
+  above) and re-run.
 - **"Could not find SYNC_SCRIPT" / "Could not find the end of SYNC_SCRIPT"**
   — the panel component's source structure changed since this script was
   written. Open `web/src/components/IpojiSyncPanel.tsx`, find where

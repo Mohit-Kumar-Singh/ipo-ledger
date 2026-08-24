@@ -1,23 +1,34 @@
 // Local automation for the ipoji -> portal sync flow. Run with `npm start`
 // (or `node sync-from-ipoji.mjs`) from this directory.
 //
-// Runs Firefox, not Chrome/Chromium — Google's own "Sign in with Google"
-// actively detects and refuses ANY Chromium-family browser Playwright
-// attaches to via CDP (the protocol Chrome automation uses), real installed
-// Chrome included once Playwright is driving it ("This browser or app may
-// not be secure"). Confirmed live: switching the bundled test-Chromium
-// build for real Chrome (channel: 'chrome') didn't clear it either — Google
-// is flagging the CDP attachment itself, not which Chrome build it is.
-// Playwright drives Firefox through a different (non-CDP) protocol, which
-// isn't part of that detection, so Google's OAuth treats it as an ordinary
-// browser.
+// Google's "Sign in with Google" actively refuses ANY browser Playwright is
+// driving — confirmed live against both Chromium and Firefox, real Chrome
+// included — because Playwright marks the browser as automated
+// (navigator.webdriver etc.) on every engine it supports, and Google checks
+// for exactly that, not a specific browser/engine. There is no legitimate
+// way to make an automated SIGN-IN through Google succeed, and this script
+// deliberately does not try to hide that flag to sneak past Google's own
+// bot-detection — that's true regardless of whose account it is.
+//
+// The actual fix: never let this script attempt the Google sign-in at all.
+// Log into ipoji normally, in your regular non-automated browser (Google
+// sign-in works fine there — nothing about that session is automated), then
+// export the resulting session cookies to ipoji-cookies.json (see
+// README.md's "Exporting your ipoji cookies" section) and this script loads
+// them into its own browser before it ever navigates to ipoji — so it shows
+// up already logged in and never touches the sign-in flow itself, the same
+// way syncing a browser's saved session across devices doesn't "log in"
+// either. If that file isn't present, it falls back to asking you to log in
+// inside the automated window directly, which — being honest — is likely to
+// hit the same Google block; the cookie file is the reliable path.
 //
 // What it does:
-//   1. Opens a real (visible) Firefox window against ipoji.com/bids, using
-//      a persistent browser profile stored in ./browser-profile — your
-//      ipoji login session is saved there by Firefox itself (cookies), the
-//      same way a normal browser remembers you're logged in. This script
-//      never sees, asks for, or stores your ipoji password.
+//   1. Opens a real (visible) Firefox window against ipoji.com/bids, loading
+//      ipoji-cookies.json first if present (see above), plus a persistent
+//      browser profile stored in ./browser-profile so anything else (the
+//      portal login, later runs) still only needs doing once. This script
+//      never sees, asks for, or stores your ipoji password — only cookies
+//      you explicitly exported yourself from an already-logged-in session.
 //   2. Injects the EXACT same sync script the portal's ipoji-sync panel
 //      already asks you to paste into DevTools manually — read straight out
 //      of web/src/components/IpojiSyncPanel.tsx at run time, not copied
@@ -46,7 +57,7 @@
 // automatically if the saved session is still valid, and does the rest.
 
 import { firefox } from 'playwright'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import readline from 'node:readline/promises'
@@ -55,6 +66,50 @@ import { stdin as input, stdout as output } from 'node:process'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORTAL_URL = (process.env.PORTAL_URL || 'http://localhost:5173').replace(/\/+$/, '')
 const PROFILE_DIR = join(__dirname, 'browser-profile')
+const COOKIES_PATH = join(__dirname, 'ipoji-cookies.json')
+
+// Chrome's/Firefox's cookie-export extensions (Cookie-Editor and similar)
+// use the browser's own cookies API shape, which differs from what
+// Playwright's context.addCookies() expects in a couple of fields —
+// `expirationDate` (seconds, float) vs `expires` (seconds, int, or omitted
+// entirely for a session cookie), and sameSite's value spelling
+// ("no_restriction"/"lax"/"strict"/"unspecified" vs "None"/"Lax"/"Strict").
+// This normalizes one exported cookie object into Playwright's shape;
+// anything it doesn't recognize is passed through as-is and Playwright will
+// just reject that one cookie with its own clear error rather than this
+// silently mangling it.
+function toPlaywrightCookie(raw) {
+  const sameSiteMap = { no_restriction: 'None', lax: 'Lax', strict: 'Strict', unspecified: 'Lax' }
+  const cookie = {
+    name: raw.name,
+    value: raw.value,
+    domain: raw.domain,
+    path: raw.path ?? '/',
+    httpOnly: !!raw.httpOnly,
+    secure: !!raw.secure,
+  }
+  if (typeof raw.expirationDate === 'number') cookie.expires = Math.round(raw.expirationDate)
+  else if (typeof raw.expires === 'number') cookie.expires = Math.round(raw.expires)
+  const sameSiteRaw = typeof raw.sameSite === 'string' ? raw.sameSite.toLowerCase() : undefined
+  cookie.sameSite = sameSiteRaw && sameSiteMap[sameSiteRaw] ? sameSiteMap[sameSiteRaw] : (raw.sameSite ?? 'Lax')
+  return cookie
+}
+
+async function loadIpojiCookies(context) {
+  if (!existsSync(COOKIES_PATH)) return false
+  let raw
+  try {
+    raw = JSON.parse(readFileSync(COOKIES_PATH, 'utf8'))
+  } catch (err) {
+    throw new Error(`ipoji-cookies.json exists but isn't valid JSON (${err.message}) — re-export it, see README.md.`)
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('ipoji-cookies.json exists but is empty or not an array of cookies — re-export it, see README.md.')
+  }
+  await context.addCookies(raw.map(toPlaywrightCookie))
+  console.log(`Loaded ${raw.length} cookie(s) from ipoji-cookies.json.`)
+  return true
+}
 
 // Reads SYNC_SCRIPT straight out of the real component file rather than
 // keeping a second copy here — the exact same extraction technique used to
@@ -93,6 +148,15 @@ async function waitForEnter(message) {
   rl.close()
 }
 
+async function isLoggedIntoIpoji(page) {
+  return page
+    .getByRole('link', { name: /my profile/i })
+    .or(page.getByRole('button', { name: /log out/i }))
+    .first()
+    .isVisible({ timeout: 5000 })
+    .catch(() => false)
+}
+
 async function main() {
   console.log('Reading the current sync script from the repo...')
   const syncScript = extractSyncScript()
@@ -102,26 +166,37 @@ async function main() {
     headless: false,
     viewport: { width: 1280, height: 900 },
   })
+  const usedCookieFile = await loadIpojiCookies(context)
   const page = context.pages()[0] ?? (await context.newPage())
 
   console.log('Opening ipoji.com/bids...')
   await page.goto('https://www.ipoji.com/bids', { waitUntil: 'domcontentloaded' })
 
-  const loggedIn = await page
-    .getByRole('link', { name: /my profile/i })
-    .or(page.getByRole('button', { name: /log out/i }))
-    .first()
-    .isVisible({ timeout: 5000 })
-    .catch(() => false)
+  let loggedIn = await isLoggedIntoIpoji(page)
 
-  if (!loggedIn) {
-    await waitForEnter(
-      '\nNot logged into ipoji in this browser profile yet.\n' +
-        'Log in now in the window that just opened (go to Orders/Bids -> Current tab), ' +
-        'then come back here and press Enter to continue...\n',
+  if (loggedIn) {
+    console.log('Logged into ipoji — continuing.')
+  } else if (usedCookieFile) {
+    throw new Error(
+      'ipoji-cookies.json loaded but the page still shows logged out — the exported session has ' +
+        'likely expired. Re-export fresh cookies (see README.md) and try again.',
     )
   } else {
-    console.log('Already logged in (saved session) — continuing.')
+    console.log(
+      '\nNot logged into ipoji, and no ipoji-cookies.json found.\n' +
+        'You can try logging in directly in the window that just opened, but heads up: ' +
+        '"Continue with Google" is very likely to be blocked here (Google refuses automated browsers). ' +
+        'The reliable fix is exporting cookies from your regular browser — see README.md\'s ' +
+        '"Exporting your ipoji cookies" section.\n',
+    )
+    await waitForEnter('Press Enter once you\'ve either logged in above, or want to abort and set up ipoji-cookies.json instead...\n')
+    loggedIn = await isLoggedIntoIpoji(page)
+    if (!loggedIn) {
+      throw new Error(
+        'Still not logged into ipoji — stopping here rather than running the scrape against a logged-out ' +
+          'page (that\'s what silently produced "0 rows" before). Set up ipoji-cookies.json and re-run.',
+      )
+    }
   }
 
   // Best-effort — if ipoji's own markup for these labels changes, or we're
