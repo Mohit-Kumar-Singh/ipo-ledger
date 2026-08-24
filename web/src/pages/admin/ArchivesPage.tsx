@@ -266,7 +266,14 @@ export function ArchivesPage() {
             ].filter(Boolean)
             return (
               <div key={ipo.id} className="card stagger-item p-4">
-                <div className="flex flex-wrap items-start justify-between gap-2">
+                {/* No flex-wrap here on purpose — with it, Unarchive's
+                    position depended on how much the title block grew
+                    (extra summary line, longer company name): sometimes
+                    same line as the title, sometimes wrapped onto its own
+                    line below. min-w-0 + truncate on the title lets IT
+                    shrink instead, so Unarchive stays pinned top-right at
+                    the exact same spot on every card regardless of content. */}
+                <div className="flex items-start justify-between gap-2">
                   <button
                     type="button"
                     onClick={() => toggleExpanded(ipo.id)}
@@ -317,12 +324,52 @@ export function ArchivesPage() {
                 </div>
 
                 {isOpen && (
-                  <div className="mt-3 overflow-x-auto border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+                  <div className="mt-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
                     {items.length === 0 ? (
                       <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                         No applications recorded for this IPO.
                       </p>
                     ) : (
+                      <>
+                        {/* Who it actually went to, and at what price, read
+                            plainly before the dense table below — the
+                            table has every column for the rare time you
+                            need one, but "who got allotted and what did it
+                            sell for" is the actual question worth
+                            answering first, not something to reconstruct
+                            by scanning a Holder/Sell price/Payouts row. */}
+                        {(counts.allotted > 0 || counts.sold > 0) && (
+                          <div className="mb-3 space-y-1">
+                            <p className="text-[11px] font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+                              Allotment & sale
+                            </p>
+                            {items
+                              .filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')
+                              .map((r) => {
+                                const split = splitByAppId.get(r.application_id)
+                                return (
+                                  <p key={r.application_id} className="text-sm" style={{ color: 'var(--ink-secondary)' }}>
+                                    <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                                      {r.holder_name}
+                                    </span>
+                                    {r.status === 'SOLD' && r.sell_price != null ? (
+                                      <>
+                                        {' — sold at ₹'}
+                                        {r.sell_price}
+                                        {'/share'}
+                                        {split && (
+                                          <span style={{ color: 'var(--good-text)' }}> · {rupees(split.profitPersonShare)} profit</span>
+                                        )}
+                                      </>
+                                    ) : (
+                                      ' — allotted, not yet sold'
+                                    )}
+                                  </p>
+                                )
+                              })}
+                          </div>
+                        )}
+                        <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
                           <tr>
@@ -385,6 +432,8 @@ export function ArchivesPage() {
                           })}
                         </tbody>
                       </table>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}
