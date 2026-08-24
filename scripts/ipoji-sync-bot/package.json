@@ -1,0 +1,14 @@
+{
+  "name": "ipoji-sync-bot",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Local automation: opens ipoji.com's Orders/Bids page, runs the same sync script the portal's ipoji-sync panel already uses, then pastes the result into the portal's Applications page and clicks Preview. Import is always left for a human to click.",
+  "scripts": {
+    "start": "node sync-from-ipoji.mjs",
+    "postinstall": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.48.0"
+  }
+}
