@@ -1355,22 +1355,44 @@ export function IpojiSyncPanel({
                 const multiLot = rows.filter((r) => r.lots != null && r.lots > 1 && !r.lotsGuessed)
                 const duplicates = rows.filter((r) => r.duplicateOfExistingId)
                 if (multiLot.length === 0 && duplicates.length === 0) return null
+                // Same funder label the table's own "Funder (UPI)" column
+                // uses — a bare UPI ID isn't enough to double-check against
+                // without knowing whose account it resolved to (or that it
+                // didn't resolve at all).
+                const funderLabel = (r: MatchedRow) =>
+                  r.matchedBank ? r.matchedBank.account_holder_name ?? r.upiId : r.upiId ? `no funder account for ${r.upiId}` : 'no UPI captured'
                 return (
-                  <div className="mt-2 space-y-1">
+                  <div className="mt-2 space-y-2">
                     {multiLot.length > 0 && (
-                      <p className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
-                        ⚠ {multiLot.length} row{multiLot.length === 1 ? '' : 's'} applied for more than 1 lot —{' '}
-                        {multiLot.map((r) => `${r.applicant} (${r.lots} lots)`).join(', ')}. Double-check before
-                        importing.
-                      </p>
+                      <div className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                        <p>
+                          ⚠ {multiLot.length} row{multiLot.length === 1 ? '' : 's'} applied for more than 1 lot —
+                          double-check before importing:
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 font-normal">
+                          {multiLot.map((r, i) => (
+                            <li key={i}>
+                              {r.applicant} ({r.lots} lots) — {r.matchedIpo?.company_name ?? r.ipo} — funder: {funderLabel(r)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                     {duplicates.length > 0 && (
-                      <p className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
-                        ⚠ {duplicates.length} row{duplicates.length === 1 ? '' : 's'} would import a NEW application
-                        for an account that already has one on this IPO —{' '}
-                        {duplicates.map((r) => `${r.applicant} / ${r.matchedIpo?.company_name}`).join(', ')}. Could be
-                        a genuine second bid through a different funder, or a duplicate — check before importing.
-                      </p>
+                      <div className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                        <p>
+                          ⚠ {duplicates.length} row{duplicates.length === 1 ? '' : 's'} would import a NEW
+                          application for an account that already has one on this IPO — could be a genuine second
+                          bid through a different funder, or a duplicate, check before importing:
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 font-normal">
+                          {duplicates.map((r, i) => (
+                            <li key={i}>
+                              {r.applicant} — {r.matchedIpo?.company_name ?? r.ipo} — funder: {funderLabel(r)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
                     )}
                   </div>
                 )
