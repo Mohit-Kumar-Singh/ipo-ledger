@@ -34,6 +34,7 @@ const SharedAccountsPage = lazy(() =>
   import('./pages/admin/SharedAccountsPage').then((m) => ({ default: m.SharedAccountsPage })),
 )
 const ArchivesPage = lazy(() => import('./pages/admin/ArchivesPage').then((m) => ({ default: m.ArchivesPage })))
+const UsersPage = lazy(() => import('./pages/admin/UsersPage').then((m) => ({ default: m.UsersPage })))
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
 function App() {
@@ -61,6 +62,7 @@ function App() {
                       <Route path="/shared-accounts" element={<SharedAccountsPage />} />
                       <Route path="/notifications" element={<NotificationsPage />} />
                       <Route path="/archives" element={<ArchivesPage />} />
+                      <Route path="/users" element={<UsersPage />} />
                       <Route path="/profile" element={<ProfilePage />} />
                     </Route>
                   </Route>

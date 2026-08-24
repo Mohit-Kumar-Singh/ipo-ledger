@@ -11,6 +11,7 @@ import {
   LawIcon,
   GraphIcon,
   PeopleIcon,
+  PersonIcon,
   ScreenFullIcon,
   ScreenNormalIcon,
   SidebarCollapseIcon,
@@ -46,6 +47,10 @@ const links = [
   // "Payouts pending" tile already has.
   { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, adminOnly: true },
   { to: '/shared-accounts', label: 'Shared accounts', icon: PeopleIcon, adminOnly: true },
+  // Admin-only roster of every signed-up user and their funder/account-holder
+  // links — replaces the old self-service request-and-approve flow on
+  // Profile (removed) with direct admin linking, one person at a time.
+  { to: '/users', label: 'Users', icon: PersonIcon, adminOnly: true },
   { to: '/notifications', label: 'Notifications', icon: BellIcon },
   { to: '/archives', label: 'Archives', icon: ArchiveIcon },
 ]
