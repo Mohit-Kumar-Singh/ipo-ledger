@@ -202,14 +202,23 @@ export function ArchivesPage() {
               notAllotted: items.filter((r) => r.status === 'NOT_ALLOTTED').length,
               sold: items.filter((r) => r.status === 'SOLD').length,
             }
-            // Total profit (the profit-person's own share, same computation
-            // PayoutsPage uses) across every SOLD application under this
-            // IPO — only meaningful once something's actually been sold.
-            const totalProfit = items
-              .filter((r) => r.status === 'SOLD' && r.sell_price != null)
-              .reduce((sum, r) => {
-                const result = computeProfitSplit({
-                  sellPricePerShare: r.sell_price!,
+            // Per-row profit split, computed ONCE per application — reused
+            // both for the IPO-level total badge below AND for the
+            // per-application breakdown columns in the expanded table.
+            // Previously only the summed total existed anywhere on this
+            // page; once an IPO is archived, this was the only place left
+            // that could show the per-application numbers at all (the live
+            // Allotment board and Payouts page both filter archived IPOs
+            // out entirely), so the actual holder-cut/funder-share/your-
+            // share breakdown was effectively gone the moment something
+            // got archived.
+            const splitByAppId = new Map<string, ReturnType<typeof computeProfitSplit>>()
+            for (const r of items) {
+              if (r.status !== 'SOLD' || r.sell_price == null) continue
+              splitByAppId.set(
+                r.application_id,
+                computeProfitSplit({
+                  sellPricePerShare: r.sell_price,
                   lotSize: r.lot_size,
                   lots: r.lots,
                   bidAmount: r.bid_amount ?? 0,
@@ -225,9 +234,13 @@ export function ArchivesPage() {
                   funderName: r.bank_account_holder_name,
                   profitPersonName: profile?.full_name ?? '',
                   splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
-                })
-                return sum + result.profitPersonShare
-              }, 0)
+                }),
+              )
+            }
+            // Total profit (the profit-person's own share, same computation
+            // PayoutsPage uses) across every SOLD application under this
+            // IPO — only meaningful once something's actually been sold.
+            const totalProfit = Array.from(splitByAppId.values()).reduce((sum, result) => sum + result.profitPersonShare, 0)
             return (
               <div key={ipo.id} className="card stagger-item p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -254,7 +267,16 @@ export function ArchivesPage() {
                       </p>
                     </div>
                   </button>
-                  <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                  {/* No shrink-0 here on purpose — it was forcing this group
+                      to lay out at its full unwrapped width (as if it were
+                      one long line) before flex-wrap ever got a chance to
+                      wrap the badges inside it, so a card with enough
+                      badges (Dhoot Transmission: not-allotted + allotted +
+                      sold + profit + Unarchive) overflowed off the right
+                      edge on mobile instead of wrapping onto a second line.
+                      Letting this shrink to the row's actual available
+                      width is what lets its own flex-wrap do anything. */}
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {counts.notAllotted > 0 && <span className="badge badge-neutral text-xs">{counts.notAllotted} not allotted</span>}
                     {counts.allotted > 0 && <span className="badge badge-good text-xs">{counts.allotted} allotted</span>}
                     {counts.sold > 0 && <span className="badge badge-violet text-xs">{counts.sold} sold</span>}
@@ -293,36 +315,59 @@ export function ArchivesPage() {
                             <th className="py-1.5 pr-3 font-medium">Bank / funder</th>
                             <th className="py-1.5 pr-3 font-medium">Status</th>
                             <th className="py-1.5 pr-3 font-medium">Sell price</th>
+                            <th className="py-1.5 pr-3 font-medium">Gross profit</th>
+                            <th className="py-1.5 pr-3 font-medium">Holder cut</th>
+                            <th className="py-1.5 pr-3 font-medium">Funder share</th>
+                            <th className="py-1.5 pr-3 font-medium">Your share</th>
                             <th className="py-1.5 font-medium">Payouts</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y" style={{ borderColor: 'var(--border)' }}>
-                          {items.map((r) => (
-                            <tr key={r.application_id}>
-                              <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                                {r.holder_name}
-                              </td>
-                              <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
-                                {r.bank_account_holder_name ?? '—'}
-                              </td>
-                              <td className="py-1.5 pr-3">
-                                <span className={`badge ${statusBadgeClass[r.status]}`}>{r.status.replace('_', ' ')}</span>
-                              </td>
-                              <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
-                                {r.sell_price != null ? `₹${r.sell_price}` : '—'}
-                              </td>
-                              <td className="py-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                                {r.status === 'SOLD'
-                                  ? [
-                                      r.demat_cut_paid ? null : 'demat cut pending',
-                                      r.funder_share_paid ? null : 'funder share pending',
-                                    ]
-                                      .filter(Boolean)
-                                      .join(', ') || 'settled'
-                                  : '—'}
-                              </td>
-                            </tr>
-                          ))}
+                          {items.map((r) => {
+                            const split = splitByAppId.get(r.application_id)
+                            return (
+                              <tr key={r.application_id}>
+                                <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--ink-primary)' }}>
+                                  {r.holder_name}
+                                </td>
+                                <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
+                                  {r.bank_account_holder_name ?? '—'}
+                                </td>
+                                <td className="py-1.5 pr-3">
+                                  <span className={`badge ${statusBadgeClass[r.status]}`}>{r.status.replace('_', ' ')}</span>
+                                </td>
+                                <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
+                                  {r.sell_price != null ? `₹${r.sell_price}` : '—'}
+                                </td>
+                                <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
+                                  {split ? rupees(split.grossProfit) : '—'}
+                                </td>
+                                <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
+                                  {/* No separate line for the holder when
+                                      they're also the profit person — same
+                                      "not an external payout" reasoning
+                                      computeProfitSplit itself uses. */}
+                                  {split ? (split.isDematHolderSelf ? 'self' : rupees(split.dematCutAmount)) : '—'}
+                                </td>
+                                <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
+                                  {split ? (!split.hasFunder || split.isFunderSelf ? 'self' : rupees(split.funderShare)) : '—'}
+                                </td>
+                                <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--good)' }}>
+                                  {split ? rupees(split.profitPersonShare) : '—'}
+                                </td>
+                                <td className="py-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                  {r.status === 'SOLD'
+                                    ? [
+                                        r.demat_cut_paid ? null : 'demat cut pending',
+                                        r.funder_share_paid ? null : 'funder share pending',
+                                      ]
+                                        .filter(Boolean)
+                                        .join(', ') || 'settled'
+                                    : '—'}
+                                </td>
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     )}
