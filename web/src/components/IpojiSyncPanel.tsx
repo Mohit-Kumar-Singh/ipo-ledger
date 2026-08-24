@@ -554,6 +554,11 @@ interface MatchedRow extends ScrapedRow {
   // but it's also exactly what a matching bug or a genuine accidental
   // double-apply looks like — flagged for a manual look, not blocked.
   duplicateOfExistingId: string | null
+  // True when ipoji's own status text doesn't match any recognized pattern
+  // (see isKnownIpojiStatus) — some of these are real error states (an
+  // invalid BOID/PAN combination, for one) that guessMandateStatus's keyword
+  // fallback would otherwise silently absorb into "PENDING."
+  unusualStatus: boolean
 }
 
 function normalize(s: string): string {
@@ -739,6 +744,32 @@ function guessMandateStatus(ipojiStatus: string): MandateStatus {
     return 'CANCELLED'
   }
   return 'PENDING'
+}
+
+// Every ipoji status string actually observed and accounted for above —
+// anything outside this set falls through guessMandateStatus's default
+// (PENDING) even though it isn't necessarily "still awaiting approval" at
+// all. Real example: "Invalid Combination Of BOID and PAN" — that's ipoji
+// itself rejecting the bid's own data (a demat detail mismatch), not a
+// mandate waiting on the investor, and guessing PENDING for it would import
+// a dead application looking like a normal in-progress one. Anything not
+// matched here is surfaced as an unusual/unrecognized status for a manual
+// look instead of being silently absorbed into "pending."
+function isKnownIpojiStatus(ipojiStatus: string): boolean {
+  const s = ipojiStatus.toLowerCase()
+  return (
+    s.includes('accepted by investor') ||
+    s.includes('mandate approved') ||
+    s.includes('approved') ||
+    s.includes('reject') ||
+    s.includes('declin') ||
+    s.includes('fail') ||
+    s.includes('expir') ||
+    s.includes('cancel') ||
+    s.includes('bid placed') ||
+    s.includes('accepted by sponsor bank') ||
+    s.includes('pending')
+  )
 }
 
 // Minimal local mirror of import-ipos' response shapes (IposPage.tsx keeps
@@ -1031,6 +1062,7 @@ export function IpojiSyncPanel({
           lotsGuessed,
           amountNum,
           duplicateOfExistingId: otherActive?.id ?? null,
+          unusualStatus: !isKnownIpojiStatus(r.status),
         }
       }),
     )
@@ -1354,7 +1386,8 @@ export function IpojiSyncPanel({
               {(() => {
                 const multiLot = rows.filter((r) => r.lots != null && r.lots > 1 && !r.lotsGuessed)
                 const duplicates = rows.filter((r) => r.duplicateOfExistingId)
-                if (multiLot.length === 0 && duplicates.length === 0) return null
+                const unusualStatus = rows.filter((r) => r.unusualStatus)
+                if (multiLot.length === 0 && duplicates.length === 0 && unusualStatus.length === 0) return null
                 // Same funder label the table's own "Funder (UPI)" column
                 // uses — a bare UPI ID isn't enough to double-check against
                 // without knowing whose account it resolved to (or that it
@@ -1389,6 +1422,23 @@ export function IpojiSyncPanel({
                           {duplicates.map((r, i) => (
                             <li key={i}>
                               {r.applicant} — {r.matchedIpo?.company_name ?? r.ipo} — funder: {funderLabel(r)}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {unusualStatus.length > 0 && (
+                      <div className="text-xs font-medium" style={{ color: 'var(--critical-text)' }}>
+                        <p>
+                          ⚠ {unusualStatus.length} row{unusualStatus.length === 1 ? '' : 's'} showed a status ipoji
+                          doesn't usually report — could be a real error on the bid itself (e.g. a demat detail
+                          mismatch), not just "pending":
+                        </p>
+                        <ul className="mt-1 list-disc pl-4 font-normal">
+                          {unusualStatus.map((r, i) => (
+                            <li key={i}>
+                              {r.applicant} — {r.matchedIpo?.company_name ?? r.ipo} — funder: {funderLabel(r)} —
+                              status: "{r.status}"
                             </li>
                           ))}
                         </ul>
@@ -1478,7 +1528,15 @@ export function IpojiSyncPanel({
                             </span>
                           )}
                         </td>
-                        <td className="p-1.5">{r.guessedMandate}</td>
+                        <td className="p-1.5">
+                          {r.guessedMandate}
+                          {r.unusualStatus && (
+                            <span title={`ipoji status: "${r.status}"`} style={{ color: 'var(--critical-text)', fontWeight: 600 }}>
+                              {' '}
+                              ⚠ unusual status
+                            </span>
+                          )}
+                        </td>
                         <td className="p-1.5">
                           {r.existingId ? (
                             toUpdateMandate.includes(r) ? (
