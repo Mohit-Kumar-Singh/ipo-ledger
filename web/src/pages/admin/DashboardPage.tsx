@@ -127,6 +127,7 @@ interface DashboardData {
   ipoProgress: IpoProgress[]
   highGmpAlerts: HighGmpAlert[]
   pendingPayouts: PendingPayout[]
+  overpaidToFunders: PendingPayout[]
   totalApplied: number
   // Sum of projected net profit (your half, after the demat holder's cut)
   // across every currently-ALLOTTED-but-not-yet-sold application with a
@@ -161,7 +162,7 @@ function buildPendingPayouts(
   soldRows: AllotmentBoardRow[],
   profitPersonName: string,
   paymentsByApp: Map<string, SettlementPayment[]>,
-): PendingPayout[] {
+): { pending: PendingPayout[]; overpaid: PendingPayout[] } {
   const byName = new Map<string, PendingPayoutLine[]>()
   const add = (name: string, line: PendingPayoutLine) => {
     const lines = byName.get(name) ?? []
@@ -206,16 +207,29 @@ function buildPendingPayouts(
       .filter((p) => p.kind === 'admin_to_funder' || p.kind === 'holder_to_funder')
       .reduce((s, p) => s + p.amount, 0)
     const remainingToFunder = amountToFunder - sentToFunder
-    if (remainingToFunder <= PENDING_PAYOUT_EPSILON) continue
+    // Not skipped when negative (overpaid) — kept in the same per-funder
+    // group so it nets against anything else still owed to that funder,
+    // same as the settlement cards on Payouts already do per application.
+    if (Math.abs(remainingToFunder) <= PENDING_PAYOUT_EPSILON) continue
     add(r.bank_account_holder_name ?? 'Unknown', {
       applicationId: r.application_id,
       ipoName: r.company_name,
       amount: remainingToFunder,
     })
   }
-  return Array.from(byName.entries())
-    .map(([name, lines]) => ({ name, amount: lines.reduce((s, l) => s + l.amount, 0), lines }))
-    .sort((a, b) => b.amount - a.amount)
+  const groups = Array.from(byName.entries()).map(([name, lines]) => ({
+    name,
+    amount: lines.reduce((s, l) => s + l.amount, 0),
+    lines,
+  }))
+  return {
+    pending: groups.filter((g) => g.amount > PENDING_PAYOUT_EPSILON).sort((a, b) => b.amount - a.amount),
+    // Net negative — you're owed this back. Amounts flipped positive for display.
+    overpaid: groups
+      .filter((g) => g.amount < -PENDING_PAYOUT_EPSILON)
+      .map((g) => ({ name: g.name, amount: -g.amount, lines: g.lines.map((l) => ({ ...l, amount: -l.amount })) }))
+      .sort((a, b) => b.amount - a.amount),
+  }
 }
 
 // One block per IPO, one line per funder within it — funder is always
@@ -700,6 +714,12 @@ export function DashboardPage() {
       (r) => r.mandate_status === 'PENDING' && Date.now() <= bidCutoffMs(r.close_date),
     )
 
+    const pendingPayoutsResult = buildPendingPayouts(
+      boardRows.filter((r) => r.status === 'SOLD'),
+      isAdmin ? (profile?.full_name ?? '') : '',
+      settlementPaymentsByApp,
+    )
+
     // Once an IPO's allotment IS out, a row still stuck at APPLIED for that
     // same IPO isn't "pending a decision" anymore — the decision already
     // happened, this one just never got flipped. Counting it as live
@@ -747,11 +767,8 @@ export function DashboardPage() {
       // let them look up the real admin's name to compare against
       // correctly, so forcing this comparison to never match is the
       // correct behavior here, not a workaround.
-      pendingPayouts: buildPendingPayouts(
-        boardRows.filter((r) => r.status === 'SOLD'),
-        isAdmin ? (profile?.full_name ?? '') : '',
-        settlementPaymentsByApp,
-      ),
+      pendingPayouts: pendingPayoutsResult.pending,
+      overpaidToFunders: pendingPayoutsResult.overpaid,
       // A CANCELLED mandate means the funder never actually approved the
       // UPI block — no money moved, so it's not really "applied" in any
       // sense worth counting here (same reasoning as the accounts-left
@@ -1105,6 +1122,25 @@ export function DashboardPage() {
                 </div>
               </div>
             ))}
+            {data.overpaidToFunders.length > 0 && (
+              <div className="row-card p-4 text-sm">
+                <p className="mb-1.5 text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+                  Overpaid
+                </p>
+                {data.overpaidToFunders.flatMap((p) =>
+                  p.lines.map((l) => (
+                    <div key={l.applicationId} className="flex items-center justify-between gap-3">
+                      <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
+                        {p.name} - {l.ipoName.split(' ')[0]}
+                      </span>
+                      <span className="shrink-0 font-mono-ipo font-medium" style={{ color: 'var(--warning-text)' }}>
+                        −₹{Math.round(l.amount).toLocaleString('en-IN')}
+                      </span>
+                    </div>
+                  )),
+                )}
+              </div>
+            )}
           </Section>
         )}
       </div>

@@ -172,29 +172,36 @@ interface SettlementPartyGroup {
   ipos: { ipoName: string; amount: number }[]
 }
 
-// One row per real person still owed money in a given direction — "who do I
-// need to send, how much, for which IPOs" and the mirror "who do I still
-// need to collect from" — grouped from the live remainingToFunder/
-// remainingFromHolder figures (not the gross totals), so a fully-paid
-// application drops out entirely rather than still listing a ₹0 line.
-function groupSettlementByParty(
-  cards: SettlementCard[],
-  side: 'funder' | 'holder',
-): SettlementPartyGroup[] {
+// Net per real person, NOT per application — a person with two applications
+// (one still owed +5000, one overpaid -1910) nets to 3090, not 5000 (the old
+// per-card Math.max(0, ...) sum lost the second application's credit
+// entirely, the exact bug Dashboard's own buildPendingPayouts already fixed
+// the same way). Returns everyone with a nonzero net; callers split
+// positive (still owed) from negative (overpaid, see the overpayments
+// array below) themselves.
+function netSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'): SettlementPartyGroup[] {
   const byName = new Map<string, SettlementPartyGroup>()
   for (const c of cards) {
     const name = side === 'funder' ? c.funderName : c.holderName
     const phone = side === 'funder' ? c.funderPhone : c.holderPhone
     const remaining = side === 'funder' ? c.remainingToFunder : c.remainingFromHolder
     const applicable = side === 'funder' ? c.hasFunder && !c.isFunderSelf : !c.isDematHolderSelf
-    if (!applicable || !name || remaining <= SETTLED_EPSILON) continue
+    if (!applicable || !name || Math.abs(remaining) <= SETTLED_EPSILON) continue
     if (!byName.has(name)) byName.set(name, { name, phone, total: 0, ipos: [] })
     const g = byName.get(name)!
     if (!g.phone && phone) g.phone = phone
     g.total += remaining
     g.ipos.push({ ipoName: c.ipoName, amount: remaining })
   }
-  return Array.from(byName.values()).sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+  return Array.from(byName.values())
+}
+
+// Same shape as netSettlementByParty, filtered to positive nets only (still
+// genuinely owed) — what "You need to send"/"You need to receive" show.
+function groupSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'): SettlementPartyGroup[] {
+  return netSettlementByParty(cards, side)
+    .filter((g) => g.total > SETTLED_EPSILON)
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
 }
 
 // Same SettlementPartyGroup shape as groupSettlementByParty above (so it
@@ -516,6 +523,8 @@ export function PayoutsPage() {
     [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol, listingCutoff],
   )
   const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
+  const [ipoAnalysisOpen, setIpoAnalysisOpen] = useState(false)
+  const [acctPerfOpen, setAcctPerfOpen] = useState(false)
   const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
 
   // Counts up from 0 on mount/change instead of snapping straight to the
@@ -578,8 +587,13 @@ export function PayoutsPage() {
   // Live figures — what's ACTUALLY still outstanding right now, after every
   // logged settlement_payments row, not the gross pre-payment totals. This
   // is the headline "how much do I still need to send to funders" number.
-  const totalStillFromHolder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingFromHolder), 0)
-  const totalStillToFunder = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
+  // Netted PER PERSON first (netSettlementByParty), not per application —
+  // summing Math.max(0, ...) per card lost a person's own overpaid
+  // application entirely instead of it reducing what they're still owed.
+  const funderNets = netSettlementByParty(settlementCards, 'funder')
+  const holderNets = netSettlementByParty(settlementCards, 'holder')
+  const totalStillFromHolder = holderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
+  const totalStillToFunder = funderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
   const owedToFunders = groupSettlementByParty(settlementCards, 'funder')
   const owedFromHolders = groupSettlementByParty(settlementCards, 'holder')
@@ -612,13 +626,10 @@ export function PayoutsPage() {
     (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
     0,
   )
-  // Real overpayment events — a settlement card whose logged payments add up
-  // to MORE than what was actually owed on that side. Surfaced explicitly
-  // (not just the "(overpaid)" annotation buried inside each IPO's own
-  // settlement card) because the top summary strip's totalStillToFunder/
-  // totalStillFromHolder above deliberately clamp negative remainders to 0
-  // — an overpayment otherwise silently disappears from every headline
-  // number on this page instead of showing up as real money to account for.
+  // Real overpayment events — a person whose NET remaining (across all
+  // their applications) is negative, meaning they're owed money back. Built
+  // from the same funderNets/holderNets above so this never disagrees with
+  // totalStillToFunder/totalStillFromHolder on what's actually netted.
   interface OverpaymentRow {
     key: string
     name: string
@@ -626,26 +637,15 @@ export function PayoutsPage() {
     amount: number
     direction: 'to funder' | 'from holder'
   }
+  const mostOverpaidIpo = (g: SettlementPartyGroup) => g.ipos.reduce((min, l) => (l.amount < min.amount ? l : min), g.ipos[0])
   const overpayments: OverpaymentRow[] = []
-  for (const c of settlementCards) {
-    if (c.hasFunder && !c.isFunderSelf && c.remainingToFunder < -SETTLED_EPSILON) {
-      overpayments.push({
-        key: `${c.applicationId}-funder`,
-        name: c.funderName ?? 'Unknown',
-        ipoName: c.ipoName,
-        amount: -c.remainingToFunder,
-        direction: 'to funder',
-      })
-    }
-    if (!c.isDematHolderSelf && c.remainingFromHolder < -SETTLED_EPSILON) {
-      overpayments.push({
-        key: `${c.applicationId}-holder`,
-        name: c.holderName,
-        ipoName: c.ipoName,
-        amount: -c.remainingFromHolder,
-        direction: 'from holder',
-      })
-    }
+  for (const g of funderNets) {
+    if (g.total >= -SETTLED_EPSILON) continue
+    overpayments.push({ key: `${g.name}-funder`, name: g.name, ipoName: mostOverpaidIpo(g).ipoName, amount: -g.total, direction: 'to funder' })
+  }
+  for (const g of holderNets) {
+    if (g.total >= -SETTLED_EPSILON) continue
+    overpayments.push({ key: `${g.name}-holder`, name: g.name, ipoName: mostOverpaidIpo(g).ipoName, amount: -g.total, direction: 'from holder' })
   }
 
   return (
@@ -724,18 +724,17 @@ export function PayoutsPage() {
           negative on purpose, never clamped there). Only rendered when
           there's actually one to show. */}
       {overpayments.length > 0 && (
-        <div className="card space-y-2 p-4 text-sm">
+        <div className="card space-y-1.5 p-4 text-sm">
           <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-            Overpaid — owed back to you
+            Overpaid
           </p>
           {overpayments.map((o) => (
             <div key={o.key} className="flex items-center justify-between gap-3">
-              <span style={{ color: 'var(--ink-secondary)' }}>
-                <span style={{ color: 'var(--ink-primary)', fontWeight: 500 }}>{o.name}</span> ·{' '}
-                {o.ipoName} — {o.direction === 'to funder' ? 'they owe this back to you' : 'you owe this back to them'}
+              <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
+                {o.name} - {o.ipoName.split(' ')[0]}
               </span>
               <span className="shrink-0 font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
-                −{rupees(o.amount)} (overpaid)
+                −{rupees(o.amount)}
               </span>
             </div>
           ))}
@@ -862,36 +861,18 @@ export function PayoutsPage() {
             so the user does not confuse estimated profit with actual
             payout" is met by the divider + separate labels, not by separate
             card shells. */}
-        <div className="card grid grid-cols-1 divide-y sm:grid-cols-3 sm:divide-x sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
-          <div className="p-4">
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Realized
-            </p>
-            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--good)' }}>
-              {rupees(animatedRealizedProfit)}
-            </p>
-            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-              From shares actually sold
-            </p>
+        <div className="card flex flex-wrap items-center gap-4 p-4 text-sm">
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Realized</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>{rupees(animatedRealizedProfit)}</p>
           </div>
-          <div className="p-4">
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Unrealized (estimated)
-            </p>
-            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--accent)' }}>
-              {rupees(animatedUnrealizedProfit)}
-            </p>
-            <p className="mt-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-              Allotted/still held — live price or GMP estimate
-            </p>
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Unrealized</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--accent)' }}>{rupees(animatedUnrealizedProfit)}</p>
           </div>
-          <div className="p-4">
-            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-              Total
-            </p>
-            <p className="font-mono-ipo text-xl font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              {rupees(animatedTotalProfit)}
-            </p>
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Total</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>{rupees(animatedTotalProfit)}</p>
           </div>
         </div>
 
@@ -958,11 +939,22 @@ export function PayoutsPage() {
             below. */}
         {analytics.ipoBreakdown.length > 0 && (
           <div className="card p-4">
-            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setIpoAnalysisOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-2"
+            >
               <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
                 IPO-wise profit analysis
                 <InfoTooltip text="One row per IPO you've applied to. 'est.' means it isn't sold yet — profit and payout status are projected from the live/GMP price, not confirmed." />
               </h2>
+              <span style={{ display: 'inline-flex', transform: ipoAnalysisOpen ? 'rotate(180deg)' : undefined }}>
+                <ChevronDownIcon size={16} fill="var(--ink-muted)" />
+              </span>
+            </button>
+            {ipoAnalysisOpen && (
+            <>
+            <div className="mt-2 mb-2 flex flex-wrap items-center justify-end gap-2">
               <div className="segmented scrollbar-none max-w-full overflow-x-auto">
                 {(
                   [
@@ -1035,33 +1027,27 @@ export function PayoutsPage() {
               </tbody>
             </table>
             </div>
+            </>
+            )}
           </div>
         )}
 
-        {/* Best / worst */}
+        {/* Best / worst — one card, not two */}
         {(analytics.best || analytics.worst) && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="card grid grid-cols-1 divide-y p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
             {analytics.best && (
-              <div className="card p-4">
-                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  🏆 Best performing
-                </p>
-                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {analytics.best.ipoName}
-                </p>
+              <div className="py-2 sm:py-0 sm:pr-4">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>🏆 Best performing</p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{analytics.best.ipoName}</p>
                 <p className="font-mono-ipo text-sm" style={{ color: 'var(--good)' }}>
                   {rupees(analytics.best.profit)} · {analytics.best.roi.toFixed(1)}% ROI
                 </p>
               </div>
             )}
             {analytics.worst && (
-              <div className="card p-4">
-                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  Lowest performing
-                </p>
-                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {analytics.worst.ipoName}
-                </p>
+              <div className="py-2 sm:py-0 sm:pl-4">
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Lowest performing</p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{analytics.worst.ipoName}</p>
                 <p className="font-mono-ipo text-sm" style={{ color: analytics.worst.profit >= 0 ? 'var(--warning-text)' : 'var(--critical)' }}>
                   {rupees(analytics.worst.profit)} · {analytics.worst.roi.toFixed(1)}% ROI
                 </p>
@@ -1076,11 +1062,21 @@ export function PayoutsPage() {
             themselves (see resolve_bank_holder_names). */}
         {analytics.accountBreakdown.length > 0 && (
           <div className="card p-4">
-            <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              Account performance
-              <InfoTooltip text="Investment and profit totalled per funder, across every IPO they've funded — realized and estimated profit combined, same as the KPI cards above." />
-            </h2>
-            <div className="overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setAcctPerfOpen((o) => !o)}
+              className="flex w-full items-center justify-between gap-2"
+            >
+              <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                Account performance
+                <InfoTooltip text="Investment and profit totalled per funder, across every IPO they've funded — realized and estimated profit combined, same as the KPI cards above." />
+              </h2>
+              <span style={{ display: 'inline-flex', transform: acctPerfOpen ? 'rotate(180deg)' : undefined }}>
+                <ChevronDownIcon size={16} fill="var(--ink-muted)" />
+              </span>
+            </button>
+            {acctPerfOpen && (
+            <div className="mt-2 overflow-x-auto">
             <table className="w-full text-sm">
               <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
                 <tr>
@@ -1108,6 +1104,7 @@ export function PayoutsPage() {
               </tbody>
             </table>
             </div>
+            )}
           </div>
         )}
 
