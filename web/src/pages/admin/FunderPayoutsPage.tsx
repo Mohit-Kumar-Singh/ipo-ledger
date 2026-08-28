@@ -1,16 +1,23 @@
-// One funder's own detail page — every allotted IPO (sold and settled, or
-// still held), money transactions, what's left to pay/receive, and one
-// overall compact summary. Reached two ways: an admin clicks a funder's
-// name on the main Payouts page (/payouts/funder/:funderName); a funder-only
-// viewer lands here directly by visiting /payouts itself (PayoutsPage
-// renders this same component with no param, and v_allotment_board/the
-// ALLOTTED-with-embeds query are already RLS-scoped to just their own data,
-// so no filtering is needed for that case).
+// One funder's settlement statement — what they are owed, what has actually
+// been sent, and the balance between the two, per IPO and in total.
+//
+// CONFIRMED money only. Everything on this page comes from applications
+// marked SOLD with a real sell_price, and from settlement_payments rows that
+// represent transfers that actually happened. No projection, estimate, or
+// GMP-derived figure appears anywhere here — those live on the admin
+// Payouts page under "Expected — not yet sold", clearly separated from
+// money that's genuinely owed.
+//
+// Reached two ways: an admin clicks a funder's name on the main Payouts
+// page (/payouts/funder/:funderName); a funder-only viewer lands here
+// directly by visiting /payouts itself (PayoutsPage renders this same
+// component with no param, and v_allotment_board is already RLS-scoped to
+// just their own data, so no filtering is needed for that case).
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import { sameIdentity } from '../../lib/applicationAttribution'
-import { expectedProfitBreakdown, rupees } from '../../lib/expectedProfit'
+import { rupees } from '../../lib/expectedProfit'
 import { groupCardsByIpo, SETTLED_EPSILON } from '../../lib/settlement'
 import { IpoSettlementCard } from './PayoutsPage'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -21,37 +28,39 @@ export function FunderPayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const decodedName = funderNameParam ? decodeURIComponent(funderNameParam) : null
-  const { settlementCards, expectedCards, livePriceBySymbol, loading, loadError, invalidatePayoutsData } = usePayoutsData()
+  const { settlementCards, loading, loadError, invalidatePayoutsData } = usePayoutsData()
 
   // Admin needs the param to know WHICH funder to scope down to; a
   // funder-only viewer's own data is already RLS-scoped, nothing to filter.
   const myCards = decodedName
     ? settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf && sameIdentity(c.funderName ?? '', decodedName))
     : settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf)
-  const myExpected = decodedName ? expectedCards.filter((c) => sameIdentity(c.funderName, decodedName)) : expectedCards
+  const displayName = decodedName ?? myCards[0]?.funderName ?? 'Your'
 
-  const displayName = decodedName ?? myCards[0]?.funderName ?? myExpected[0]?.funderName ?? 'Your'
-
-  // Summed RAW first, then clamped once — not Math.max(0, ...) per card.
-  // Clamping per card throws away an overpaid application's credit instead
-  // of letting it reduce what this same person is still owed on another,
-  // which made this page disagree with the main Payouts page for the exact
-  // same funder (Avinash: −₹1,910 overpaid on one Dhoot application,
-  // +₹3,667 outstanding on another — this page said "Send ₹3,667", the
-  // netted figure everywhere else said ₹1,757). Same per-person netting
-  // rule netSettlementByParty already applies on PayoutsPage; the two are
-  // talking about one person's single running balance, so they have to net
-  // identically.
-  const netToFunder = myCards.reduce((s, c) => s + c.remainingToFunder, 0)
-  const totalToSend = Math.max(0, netToFunder)
-  // Net negative across everything = they've been paid more than they were
-  // owed overall, and that surplus is genuinely coming back to you.
-  const owedBackByFunder = Math.max(0, -netToFunder)
+  // A settlement statement, not a dashboard: three figures that reconcile
+  // by simple subtraction, all of them CONFIRMED money from applications
+  // actually marked SOLD.
+  //
+  //   totalDue − totalSent = remaining
+  //
+  // Nothing estimated appears here. This page used to also show an
+  // "Expected" figure (a GMP/live-price projection of what allotted-but-
+  // unsold applications MIGHT eventually be worth) sitting in the same row
+  // as real settled amounts, which read as a fourth transaction figure and
+  // could not be reconciled against the other three. That was the actual
+  // reported confusion — it wasn't a labelling problem, an estimate simply
+  // does not belong in a money-owed statement. Admin still has that
+  // projection on the main Payouts page ("Expected — not yet sold").
+  //
+  // remaining is summed RAW and clamped nowhere: an overpaid application
+  // legitimately reduces what this same person is owed on another, and a
+  // net-negative balance is real money coming back. Clamping per card is
+  // what made this page disagree with the main page for the same funder.
+  const totalDue = myCards.reduce((s, c) => s + c.amountToFunder, 0)
   const totalSent = myCards.reduce((s, c) => s + (c.amountToFunder - c.remainingToFunder), 0)
-  const totalExpected = myExpected.reduce(
-    (s, c) => s + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).amountToReturn,
-    0,
-  )
+  const remaining = totalDue - totalSent
+  const isOverpaid = remaining < -SETTLED_EPSILON
+  const isSettled = Math.abs(remaining) <= SETTLED_EPSILON
   const soldGroups = groupCardsByIpo(myCards)
 
   if (loading) return <InlineSpinner />
@@ -75,55 +84,40 @@ export function FunderPayoutsPage() {
         </div>
       )}
 
-      {/* Overall — short, compact, everything at a glance. "Owed back" only
-          appears when this person is actually net-overpaid, so the usual
-          case stays a clean 3-up. */}
-      <div className="card grid grid-cols-3 gap-3 p-4 text-sm">
-        <div>
-          <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Send</p>
-          <p className="font-mono-ipo font-semibold" style={{ color: totalToSend > SETTLED_EPSILON ? 'var(--critical-text)' : 'var(--good)' }}>
-            {rupees(totalToSend)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Sent</p>
-          <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>{rupees(totalSent)}</p>
-        </div>
-        <div>
-          <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Expected</p>
-          <p className="font-mono-ipo font-semibold" style={{ color: 'var(--accent)' }}>{rupees(totalExpected)}</p>
-        </div>
-        {owedBackByFunder > SETTLED_EPSILON && (
-          <div className="col-span-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Overpaid — owed back to you</p>
-            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
-              −{rupees(owedBackByFunder)}
+      {/* Settlement statement. Three figures that subtract into each other,
+          with the arithmetic spelled out underneath — the point is that the
+          balance is never a number you have to take on trust. */}
+      <div className="card p-4">
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Total to be sent</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>{rupees(totalDue)}</p>
+          </div>
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Total sent</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>{rupees(totalSent)}</p>
+          </div>
+          <div>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+              {isOverpaid ? 'Overpaid' : 'Remaining'}
+            </p>
+            <p
+              className="font-mono-ipo font-semibold"
+              style={{ color: isSettled ? 'var(--good)' : isOverpaid ? 'var(--warning-text)' : 'var(--critical-text)' }}
+            >
+              {isOverpaid ? `−${rupees(-remaining)}` : rupees(remaining)}
             </p>
           </div>
-        )}
-      </div>
-
-      {/* Allotted, not yet sold — compact, IPO first name only. */}
-      {myExpected.length > 0 && (
-        <div className="card space-y-1.5 p-4 text-sm">
-          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-            Allotted — not yet sold
-          </p>
-          {myExpected.map((c) => {
-            const b = expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null)
-            return (
-              <div key={c.key} className="flex items-center justify-between gap-3">
-                <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
-                  {c.ipoName.split(' ')[0]}
-                </span>
-                <span className="shrink-0 font-mono-ipo" style={{ color: 'var(--accent)' }}>
-                  {rupees(b.amountToReturn)}
-                </span>
-              </div>
-            )
-          })}
         </div>
-      )}
+        <p className="mt-3 border-t pt-2 text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--ink-muted)' }}>
+          {rupees(totalDue)} due − {rupees(totalSent)} sent ={' '}
+          {isSettled
+            ? 'settled in full'
+            : isOverpaid
+              ? `${rupees(-remaining)} sent in excess, owed back to you`
+              : `${rupees(remaining)} still to send`}
+        </p>
+      </div>
 
       {/* Sold — real settlement, with the log-a-payment control an admin
           uses; read-only for the funder themselves (settlement_payments
@@ -135,11 +129,9 @@ export function FunderPayoutsPage() {
           ))}
         </div>
       ) : (
-        myExpected.length === 0 && (
-          <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Nothing allotted or sold yet.
-          </p>
-        )
+        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          No settled transactions yet.
+        </p>
       )}
     </div>
   )
