@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { PaperAirplaneIcon } from '@primer/octicons-react'
+import { PaperAirplaneIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -392,42 +392,59 @@ function mandateSymbol(app: FunderApplicationDetail): string {
   return ''
 }
 
-function buildFunderIpoMessage(card: FunderIpoCard, opts?: { todayOnly?: boolean }): string {
-  // Grouped by UPI ID, not one flat list — a funder who paid through two
-  // different UPI IDs for the same IPO needs to see which names went
-  // through which one, not a single undifferentiated list. "No UPI ID"
-  // entries (bank-only, no UPI recorded) get their own group rather than
-  // silently folding into whichever named group happens to sort first.
-  const groups = new Map<string, FunderApplicationDetail[]>()
-  for (const app of card.applications) {
-    const key = app.upiId ?? 'No UPI ID'
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(app)
+// Superseded by buildFunderCombinedMessage below, which does the same
+// per-IPO body (UPI-grouped) but across every live IPO a funder has, in one
+// message instead of one per IPO.
+
+// Groups per-(funder, IPO) cards by funder ONLY (fuzzy sameIdentity match,
+// same as buildFunderIpoCards) — feeds buildFunderCombinedMessage below so a
+// funder live across several IPOs gets ONE message covering all of them,
+// not a separate message per IPO.
+function groupFunderCardsByFunder(cards: FunderIpoCard[]): { name: string; cards: FunderIpoCard[] }[] {
+  const groups: { name: string; cards: FunderIpoCard[] }[] = []
+  for (const c of cards) {
+    let g = groups.find((g) => sameIdentity(g.name, c.funderName))
+    if (!g) {
+      g = { name: c.funderName, cards: [] }
+      groups.push(g)
+    } else if (c.funderName.length > g.name.length) {
+      g.name = c.funderName
+    }
+    g.cards.push(c)
   }
-  const total = card.applications.length
-  const body = Array.from(groups.entries())
-    // _via_ italic, `UPI ID` monospace (reads as a distinct account label,
-    // not prose — single backtick, WhatsApp's real monospace syntax; triple
-    // backtick isn't a WhatsApp thing at all, that's Markdown/Discord's code
-    // fence and it doesn't render as monospace here), numbered list
-    // (WhatsApp's own "N. " syntax, not a plain bullet). Trailing symbol
-    // per mandateSymbol() above.
-    .map(
-      ([upi, apps]) =>
-        `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}${mandateSymbol(a)}`).join('\n')}`,
-    )
-    .join('\n\n')
+  return groups
+}
 
+// One message, every live IPO this funder has funded — a per-IPO section
+// each, same UPI-grouped body buildFunderIpoMessage already produces per
+// IPO, just concatenated instead of sent as N separate messages.
+function buildFunderCombinedMessage(cards: FunderIpoCard[], opts?: { todayOnly?: boolean }): string {
+  const funderName = cards[0].funderName
+  const sections = cards.map((card) => {
+    const groups = new Map<string, FunderApplicationDetail[]>()
+    for (const app of card.applications) {
+      const key = app.upiId ?? 'No UPI ID'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(app)
+    }
+    const body = Array.from(groups.entries())
+      .map(
+        ([upi, apps]) =>
+          `_via_ \`${upi}\` :-\n${apps.map((a, i) => `${i + 1}. ${a.holderName}${a.isOverride ? ' \u{1F3F7}\u{FE0F}' : ''}${mandateSymbol(a)}`).join('\n')}`,
+      )
+      .join('\n\n')
+    return `*${card.ipoName}* (${card.applications.length}):\n${body}`
+  })
+  const total = cards.reduce((s, c) => s + c.applications.length, 0)
+  const hasOverride = cards.some((c) => c.applications.some((a) => a.isOverride))
   const intro = opts?.todayOnly
-    ? `Hi ${card.funderName}, here's what you funded *today* for *${card.ipoName}*:`
-    : `Hi ${card.funderName}, here's what you've funded for *${card.ipoName}*:`
-
-  const footnote = card.applications.some((a) => a.isOverride)
+    ? `Hi ${funderName}, here's what you funded *today*:`
+    : `Hi ${funderName}, here's what you've funded across your live IPOs:`
+  const footnote = hasOverride
     ? `\n\n_🏷️ = funded via a transfer to a different UPI, not that applicant's own._`
     : ''
-
   return (
-    `${intro}\n\n${body}\n\n` +
+    `${intro}\n\n${sections.join('\n\n')}\n\n` +
     `\`Total = ${total}\`${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
@@ -443,6 +460,15 @@ export function NotificationsPage() {
   // the full running total every time.
   const [todayOnly, setTodayOnly] = useState(false)
   const [openingId, setOpeningId] = useState<string | null>(null)
+  const [openIpoIds, setOpenIpoIds] = useState<Set<string>>(new Set())
+  function toggleIpoOpen(ipoId: string) {
+    setOpenIpoIds((s) => {
+      const next = new Set(s)
+      if (next.has(ipoId)) next.delete(ipoId)
+      else next.add(ipoId)
+      return next
+    })
+  }
 
   interface NotificationsData {
     funderCards: FunderIpoCard[]
@@ -787,8 +813,8 @@ export function NotificationsPage() {
               <InfoTooltip
                 text={
                   todayOnly
-                    ? "One card per funder per IPO, showing only applications entered today — for messaging a funder about just what's new."
-                    : "One card per funder per currently-live IPO — if someone's funded applications across multiple ongoing IPOs, send each one separately."
+                    ? "Open an IPO to see who funded it, showing only applications entered today — for messaging a funder about just what's new."
+                    : 'Open an IPO to see who funded it. A funder live across several IPOs gets ONE combined message covering all of them, not one per IPO.'
                 }
               />
             </h2>
@@ -802,38 +828,101 @@ export function NotificationsPage() {
               Today's applications only
             </label>
           </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {funderCards
-              .map((c) =>
-                todayOnly ? { ...c, applications: c.applications.filter((a) => isToday(a.createdAt)) } : c,
-              )
+          {(() => {
+            // Filtered once, shared by both the combined-message grouping
+            // (across every live IPO) and the per-IPO accordion below — so
+            // "today only" narrows both consistently.
+            const filtered = funderCards
+              .map((c) => (todayOnly ? { ...c, applications: c.applications.filter((a) => isToday(a.createdAt)) } : c))
               .filter((c) => c.applications.length > 0)
-              .map((c) => {
-              const message = buildFunderIpoMessage(c, { todayOnly })
-              return (
-                <div key={c.key} className="card stagger-item flex items-center justify-between gap-2 p-3">
-                  <div className="min-w-0">
-                    <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {c.funderName}
-                    </p>
-                    <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
-                    </p>
+            const combinedByFunder = groupFunderCardsByFunder(filtered)
+            const messageByKey = new Map<string, string>()
+            for (const g of combinedByFunder) {
+              const message = buildFunderCombinedMessage(g.cards, { todayOnly })
+              for (const c of g.cards) messageByKey.set(c.key, message)
+            }
+            const cardsByIpo = new Map<string, { ipoId: string; ipoName: string; cards: FunderIpoCard[] }>()
+            for (const c of filtered) {
+              if (!cardsByIpo.has(c.ipoId)) cardsByIpo.set(c.ipoId, { ipoId: c.ipoId, ipoName: c.ipoName, cards: [] })
+              cardsByIpo.get(c.ipoId)!.cards.push(c)
+            }
+            return Array.from(cardsByIpo.values())
+              .sort((a, b) => a.ipoName.localeCompare(b.ipoName))
+              .map((group) => {
+                const open = openIpoIds.has(group.ipoId)
+                return (
+                  <div key={group.ipoId} className="card mb-2 p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleIpoOpen(group.ipoId)}
+                      className="flex w-full items-center justify-between gap-2 p-3"
+                    >
+                      <span className="truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                        {group.ipoName}
+                      </span>
+                      <span style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : undefined }}>
+                        <ChevronDownIcon size={16} fill="var(--ink-muted)" />
+                      </span>
+                    </button>
+                    {open && (
+                      <div className="space-y-2 p-3 pt-0">
+                        {group.cards.map((c) => {
+                          const message = messageByKey.get(c.key)!
+                          const holderNames = new Set(c.applications.map((a) => a.holderName))
+                          const relatedHolderCards = holderAllottedCards.filter(
+                            (h) => h.ipoId === c.ipoId && holderNames.has(h.holderName),
+                          )
+                          return (
+                            <div key={c.key} className="space-y-1.5">
+                              <div className="stagger-item flex items-center justify-between gap-2 rounded-lg p-2" style={{ background: 'var(--hover-surface)' }}>
+                                <div className="min-w-0">
+                                  <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                                    {c.funderName}
+                                  </p>
+                                  <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                                    {c.applications.length} app{c.applications.length === 1 ? '' : 's'}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
+                                  disabled={!c.phone}
+                                  title={c.phone ? 'Send' : 'No phone number on file for this bank/UPI account'}
+                                  aria-label="Send"
+                                  className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  <PaperAirplaneIcon size={14} />
+                                </button>
+                              </div>
+                              {relatedHolderCards.map((h) => {
+                                const holderMessage = buildHolderAllottedMessage(h)
+                                return (
+                                  <div key={h.key} className="flex items-center justify-between gap-2 rounded-lg p-2 pl-4" style={{ background: 'var(--hover-surface)' }}>
+                                    <p className="min-w-0 truncate text-xs" style={{ color: 'var(--ink-secondary)' }}>
+                                      Notify {h.holderName} · {h.totalLots} lot{h.totalLots === 1 ? '' : 's'}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => h.phone && sendCustomWhatsapp(h.phone, holderMessage)}
+                                      disabled={!h.phone}
+                                      title={h.phone ? 'Send' : 'No phone number on file for this account'}
+                                      aria-label="Send"
+                                      className="btn-secondary shrink-0 !p-1.5 disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                      <PaperAirplaneIcon size={12} />
+                                    </button>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => c.phone && sendCustomWhatsapp(c.phone, message)}
-                    disabled={!c.phone}
-                    title={c.phone ? 'Send' : 'No phone number on file for this bank/UPI account'}
-                    aria-label="Send"
-                    className="btn-secondary shrink-0 !p-2 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <PaperAirplaneIcon size={14} />
-                  </button>
-                </div>
-              )
-            })}
-          </div>
+                )
+              })
+          })()}
         </section>
       )}
 
