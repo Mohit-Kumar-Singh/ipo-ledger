@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { renderMessageBody } from '../../lib/notificationTemplates'
 import { isLiveIpo, nowIst } from '../../lib/ipoStatus'
+import { hydrateDematAccounts } from '../../lib/hydrateDemat'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { buildSellReminderText, resolveSellPdfUrl, type SellAccountDetails } from '../../lib/sellReminder'
 import {
@@ -510,7 +511,7 @@ export function NotificationsPage() {
             // literal paying UPI, and funder_override_id, migration 0063)
             // — and funder cards/messages prefer the override when set
             // (see effectiveFunder()).
-            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+            'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
               'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
@@ -545,9 +546,15 @@ export function NotificationsPage() {
       // has no idea an IPO was archived — confirmed live: Behari Lal
       // Engineering, is_archived=true, still within its listing_date window,
       // kept appearing there.
-      const funderRows = ((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[]).filter(
-        (r) => !r.ipos?.is_archived,
-      )
+      // hydrateDematAccounts — for a funder-only viewer the demat_accounts
+      // embed is RLS-blocked (null), and buildFunderAllottedCards' own
+      // `profit_share_percent ?? 25` fallback would then project their
+      // expected profit off a cut percentage that isn't the real one (the
+      // account this fires on most is 30%, not 25%). Same fix Dashboard and
+      // Payouts already carry; this page was missed. No-ops for admin.
+      const funderRows = (
+        await hydrateDematAccounts((fundersRes.data ?? []) as unknown as ApplicationForFunderRow[])
+      ).filter((r) => !r.ipos?.is_archived)
       const todayStr = nowIst().dateStr
       // Already sold — nothing left to project (it's real now) or remind the
       // holder about (they already sold), regardless of exactly which day it

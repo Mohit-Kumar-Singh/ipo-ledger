@@ -280,7 +280,18 @@ export function buildPayoutAnalytics(
     profitPersonName,
     paymentsByApp,
   )
-  const pendingPayout = settlementCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
+  // Netted PER FUNDER before clamping, not per application. Summing
+  // Math.max(0, ...) per card discards an overpaid application's credit
+  // instead of letting it reduce what that same person is still owed, which
+  // overstates what's actually pending (Avinash: −1,910 on one application
+  // and +3,667 on another is a real balance of 1,757, not 3,667). Same rule
+  // PayoutsPage's own netSettlementByParty applies.
+  const pendingByFunderMap = new Map<string, number>()
+  for (const c of settlementCards) {
+    if (!c.hasFunder || c.isFunderSelf || !c.funderName) continue
+    pendingByFunderMap.set(c.funderName, (pendingByFunderMap.get(c.funderName) ?? 0) + c.remainingToFunder)
+  }
+  const pendingPayout = Array.from(pendingByFunderMap.values()).reduce((s, net) => s + Math.max(0, net), 0)
 
   const pendingByAccountMap = new Map<string, number>()
   for (const c of settlementCards) {
@@ -369,7 +380,11 @@ export function buildPayoutAnalytics(
   }
   const paidByIpo = new Map<string, number>()
   for (const c of settlementCards) {
-    paidByIpo.set(c.ipoId, (paidByIpo.get(c.ipoId) ?? 0) + (c.amountToFunder - Math.max(0, c.remainingToFunder)))
+    // amountToFunder − remaining (raw), NOT − Math.max(0, remaining):
+    // "paid" is what actually left, and on an overpaid application that is
+    // MORE than was owed. Clamping made an overpayment report as if exactly
+    // the owed amount had been paid, hiding the excess.
+    paidByIpo.set(c.ipoId, (paidByIpo.get(c.ipoId) ?? 0) + (c.amountToFunder - c.remainingToFunder))
   }
   const owedByIpo = new Map<string, number>()
   for (const c of settlementCards) owedByIpo.set(c.ipoId, (owedByIpo.get(c.ipoId) ?? 0) + c.amountToFunder)
@@ -420,7 +435,9 @@ export function buildPayoutAnalytics(
   for (const c of settlementCards) {
     if (!c.funderName) continue
     const e = byFunder.get(c.funderName)
-    if (e) e.payout += c.amountToFunder - Math.max(0, c.remainingToFunder)
+    // Raw remaining — same reasoning as paidByIpo above: this is money that
+    // actually moved, so an overpayment must count at its real size.
+    if (e) e.payout += c.amountToFunder - c.remainingToFunder
   }
   const accountBreakdown: AccountBreakdownRow[] = Array.from(byFunder.entries())
     .map(([funderName, e]) => ({
