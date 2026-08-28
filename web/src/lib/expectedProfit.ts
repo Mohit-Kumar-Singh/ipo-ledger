@@ -13,6 +13,10 @@ export type ProfitProjectionRow = {
   // shape leaves it undefined, same "optional per-caller" convention as
   // bid_amount/sell_price below.
   id?: string
+  // Optional — selected by the queries that need to re-resolve a
+  // funder-blocked demat embed (see lib/hydrateDemat.ts); older callers
+  // that never hit that path leave it undefined.
+  demat_id?: string
   ipo_id: string
   lots: number
   applied_at: string

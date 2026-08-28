@@ -33,6 +33,7 @@ import {
   type ProfitProjectionRow,
 } from '../../lib/expectedProfit'
 import { useCountUp } from '../../lib/useCountUp'
+import { hydrateDematAccounts } from '../../lib/hydrateDemat'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
@@ -437,7 +438,7 @@ export function DashboardPage() {
       supabase
         .from('applications')
         .select(
-          'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+          'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
             'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
             'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -669,7 +670,14 @@ export function DashboardPage() {
     // stopped counting, with nothing to un-archive it back into view. Cards
     // with no price band on file are still skipped below (same guard the
     // WhatsApp message itself uses — nothing sane to project without one).
-    const profitRowsBase = (profitRows.data ?? []) as unknown as ProfitProjectionRow[]
+    // hydrateDematAccounts, not the raw rows — for a funder-only viewer the
+    // demat_accounts embed is RLS-blocked (null), and every fallback below
+    // (`holder_name ?? 'Unknown'`, `profit_share_percent ?? 25`) would then
+    // compute their projection off invented inputs. See lib/hydrateDemat.ts.
+    // No-ops for admin.
+    const profitRowsBase = await hydrateDematAccounts(
+      (profitRows.data ?? []) as unknown as ProfitProjectionRow[],
+    )
     const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
     const profitCards = buildFunderAllottedCards(
       profitRowsBase.filter((r) => r.status === 'ALLOTTED'),

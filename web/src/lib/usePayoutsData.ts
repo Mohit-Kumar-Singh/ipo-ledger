@@ -13,6 +13,7 @@ import { sameIdentity } from './applicationAttribution'
 import { nowIst } from './ipoStatus'
 import { buildFunderAllottedCards, type ProfitProjectionRow, type ListingCutoff } from './expectedProfit'
 import { buildSettlementCards, groupCardsByIpo } from './settlement'
+import { hydrateDematAccounts } from './hydrateDemat'
 import type { SettlementPayment } from '../types/database'
 
 const EMPTY_PROJECTION_ROWS: ProfitProjectionRow[] = []
@@ -50,7 +51,7 @@ export function usePayoutsData() {
         supabase
           .from('applications')
           .select(
-            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+            'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -62,7 +63,7 @@ export function usePayoutsData() {
         supabase
           .from('applications')
           .select(
-            'id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+            'id, demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -73,13 +74,18 @@ export function usePayoutsData() {
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
       if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
-      const allRows = (allRowsRes.data ?? []) as unknown as ProfitProjectionRow[]
+      // See lib/hydrateDemat.ts — a funder-only viewer's demat embed is
+      // RLS-blocked, and the `?? 25` cut fallback would silently compute
+      // their figures off a made-up percentage. No-ops for admin.
+      const allRows = await hydrateDematAccounts((allRowsRes.data ?? []) as unknown as ProfitProjectionRow[])
 
       if (expectedRes.error) {
         showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
         return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>() }
       }
-      const expectedRowsBaseAll = (expectedRes.data ?? []) as unknown as ProfitProjectionRow[]
+      const expectedRowsBaseAll = await hydrateDematAccounts(
+        (expectedRes.data ?? []) as unknown as ProfitProjectionRow[],
+      )
       // 10am-listing-day hold-back (see lib/expectedProfit.ts's ListingCutoff)
       // — scoped to this page's own projections only.
       const { dateStr: todayIstStrLocal, hour: nowIstHourLocal } = nowIst()

@@ -42,10 +42,11 @@ const links = [
   { to: '/ipos', label: 'IPOs', icon: GraphIcon },
   { to: '/applications', label: 'Applications', icon: FileIcon },
   { to: '/allotment', label: 'Allotment board', icon: ChecklistIcon },
-  // Admin-only, filtered out below — Payouts covers funding-credit/payout
-  // obligations across every account, the same admin-only scope Dashboard's
-  // "Payouts pending" tile already has.
-  { to: '/payouts', label: 'Payouts', icon: CreditCardIcon, adminOnly: true },
+  // NOT admin-only: /payouts renders FunderPayoutsPage for a non-admin
+  // (v1.203.0), scoped by RLS to just what they funded. It was still hidden
+  // from the nav, so a funder had no way to actually reach their own payout
+  // page — the route existed but nothing linked to it for them.
+  { to: '/payouts', label: 'Payouts', icon: CreditCardIcon },
   { to: '/shared-accounts', label: 'Shared accounts', icon: PeopleIcon, adminOnly: true },
   // Admin-only roster of every signed-up user and their funder/account-holder
   // links — replaces the old self-service request-and-approve flow on
