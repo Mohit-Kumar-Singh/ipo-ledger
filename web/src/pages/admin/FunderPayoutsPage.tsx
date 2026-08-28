@@ -32,7 +32,21 @@ export function FunderPayoutsPage() {
 
   const displayName = decodedName ?? myCards[0]?.funderName ?? myExpected[0]?.funderName ?? 'Your'
 
-  const totalToSend = myCards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
+  // Summed RAW first, then clamped once — not Math.max(0, ...) per card.
+  // Clamping per card throws away an overpaid application's credit instead
+  // of letting it reduce what this same person is still owed on another,
+  // which made this page disagree with the main Payouts page for the exact
+  // same funder (Avinash: −₹1,910 overpaid on one Dhoot application,
+  // +₹3,667 outstanding on another — this page said "Send ₹3,667", the
+  // netted figure everywhere else said ₹1,757). Same per-person netting
+  // rule netSettlementByParty already applies on PayoutsPage; the two are
+  // talking about one person's single running balance, so they have to net
+  // identically.
+  const netToFunder = myCards.reduce((s, c) => s + c.remainingToFunder, 0)
+  const totalToSend = Math.max(0, netToFunder)
+  // Net negative across everything = they've been paid more than they were
+  // owed overall, and that surplus is genuinely coming back to you.
+  const owedBackByFunder = Math.max(0, -netToFunder)
   const totalSent = myCards.reduce((s, c) => s + (c.amountToFunder - c.remainingToFunder), 0)
   const totalExpected = myExpected.reduce(
     (s, c) => s + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).amountToReturn,
@@ -61,7 +75,9 @@ export function FunderPayoutsPage() {
         </div>
       )}
 
-      {/* Overall — short, compact, everything at a glance. */}
+      {/* Overall — short, compact, everything at a glance. "Owed back" only
+          appears when this person is actually net-overpaid, so the usual
+          case stays a clean 3-up. */}
       <div className="card grid grid-cols-3 gap-3 p-4 text-sm">
         <div>
           <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Send</p>
@@ -77,6 +93,14 @@ export function FunderPayoutsPage() {
           <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Expected</p>
           <p className="font-mono-ipo font-semibold" style={{ color: 'var(--accent)' }}>{rupees(totalExpected)}</p>
         </div>
+        {owedBackByFunder > SETTLED_EPSILON && (
+          <div className="col-span-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Overpaid — owed back to you</p>
+            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
+              −{rupees(owedBackByFunder)}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Allotted, not yet sold — compact, IPO first name only. */}

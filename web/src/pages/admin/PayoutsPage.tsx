@@ -182,7 +182,12 @@ function groupSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holde
 
 interface FunderCompactLine {
   ipoName: string
-  toSend: number
+  // RAW remaining, not Math.max(0, ...) — can be negative when that
+  // application was overpaid. Callers net these per person before clamping;
+  // clamping here would drop an overpayment's credit and make this list
+  // disagree with the netted "Still to send funders" total on this very
+  // same page (Avinash: −1,910 + 3,667 nets to 1,757, not 3,667).
+  remaining: number
   sent: number
 }
 interface FunderCompactGroup {
@@ -202,7 +207,7 @@ function groupAllFundersCompact(cards: SettlementCard[]): FunderCompactGroup[] {
     if (!byName.has(c.funderName)) byName.set(c.funderName, { name: c.funderName, phone: c.funderPhone, lines: [] })
     const g = byName.get(c.funderName)!
     if (!g.phone && c.funderPhone) g.phone = c.funderPhone
-    g.lines.push({ ipoName: c.ipoName, toSend: Math.max(0, c.remainingToFunder), sent: c.amountToFunder - c.remainingToFunder })
+    g.lines.push({ ipoName: c.ipoName, remaining: c.remainingToFunder, sent: c.amountToFunder - c.remainingToFunder })
   }
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -428,22 +433,34 @@ export function PayoutsPage() {
   interface OverpaymentRow {
     key: string
     name: string
-    ipoName: string
+    // The single IPO responsible, or null when this person's balance spans
+    // several. `amount` is always the NET across all of them, so naming one
+    // IPO next to it would misread as "that IPO is over by this much" —
+    // e.g. Jigyansh nets −₹8,397 from Milky (−₹25,081) plus Lalithaa
+    // (+₹16,684); labelling that "Jigyansh - Milky −₹8,397" is wrong about
+    // both figures. Null renders as "net" instead.
+    ipoName: string | null
     amount: number
     direction: 'to funder' | 'from holder'
   }
   // Every funder, dropdown per name — compact per-IPO send/sent status,
   // below the top summary card.
   const funderCompactGroups = groupAllFundersCompact(settlementCards)
-  const mostOverpaidIpo = (g: SettlementPartyGroup) => g.ipos.reduce((min, l) => (l.amount < min.amount ? l : min), g.ipos[0])
+  // Only name an IPO when exactly one of this person's applications is
+  // actually out of balance — otherwise the net figure spans several and
+  // naming one of them is misleading (see OverpaymentRow.ipoName).
+  const soleUnbalancedIpo = (g: SettlementPartyGroup): string | null => {
+    const unbalanced = g.ipos.filter((l) => Math.abs(l.amount) > SETTLED_EPSILON)
+    return unbalanced.length === 1 ? unbalanced[0].ipoName : null
+  }
   const overpayments: OverpaymentRow[] = []
   for (const g of funderNets) {
     if (g.total >= -SETTLED_EPSILON) continue
-    overpayments.push({ key: `${g.name}-funder`, name: g.name, ipoName: mostOverpaidIpo(g).ipoName, amount: -g.total, direction: 'to funder' })
+    overpayments.push({ key: `${g.name}-funder`, name: g.name, ipoName: soleUnbalancedIpo(g), amount: -g.total, direction: 'to funder' })
   }
   for (const g of holderNets) {
     if (g.total >= -SETTLED_EPSILON) continue
-    overpayments.push({ key: `${g.name}-holder`, name: g.name, ipoName: mostOverpaidIpo(g).ipoName, amount: -g.total, direction: 'from holder' })
+    overpayments.push({ key: `${g.name}-holder`, name: g.name, ipoName: soleUnbalancedIpo(g), amount: -g.total, direction: 'from holder' })
   }
 
   return (
@@ -529,7 +546,7 @@ export function PayoutsPage() {
           {overpayments.map((o) => (
             <div key={o.key} className="flex items-center justify-between gap-3">
               <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
-                {o.name} - {o.ipoName.split(' ')[0]}
+                {o.name} - {o.ipoName ? o.ipoName.split(' ')[0] : 'net'}
               </span>
               <span className="shrink-0 font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
                 −{rupees(o.amount)}
@@ -545,7 +562,18 @@ export function PayoutsPage() {
       {funderCompactGroups.length > 0 && (
         <div className="card divide-y p-0 text-sm" style={{ borderColor: 'var(--border)' }}>
           {funderCompactGroups.map((g) => {
-            const totalToSend = g.lines.reduce((s, l) => s + l.toSend, 0)
+            // Netted across all their applications before clamping — see
+            // FunderCompactLine.remaining. Three states, not two: still
+            // owed, square, or net-overpaid (money coming back to you).
+            const net = g.lines.reduce((s, l) => s + l.remaining, 0)
+            const label =
+              net > SETTLED_EPSILON
+                ? `Send ${rupees(net)}`
+                : net < -SETTLED_EPSILON
+                  ? `Overpaid −${rupees(-net)}`
+                  : 'Fully paid'
+            const labelColor =
+              net > SETTLED_EPSILON ? 'var(--critical-text)' : net < -SETTLED_EPSILON ? 'var(--warning-text)' : 'var(--good)'
             return (
               <Link
                 key={g.name}
@@ -555,8 +583,8 @@ export function PayoutsPage() {
                 <span className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                   {g.name}
                 </span>
-                <span className="shrink-0 text-xs" style={{ color: totalToSend > SETTLED_EPSILON ? 'var(--critical-text)' : 'var(--good)' }}>
-                  {totalToSend > SETTLED_EPSILON ? `Send ${rupees(totalToSend)}` : 'Fully paid'}
+                <span className="shrink-0 text-xs" style={{ color: labelColor }}>
+                  {label}
                 </span>
               </Link>
             )
