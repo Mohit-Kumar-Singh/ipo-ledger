@@ -211,6 +211,18 @@ export interface PayoutAnalytics {
   // avoids a second pass over the same rows just to re-derive them.
   realizedLines: BookedProfitLine[]
   unrealizedLines: UnrealizedProfitLine[]
+  ipoAccountBreakdown: IpoAccountRow[]
+}
+
+// Compact "which account, funded by whom" view per IPO in range — applied
+// vs allotted counts plus the distinct (holder, funder) pairs, for a
+// simpler summary than the full IpoBreakdownRow table.
+export interface IpoAccountRow {
+  ipoId: string
+  ipoName: string
+  applied: number
+  allotted: number
+  accounts: { holderName: string; funderName: string | null }[]
 }
 
 export function buildPayoutAnalytics(
@@ -291,6 +303,23 @@ export function buildPayoutAnalytics(
     notAllotted: rowsInRange.filter((r) => r.status === 'NOT_ALLOTTED').length,
     sold: rowsInRange.filter((r) => r.status === 'SOLD').length,
   }
+
+  const ipoAccountMap = new Map<string, IpoAccountRow>()
+  for (const r of rowsInRange) {
+    if (!r.ipos) continue
+    if (!ipoAccountMap.has(r.ipo_id)) {
+      ipoAccountMap.set(r.ipo_id, { ipoId: r.ipo_id, ipoName: r.ipos.company_name, applied: 0, allotted: 0, accounts: [] })
+    }
+    const row = ipoAccountMap.get(r.ipo_id)!
+    row.applied += 1
+    if (r.status === 'ALLOTTED' || r.status === 'SOLD') row.allotted += 1
+    const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
+    const funderName = effectiveFunder(r)?.account_holder_name ?? null
+    if (!row.accounts.some((a) => a.holderName === holderName && a.funderName === funderName)) {
+      row.accounts.push({ holderName, funderName })
+    }
+  }
+  const ipoAccountBreakdown = Array.from(ipoAccountMap.values()).sort((a, b) => a.ipoName.localeCompare(b.ipoName))
 
   const sharesByIpoMap = new Map<string, number>()
   for (const r of allottedOrSold) {
@@ -501,6 +530,7 @@ export function buildPayoutAnalytics(
     insights,
     realizedLines,
     unrealizedLines,
+    ipoAccountBreakdown,
   }
 }
 

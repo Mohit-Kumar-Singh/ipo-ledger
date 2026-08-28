@@ -6,12 +6,11 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDownIcon,
   SearchIcon,
-  CreditCardIcon,
   ClockIcon,
   ChecklistIcon,
   PaperAirplaneIcon,
@@ -45,16 +44,12 @@ import {
 } from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
-import { InfoTooltip, HoverCard } from '../../components/HoverCard'
 import { useCountUp } from '../../lib/useCountUp'
 import {
   buildPayoutAnalytics,
   resolveDateRange,
   type DateRangePreset,
-  type IpoBreakdownRow,
-  type AccountPendingRow,
 } from '../../lib/payoutAnalytics'
-import { StatTile } from './DashboardPage'
 import { nowIst } from '../../lib/ipoStatus'
 
 interface PayoutLine {
@@ -202,6 +197,33 @@ function groupSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holde
   return netSettlementByParty(cards, side)
     .filter((g) => g.total > SETTLED_EPSILON)
     .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name))
+}
+
+interface FunderCompactLine {
+  ipoName: string
+  toSend: number
+  sent: number
+}
+interface FunderCompactGroup {
+  name: string
+  phone: string | null
+  lines: FunderCompactLine[]
+}
+
+// Every funder with a SOLD application, regardless of settled status — the
+// dropdown list under the top summary card, so a fully-paid funder is still
+// visible (just shows "Sent" with nothing left to send) instead of only
+// ever showing up while still owed money (groupSettlementByParty's own job).
+function groupAllFundersCompact(cards: SettlementCard[]): FunderCompactGroup[] {
+  const byName = new Map<string, FunderCompactGroup>()
+  for (const c of cards) {
+    if (!c.hasFunder || c.isFunderSelf || !c.funderName) continue
+    if (!byName.has(c.funderName)) byName.set(c.funderName, { name: c.funderName, phone: c.funderPhone, lines: [] })
+    const g = byName.get(c.funderName)!
+    if (!g.phone && c.funderPhone) g.phone = c.funderPhone
+    g.lines.push({ ipoName: c.ipoName, toSend: Math.max(0, c.remainingToFunder), sent: c.amountToFunder - c.remainingToFunder })
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
 // Same SettlementPartyGroup shape as groupSettlementByParty above (so it
@@ -522,24 +544,22 @@ export function PayoutsPage() {
       ),
     [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol, listingCutoff],
   )
-  const [ipoSort, setIpoSort] = useState<'profit' | 'roi' | 'investment' | 'latest'>('profit')
-  const [ipoAnalysisOpen, setIpoAnalysisOpen] = useState(false)
-  const [acctPerfOpen, setAcctPerfOpen] = useState(false)
-  const [payoutStatusFilter, setPayoutStatusFilter] = useState<'all' | 'paid' | 'pending'>('all')
+  const [fundersOpen, setFundersOpen] = useState<Set<string>>(new Set())
+  function toggleFunderOpen(name: string) {
+    setFundersOpen((s) => {
+      const next = new Set(s)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
 
   // Counts up from 0 on mount/change instead of snapping straight to the
-  // number — same motion StatTile's own KPI tiles already use, extended to
-  // this page's non-StatTile headline figures so the whole dashboard reads
-  // as one consistent feel instead of some numbers animating and others
-  // popping in abruptly. useCountUp itself no-ops (renders the real value
-  // immediately) while analytics is still the empty-array default, so
-  // there's nothing to animate FROM until real data exists — the loading
-  // skeleton below covers that gap instead.
+  // number — useCountUp itself no-ops (renders the real value immediately)
+  // while analytics is still the empty-array default, so there's nothing to
+  // animate FROM until real data exists — the loading skeleton below covers
+  // that gap instead.
   const animatedTotalProfit = useCountUp(analytics.summary.totalProfit)
-  const animatedRealizedProfit = useCountUp(analytics.summary.realizedProfit)
-  const animatedUnrealizedProfit = useCountUp(analytics.summary.unrealizedProfit)
-  const animatedPaid = useCountUp(analytics.payoutStatus.paid)
-  const animatedPending = useCountUp(analytics.payoutStatus.pending)
 
   if (!isAdmin) {
     // rows (v_allotment_board, SOLD only) is already RLS-scoped to just
@@ -637,6 +657,9 @@ export function PayoutsPage() {
     amount: number
     direction: 'to funder' | 'from holder'
   }
+  // Every funder, dropdown per name — compact per-IPO send/sent status,
+  // below the top summary card.
+  const funderCompactGroups = groupAllFundersCompact(settlementCards)
   const mostOverpaidIpo = (g: SettlementPartyGroup) => g.ipos.reduce((min, l) => (l.amount < min.amount ? l : min), g.ipos[0])
   const overpayments: OverpaymentRow[] = []
   for (const g of funderNets) {
@@ -741,6 +764,53 @@ export function PayoutsPage() {
         </div>
       )}
 
+      {/* Every funder, one dropdown each — compact per-IPO send status,
+          "sent" included so a fully-paid funder still shows up here. */}
+      {funderCompactGroups.length > 0 && (
+        <div className="card divide-y p-0 text-sm" style={{ borderColor: 'var(--border)' }}>
+          {funderCompactGroups.map((g) => {
+            const open = fundersOpen.has(g.name)
+            return (
+              <div key={g.name}>
+                <button
+                  type="button"
+                  onClick={() => toggleFunderOpen(g.name)}
+                  className="flex w-full items-center justify-between gap-2 p-3"
+                >
+                  <span className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {g.name}
+                  </span>
+                  <span style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : undefined }}>
+                    <ChevronDownIcon size={16} fill="var(--ink-muted)" />
+                  </span>
+                </button>
+                {open && (
+                  <div className="space-y-1 px-3 pb-3">
+                    {g.lines.map((l, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                        <span className="min-w-0 truncate" style={{ color: 'var(--ink-muted)' }}>
+                          {l.ipoName}
+                        </span>
+                        <span className="shrink-0">
+                          {l.toSend > SETTLED_EPSILON ? (
+                            <span style={{ color: 'var(--critical-text)' }}>Send {rupees(l.toSend)}</span>
+                          ) : null}
+                          {l.sent > 0 && (
+                            <span style={{ color: 'var(--good)' }} className={l.toSend > SETTLED_EPSILON ? 'ml-2' : ''}>
+                              Sent {rupees(l.sent)}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
       {/* === Profit & Payout Analytics dashboard (v1.187.0) === */}
       <div className="space-y-5">
         <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
@@ -787,18 +857,14 @@ export function PayoutsPage() {
             card is now the hover trigger (HoverCard wraps it), same "hover
             anywhere on the tile" convention Dashboard's own StatTile uses —
             not just a small (i) icon in the corner. */}
-        <HoverCard
-          tone="good"
-          panel={
-            <p style={{ color: 'var(--ink-secondary)' }}>
-              Realized profit from applications you've marked SOLD, plus estimated profit from ones that are
-              allotted but not yet sold, combined into one number. ROI is total profit divided by total invested.
-            </p>
-          }
-        >
+        {/* Total profit only — per feedback, everything else (KPI grid,
+            realized/unrealized split, payout status, full IPO/account
+            tables, capital utilization, insights) dropped from this
+            range-filtered view. Those numbers still exist in
+            lib/payoutAnalytics.ts if a future ask brings them back. */}
         <div className="card p-5">
           <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
-            {range.label} · Profit till date
+            {range.label} · Total profit
           </p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
             <p className="font-mono-ipo text-4xl font-bold" style={{ color: 'var(--good)' }}>
@@ -806,232 +872,38 @@ export function PayoutsPage() {
             </p>
             <span className="badge badge-good">{analytics.summary.roi.toFixed(2)}% ROI</span>
           </div>
-          <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-            {rupees(analytics.summary.realizedProfit)} realized + {rupees(analytics.summary.unrealizedProfit)} estimated
-            (allotted/still held)
-          </p>
-          {/* ROI dropped from this grid — already shown as the badge above,
-              no need for it twice. */}
-          <div className="mt-4 grid grid-cols-2 gap-3 border-t pt-3 sm:grid-cols-4" style={{ borderColor: 'var(--border)' }}>
-            {[
-              ['Investment', analytics.summary.totalInvested, 'var(--ink-primary)'],
-              ['Profit', analytics.summary.totalProfit, 'var(--good)'],
-              ['Payout received', analytics.summary.totalPayout, 'var(--accent)'],
-              ['Pending', analytics.summary.pendingPayout, 'var(--warning-text)'],
-            ].map(([label, amount, color]) => (
-              <div key={label as string}>
-                <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                  {label}
-                </p>
-                <p className="font-mono-ipo text-sm font-semibold" style={{ color: color as string }}>
-                  {rupees(amount as number)}
-                </p>
+        </div>
+
+        {/* Applied/allotted per IPO, with which account and funder — a
+            compact substitute for the old full IPO-wise/account-wise
+            tables. */}
+        {analytics.ipoAccountBreakdown.length > 0 && (
+          <div className="card space-y-3 p-4">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              IPOs this range
+            </h2>
+            {analytics.ipoAccountBreakdown.map((r) => (
+              <div key={r.ipoId} className="border-t pt-3 first:border-t-0 first:pt-0" style={{ borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                    {r.ipoName}
+                  </span>
+                  <span className="shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    {r.allotted}/{r.applied} allotted
+                  </span>
+                </div>
+                <div className="mt-1 space-y-0.5">
+                  {r.accounts.map((a, i) => (
+                    <p key={i} className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                      {a.holderName}
+                      {a.funderName && a.funderName !== a.holderName && ` · via ${a.funderName}`}
+                    </p>
+                  ))}
+                </div>
               </div>
             ))}
           </div>
-        </div>
-        </HoverCard>
-
-        {/* KPI grid — StatTile is Dashboard's own component (exported for
-            reuse rather than a second near-identical tile implementation).
-            Applications/Shares allotted tiles removed per feedback — their
-            numbers are still available via the analytics object below, just
-            not worth their own top-of-page tiles. */}
-        <div className="grid grid-cols-2 gap-2.5">
-          <StatTile
-            icon={CreditCardIcon}
-            label="Successful IPOs"
-            value={analytics.summary.successfulIpoCount}
-            tone="good"
-            panel={<SuccessfulIposPanel rows={analytics.ipoBreakdown} />}
-          />
-          <StatTile
-            icon={CreditCardIcon}
-            label="Pending payout"
-            value={analytics.summary.pendingPayout}
-            tone={analytics.summary.pendingPayout > 0 ? 'warning' : 'good'}
-            format={(n) => rupees(n)}
-            panel={<PendingByAccountPanel rows={analytics.pendingByAccount} />}
-          />
-        </div>
-
-        {/* Realized vs Unrealized — one rectangle, three sections, divided by
-            a border rather than three separate cards (per feedback) — still
-            never blended into one number: the brief's "clearly distinguish
-            so the user does not confuse estimated profit with actual
-            payout" is met by the divider + separate labels, not by separate
-            card shells. */}
-        <div className="card flex flex-wrap items-center gap-4 p-4 text-sm">
-          <div>
-            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Realized</p>
-            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>{rupees(animatedRealizedProfit)}</p>
-          </div>
-          <div>
-            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Unrealized</p>
-            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--accent)' }}>{rupees(animatedUnrealizedProfit)}</p>
-          </div>
-          <div>
-            <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>Total</p>
-            <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>{rupees(animatedTotalProfit)}</p>
-          </div>
-        </div>
-
-        {/* Payout status — this app's settlement_payments has no "Failed"/
-            "Processing" state (a row is only ever created after money has
-            already moved), so this is Paid/Pending only rather than
-            fabricating states that don't exist here. Clicking a card
-            filters the transaction table below. */}
-        <div className="grid grid-cols-2 gap-3">
-          <HoverCard
-            tone="good"
-            panel={
-              <p style={{ color: 'var(--ink-secondary)' }}>
-                Total of every settlement_payments row logged so far — a real, confirmed transfer, not an estimate.
-                Click the card to filter the transaction table below to just these.
-              </p>
-            }
-          >
-            <button
-              type="button"
-              onClick={() => setPayoutStatusFilter((f) => (f === 'paid' ? 'all' : 'paid'))}
-              className="card w-full p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
-              style={payoutStatusFilter === 'paid' ? { borderColor: 'var(--good)' } : undefined}
-            >
-              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                Paid
-              </p>
-              <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--good)' }}>
-                {rupees(animatedPaid)}
-              </p>
-            </button>
-          </HoverCard>
-          <HoverCard
-            tone="warning"
-            panel={
-              <p style={{ color: 'var(--ink-secondary)' }}>
-                What's still owed to funders on already-SOLD applications, after subtracting every logged payment —
-                the live settlement ledger, not a projection.
-              </p>
-            }
-          >
-            <button
-              type="button"
-              onClick={() => setPayoutStatusFilter((f) => (f === 'pending' ? 'all' : 'pending'))}
-              className="card w-full p-4 text-left transition-colors hover:bg-[var(--hover-surface)]"
-              style={payoutStatusFilter === 'pending' ? { borderColor: 'var(--warning)' } : undefined}
-            >
-              <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                Pending
-              </p>
-              <p className="font-mono-ipo text-lg font-semibold" style={{ color: 'var(--warning-text)' }}>
-                {rupees(animatedPending)}
-              </p>
-            </button>
-          </HoverCard>
-        </div>
-
-        {/* IPO-wise breakdown — overflow-x-auto lives on the table wrapper
-            ONLY, not the whole card. Per the CSS overflow spec, setting
-            overflow-x without an explicit overflow-y computes overflow-y to
-            auto too, which was clipping the heading's hover panel (it pops
-            open BELOW the heading, inside what used to be this same
-            scroll-clipped box) — same bug on the Account performance card
-            below. */}
-        {analytics.ipoBreakdown.length > 0 && (
-          <div className="card p-4">
-            <button
-              type="button"
-              onClick={() => setIpoAnalysisOpen((o) => !o)}
-              className="flex w-full items-center justify-between gap-2"
-            >
-              <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                IPO-wise profit analysis
-                <InfoTooltip text="One row per IPO you've applied to. 'est.' means it isn't sold yet — profit and payout status are projected from the live/GMP price, not confirmed." />
-              </h2>
-              <span style={{ display: 'inline-flex', transform: ipoAnalysisOpen ? 'rotate(180deg)' : undefined }}>
-                <ChevronDownIcon size={16} fill="var(--ink-muted)" />
-              </span>
-            </button>
-            {ipoAnalysisOpen && (
-            <>
-            <div className="mt-2 mb-2 flex flex-wrap items-center justify-end gap-2">
-              <div className="segmented scrollbar-none max-w-full overflow-x-auto">
-                {(
-                  [
-                    ['profit', 'Highest profit'],
-                    ['roi', 'Highest ROI'],
-                    ['investment', 'Investment'],
-                  ] as [typeof ipoSort, string][]
-                ).map(([sort, label]) => (
-                  <button
-                    key={sort}
-                    type="button"
-                    onClick={() => setIpoSort(sort)}
-                    className={`segmented-item shrink-0 whitespace-nowrap ${ipoSort === sort ? 'segmented-item-active' : ''}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
-                <tr>
-                  <th className="px-2 py-1.5 font-medium">IPO</th>
-                  <th className="px-2 py-1.5 font-medium">Investment</th>
-                  <th className="px-2 py-1.5 font-medium">Shares</th>
-                  <th className="px-2 py-1.5 font-medium">Exit value</th>
-                  <th className="px-2 py-1.5 font-medium">Profit</th>
-                  <th className="px-2 py-1.5 font-medium">ROI</th>
-                  <th className="px-2 py-1.5 font-medium">Payout</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...analytics.ipoBreakdown]
-                  .sort((a, b) =>
-                    ipoSort === 'profit'
-                      ? b.profit - a.profit
-                      : ipoSort === 'roi'
-                        ? b.roi - a.roi
-                        : b.investment - a.investment,
-                  )
-                  .map((r) => (
-                    <tr key={r.ipoId} className="border-t" style={{ borderColor: 'var(--border)' }}>
-                      <td className="px-2 py-2 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {r.ipoName}
-                        {!r.isRealized && (
-                          <span className="ml-1.5 badge badge-neutral text-[10px]" title="Still held — estimated, not confirmed">
-                            est.
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-2 py-2">{rupees(r.investment)}</td>
-                      <td className="px-2 py-2">{r.allottedShares.toLocaleString('en-IN')}</td>
-                      <td className="px-2 py-2">{r.exitValue > 0 ? rupees(r.exitValue) : '—'}</td>
-                      <td className="px-2 py-2 font-medium" style={{ color: r.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
-                        {rupees(r.profit)}
-                      </td>
-                      <td className="px-2 py-2" style={{ color: r.roi >= 0 ? 'var(--good)' : 'var(--critical)' }}>
-                        {r.roi.toFixed(1)}%
-                      </td>
-                      <td className="px-2 py-2">
-                        <span
-                          className={`badge ${r.payoutStatus === 'Paid' ? 'badge-good' : r.payoutStatus === 'Partial' ? 'badge-warning' : r.payoutStatus === 'Pending' ? 'badge-critical' : 'badge-neutral'}`}
-                        >
-                          {r.payoutStatus}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-            </div>
-            </>
-            )}
-          </div>
         )}
-
         {/* Best / worst — one card, not two */}
         {(analytics.best || analytics.worst) && (
           <div className="card grid grid-cols-1 divide-y p-4 sm:grid-cols-2 sm:divide-x sm:divide-y-0" style={{ borderColor: 'var(--border)' }}>
@@ -1060,136 +932,6 @@ export function PayoutsPage() {
             bank details, matching this app's existing convention of
             resolving just a display name for anyone who isn't the viewer
             themselves (see resolve_bank_holder_names). */}
-        {analytics.accountBreakdown.length > 0 && (
-          <div className="card p-4">
-            <button
-              type="button"
-              onClick={() => setAcctPerfOpen((o) => !o)}
-              className="flex w-full items-center justify-between gap-2"
-            >
-              <h2 className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                Account performance
-                <InfoTooltip text="Investment and profit totalled per funder, across every IPO they've funded — realized and estimated profit combined, same as the KPI cards above." />
-              </h2>
-              <span style={{ display: 'inline-flex', transform: acctPerfOpen ? 'rotate(180deg)' : undefined }}>
-                <ChevronDownIcon size={16} fill="var(--ink-muted)" />
-              </span>
-            </button>
-            {acctPerfOpen && (
-            <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead style={{ color: 'var(--ink-muted)' }} className="text-left">
-                <tr>
-                  <th className="px-2 py-1.5 font-medium">Account</th>
-                  <th className="px-2 py-1.5 font-medium">Investment</th>
-                  <th className="px-2 py-1.5 font-medium">Profit</th>
-                  <th className="px-2 py-1.5 font-medium">ROI</th>
-                  <th className="px-2 py-1.5 font-medium">Successful IPOs</th>
-                </tr>
-              </thead>
-              <tbody>
-                {analytics.accountBreakdown.map((a) => (
-                  <tr key={a.funderName} className="border-t" style={{ borderColor: 'var(--border)' }}>
-                    <td className="px-2 py-2 font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {a.funderName}
-                    </td>
-                    <td className="px-2 py-2">{rupees(a.investment)}</td>
-                    <td className="px-2 py-2" style={{ color: a.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
-                      {rupees(a.profit)}
-                    </td>
-                    <td className="px-2 py-2">{a.roi.toFixed(1)}%</td>
-                    <td className="px-2 py-2">{a.successfulIpos}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-            )}
-          </div>
-        )}
-
-        {/* Capital utilization — whole card is the hover trigger, same as
-            Profit till date above. */}
-        <HoverCard
-          panel={
-            <p style={{ color: 'var(--ink-secondary)' }}>
-              How your total invested bid amount (this range) breaks down: still locked in allotted-not-yet-sold
-              applications, vs. already released by marking something sold.
-            </p>
-          }
-        >
-        <div className="card p-4">
-          <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-            Capital utilization
-          </h2>
-          <div className="flex h-2.5 overflow-hidden rounded-full" style={{ background: 'var(--hover-surface)' }}>
-            {analytics.capital.invested > 0 && (
-              <>
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${(analytics.capital.locked / analytics.capital.invested) * 100}%`,
-                    background: 'var(--warning)',
-                  }}
-                  title="Locked"
-                />
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${(analytics.capital.released / analytics.capital.invested) * 100}%`,
-                    background: 'var(--good)',
-                  }}
-                  title="Released"
-                />
-              </>
-            )}
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-            <div>
-              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                Invested
-              </p>
-              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                {rupees(analytics.capital.invested)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                Locked (still held)
-              </p>
-              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
-                {rupees(analytics.capital.locked)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                Released (sold)
-              </p>
-              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--good)' }}>
-                {rupees(analytics.capital.released)}
-              </p>
-            </div>
-          </div>
-        </div>
-        </HoverCard>
-
-        {/* Performance insights — only ever built from real numbers already
-            computed above (lib/payoutAnalytics.ts); never shown if empty. */}
-        {analytics.insights.length > 0 && (
-          <div className="card p-4">
-            <h2 className="mb-2 text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              Your {range.label.toLowerCase()} performance
-            </h2>
-            <ul className="space-y-1.5 text-sm" style={{ color: 'var(--ink-secondary)' }}>
-              {analytics.insights.map((line, i) => (
-                <li key={i} className="flex gap-2">
-                  <span style={{ color: 'var(--accent)' }}>•</span>
-                  {line}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
           </>
         )}
       </div>
@@ -1861,47 +1603,3 @@ function PayoutSection({
 // established (StatTile itself lives there, exported for reuse). Kept local
 // to this file rather than imported, same reasoning DashboardPage's own
 // small panel components use: each is a few lines, single-consumer.
-function SuccessfulIposPanel({ rows }: { rows: IpoBreakdownRow[] }) {
-  const successful = rows.filter((r) => r.profit > 0)
-  if (successful.length === 0) return <PanelEmpty>No profitable IPOs in this range yet.</PanelEmpty>
-  return (
-    <div className="space-y-1.5">
-      {successful.map((r) => (
-        <div key={r.ipoId} className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {r.ipoName}
-          </span>
-          <span className="shrink-0" style={{ color: 'var(--good)' }}>
-            {rupees(r.profit)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function PendingByAccountPanel({ rows }: { rows: AccountPendingRow[] }) {
-  if (rows.length === 0) return <PanelEmpty>Nothing owed right now.</PanelEmpty>
-  return (
-    <div className="space-y-1.5">
-      {rows.map((r) => (
-        <div key={r.funderName} className="flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {r.funderName}
-          </span>
-          <span className="shrink-0" style={{ color: 'var(--warning)' }}>
-            {rupees(r.pending)}
-          </span>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function PanelEmpty({ children }: { children: ReactNode }) {
-  return (
-    <p className="p-1" style={{ color: 'var(--ink-muted)' }}>
-      {children}
-    </p>
-  )
-}
