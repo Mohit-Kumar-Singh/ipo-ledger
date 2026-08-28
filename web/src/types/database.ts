@@ -221,6 +221,12 @@ export interface AllotmentBoardRow {
   // an admin) from "this viewer merely funded it" (read-only). See
   // migration 0071.
   demat_linked_user_id: string | null
+  // Which portal user owns the FUNDING bank account (migration 0090).
+  // Needed to tell "an application I funded" apart from "an application on
+  // my own demat account that somebody else funded" — a demat owner can
+  // select the latter (p_apps_member_write is `for ALL`), and attributing
+  // its funder's balance to them would be a money-misattribution bug.
+  bank_account_linked_user_id: string | null
   // When this row's status last changed — used to drop a NOT_ALLOTTED
   // application out of the Dashboard's IPO progress cards a day after the
   // result came in, rather than leaving it visible until the IPO's

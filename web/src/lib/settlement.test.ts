@@ -38,6 +38,7 @@ function boardRow(overrides: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow
     account_manager_name: null,
     account_manager_phone: null,
     account_manager_case_type: null,
+    bank_account_linked_user_id: null,
     ...overrides,
   }
 }
@@ -160,5 +161,51 @@ describe('groupCardsByIpo', () => {
     expect(groups.map((g) => g.ipoName)).toEqual(['Outstanding Co', 'Settled Co'])
     expect(groups[0].allSettled).toBe(false)
     expect(groups[1].allSettled).toBe(true)
+  })
+})
+
+// Regression guard for the two rules the funder-facing settlement statement
+// depends on. Both of these have shipped broken before, in ways that showed
+// one person the wrong amount of money, so they're pinned here rather than
+// left to be re-verified by hand on the page.
+describe('funder statement inputs', () => {
+  it('carries the funding bank account owner through, so a viewer can be told apart from another funder', () => {
+    // p_apps_member_write on `applications` is `for ALL` (SELECT included),
+    // so a demat owner can see rows on their own account that SOMEONE ELSE
+    // funded. Without this field the funder page filtered on
+    // `hasFunder && !isFunderSelf`, which is true for exactly those rows —
+    // and would have totalled the other person's balance into the viewer's
+    // own "Total to be sent."
+    const mine = boardRow({ application_id: 'app-mine', bank_account_linked_user_id: 'user-me' })
+    const someoneElses = boardRow({ application_id: 'app-theirs', bank_account_linked_user_id: 'user-other' })
+    const cards = buildSettlementCards([mine, someoneElses], 'Admin', new Map())
+
+    expect(cards.map((c) => c.funderLinkedUserId)).toEqual(['user-me', 'user-other'])
+    const onlyMine = cards.filter((c) => c.hasFunder && !c.isFunderSelf && c.funderLinkedUserId === 'user-me')
+    expect(onlyMine).toHaveLength(1)
+    expect(onlyMine[0].applicationId).toBe('app-mine')
+  })
+
+  it('nets an overpaid application against an outstanding one for the same person', () => {
+    // Real case this pins (Avinash sir): −1,910 overpaid on one application,
+    // +3,667 outstanding on another. Summing Math.max(0, ...) PER CARD gives
+    // 3,667 and silently discards the credit; the correct running balance is
+    // 1,757. Three separate surfaces disagreed on this exact figure.
+    const overpaid = boardRow({ application_id: 'app-over' })
+    const outstanding = boardRow({ application_id: 'app-out' })
+    const payments = new Map<string, SettlementPayment[]>([
+      // Deliberately far more than this application could ever owe.
+      ['app-over', [{ id: 'p1', application_id: 'app-over', kind: 'admin_to_funder', amount: 999_999, created_at: '', note: null } as SettlementPayment]],
+    ])
+    const cards = buildSettlementCards([overpaid, outstanding], 'Admin', payments)
+
+    const over = cards.find((c) => c.applicationId === 'app-over')!
+    const out = cards.find((c) => c.applicationId === 'app-out')!
+    expect(over.remainingToFunder).toBeLessThan(0) // overpaid, and NOT clamped to 0
+
+    const netted = cards.reduce((s, c) => s + c.remainingToFunder, 0)
+    const clampedPerCard = cards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
+    expect(netted).toBeLessThan(clampedPerCard) // the bug: clamping inflates what's owed
+    expect(netted).toBeCloseTo(over.remainingToFunder + out.remainingToFunder, 2)
   })
 })

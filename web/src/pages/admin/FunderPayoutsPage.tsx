@@ -30,11 +30,18 @@ export function FunderPayoutsPage() {
   const decodedName = funderNameParam ? decodeURIComponent(funderNameParam) : null
   const { settlementCards, loading, loadError, invalidatePayoutsData } = usePayoutsData()
 
-  // Admin needs the param to know WHICH funder to scope down to; a
-  // funder-only viewer's own data is already RLS-scoped, nothing to filter.
+  // Admin scopes by the :funderName in the route. A funder-only viewer has
+  // no param, and RLS alone is NOT a sufficient filter here: p_apps_member_write
+  // on `applications` is `for ALL` (which includes SELECT), so a viewer who
+  // also owns a demat account can see applications on that account funded by
+  // somebody else. `hasFunder && !isFunderSelf` is true for exactly those,
+  // which would total another person's outstanding balance into this
+  // viewer's own "Total to be sent". Matching on funderLinkedUserId (the
+  // portal user who owns the funding bank account, migration 0090) keeps
+  // this to rows they genuinely funded.
   const myCards = decodedName
     ? settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf && sameIdentity(c.funderName ?? '', decodedName))
-    : settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf)
+    : settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf && c.funderLinkedUserId === profile?.id)
   const displayName = decodedName ?? myCards[0]?.funderName ?? 'Your'
 
   // A settlement statement, not a dashboard: three figures that reconcile

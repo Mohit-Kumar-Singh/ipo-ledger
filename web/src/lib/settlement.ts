@@ -38,6 +38,10 @@ export interface SettlementCard {
   isFunderSelf: boolean
   funderName: string | null
   funderPhone: string | null
+  // Portal user who owns the funding bank account (migration 0090) — lets a
+  // funder-facing view include only rows THEY funded, rather than every row
+  // that merely has a funder. See AllotmentBoardRow's own note.
+  funderLinkedUserId: string | null
   funderShare: number
   amountToFunder: number
   // What's actually left over for the profit person (you) once both sides
@@ -124,6 +128,7 @@ export function buildSettlementCards(
       isFunderSelf: result.isFunderSelf,
       funderName: r.bank_account_holder_name,
       funderPhone: r.bank_account_phone,
+      funderLinkedUserId: r.bank_account_linked_user_id ?? null,
       funderShare: result.funderShare,
       amountToFunder,
       myProfit: result.profitPersonShare,

@@ -189,6 +189,7 @@ function boardRow(overrides: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow
     account_manager_name: null,
     account_manager_phone: null,
     account_manager_case_type: null,
+    bank_account_linked_user_id: null,
     ...overrides,
   }
 }
