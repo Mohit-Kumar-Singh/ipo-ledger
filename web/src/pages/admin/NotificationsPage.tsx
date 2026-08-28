@@ -724,7 +724,16 @@ export function NotificationsPage() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {allottedCards.map((c) => {
               const message = buildFunderAllottedMessage(c)
-              const profit = c.priceHigh ? expectedProfitBreakdown(c).netYourProfit : null
+              // netYourProfit for admin (their own cut); funderShareTotal
+              // for the funder viewing their own card — showing them the
+              // admin's cut labeled as their own profit was the actual bug
+              // behind a funder's number here not matching their own share
+              // shown anywhere else in the portal.
+              const profit = c.priceHigh
+                ? isAdmin
+                  ? expectedProfitBreakdown(c).netYourProfit
+                  : expectedProfitBreakdown(c).funderShareTotal
+                : null
               return (
                 <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">

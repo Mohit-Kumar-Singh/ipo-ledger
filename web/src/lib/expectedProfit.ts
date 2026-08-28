@@ -260,7 +260,14 @@ export interface BookedProfitLine {
   ipoId: string
   funderName: string
   holderName: string
+  // The profit-taking admin's own share — NOT what a funder gets. A funder
+  // viewer's own realized profit is funderShare below; showing this field
+  // to them instead (as several call sites used to) tells them the ADMIN's
+  // cut on their own money, not their own.
   profit: number
+  // The funder's own share of this application's profit — 0 if there's no
+  // separate funder, or the split was off for this sale.
+  funderShare: number
   soldAmount: number
   // Optional — added for the Payouts analytics dashboard (which needs to
   // key a line back to its own application row, sum investment, and place
@@ -314,6 +321,7 @@ export function buildBookedProfitLines(
       funderName: funder?.account_holder_name ?? holderName,
       holderName,
       profit: result.profitPersonShare,
+      funderShare: result.funderShare,
       soldAmount: result.totalSoldAmount,
       applicationId: r.id,
       investedAmount: r.bid_amount,

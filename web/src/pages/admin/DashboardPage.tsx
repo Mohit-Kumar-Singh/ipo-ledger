@@ -243,6 +243,12 @@ function buildExpectedProfitByIpo(
   livePriceBySymbol: Record<string, number | null>,
   todayStr: string,
   bookedLines: BookedProfitLine[],
+  // Which share to show: netYourProfit (the profit-TAKING admin's own cut)
+  // for an admin viewer, or funderShare/funderShareTotal (the FUNDER's own
+  // share) when the viewer IS that funder — showing an admin's-cut number
+  // to a funder as "your expected profit" told them the wrong person's
+  // money. See BookedProfitLine.funderShare's own comment.
+  isAdmin: boolean,
 ): ExpectedProfitIpoBlock[] {
   const byIpo = new Map<string, ExpectedProfitIpoBlock>()
   for (const c of cards) {
@@ -260,7 +266,7 @@ function buildExpectedProfitByIpo(
     byIpo.get(c.ipoName)!.funders.push({
       funderName: c.funderName,
       holderNames: c.holderNames.map((h) => h.name).join(', '),
-      profit: b.netYourProfit,
+      profit: isAdmin ? b.netYourProfit : b.funderShareTotal,
       amountToReturn: b.amountToReturn,
     })
   }
@@ -274,7 +280,7 @@ function buildExpectedProfitByIpo(
     const key = `${l.ipoName}::${l.funderName}`
     const entry = bookedByIpoFunder.get(key) ?? { holderNames: new Set<string>(), profit: 0 }
     entry.holderNames.add(l.holderName)
-    entry.profit += l.profit
+    entry.profit += isAdmin ? l.profit : l.funderShare
     bookedByIpoFunder.set(key, entry)
   }
   for (const [key, entry] of bookedByIpoFunder) {
@@ -694,11 +700,21 @@ export function DashboardPage() {
     // Payouts page (Realized/My profit) instead — the two are never summed
     // into one figure here, same "never blended" rule Payouts' Realized/
     // Unrealized split already follows.
+    //
+    // netYourProfit for admin, funderShareTotal for a funder viewer — the
+    // fetch is already RLS-scoped to just their own cards, but the FIGURE
+    // itself used to always be netYourProfit (the profit-taking admin's own
+    // cut), which told a funder the wrong person's money was "their"
+    // expected profit. Confirmed live: a funder saw a number here that
+    // didn't match their own share shown elsewhere in the portal.
     const expectedProfitTotal = profitCards.reduce(
-      (sum, c) => sum + expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null).netYourProfit,
+      (sum, c) => {
+        const b = expectedProfitBreakdown(c, c.symbol ? livePriceBySymbol[c.symbol] : null)
+        return sum + (isAdmin ? b.netYourProfit : b.funderShareTotal)
+      },
       0,
     )
-    const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines)
+    const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines, isAdmin)
 
     // Real mandate_status (0047/0048), not the previous proxy of "every
     // still-APPLIED application" — that counted plenty of applications
