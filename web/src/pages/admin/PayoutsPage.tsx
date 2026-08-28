@@ -7,7 +7,8 @@
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
 import { useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { FunderPayoutsPage } from './FunderPayoutsPage'
 import {
   ChevronDownIcon,
   SearchIcon,
@@ -17,40 +18,24 @@ import {
   CheckCircleFillIcon,
 } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
-import { useAllotmentBoardAll, queryKeys } from '../../lib/queries'
-import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
 import { effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
-import { sameIdentity } from '../../lib/applicationAttribution'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
+import { usePayoutsData } from '../../lib/usePayoutsData'
 import {
-  buildFunderAllottedCards,
   buildUnrealizedProfitLines,
   expectedProfitBreakdown,
-  type ProfitProjectionRow,
   type UnrealizedProfitLine,
-  type ListingCutoff,
+  type buildFunderAllottedCards,
 } from '../../lib/expectedProfit'
-import {
-  buildSettlementCards,
-  groupCardsByIpo,
-  settledPaidFlags,
-  SETTLED_EPSILON,
-  type SettlementCard,
-  type IpoSettlementGroup,
-} from '../../lib/settlement'
-import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
+import { settledPaidFlags, SETTLED_EPSILON, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
+import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { useCountUp } from '../../lib/useCountUp'
-import {
-  buildPayoutAnalytics,
-  resolveDateRange,
-  type DateRangePreset,
-} from '../../lib/payoutAnalytics'
-import { nowIst } from '../../lib/ipoStatus'
+import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
 
 interface PayoutLine {
   applicationId: string
@@ -135,11 +120,7 @@ function rupees(n: number): string {
 // stable-empty-fallback fixes (an inline `?? []`/`?? {}` allocates a fresh
 // reference on every render while the query has no data yet, which is an
 // unstable dependency for anything downstream that memoizes on it).
-const EMPTY_PROJECTION_ROWS: ProfitProjectionRow[] = []
-const EMPTY_LIVE_PRICES: Record<string, number | null> = {}
-const EMPTY_CASE2_IDS: Set<string> = new Set()
 const EMPTY_BOARD_ROWS: AllotmentBoardRow[] = []
-const EMPTY_PAYMENTS: SettlementPayment[] = []
 
 interface RecipientGroup {
   name: string
@@ -300,179 +281,34 @@ function AnalyticsSkeleton() {
 }
 
 export function PayoutsPage() {
-  const { profile } = useAuth()
-  const isAdmin = profile?.role === 'admin'
-  const queryClient = useQueryClient()
-  // Shared cache (lib/queries.ts) — v_allotment_board is also read in full
-  // by Dashboard, and filtered differently by Archives and the Allotment
-  // board; this page's own SOLD-only, not-archived view is a client-side
-  // filter over the same cached rows instead of its own separate
-  // `.eq('status', 'SOLD')` network query. It's backed by `applications`,
-  // which IS in the realtime publication (CLAUDE.md) — RealtimeCacheSync
-  // (mounted once in App.tsx) invalidates this cache on any applications
-  // change from anywhere in the app, not just from this page.
-  const boardQuery = useAllotmentBoardAll()
-  const rows = useMemo(
-    () => (boardQuery.data ?? []).filter((r) => r.status === 'SOLD' && !r.ipo_is_archived),
-    [boardQuery.data],
-  )
+  const {
+    isAdmin,
+    profile,
+    boardQuery,
+    rows,
+    allRows,
+    payments,
+    expectedCards,
+    livePriceBySymbol,
+    case2ManagerIds,
+    settlementCards,
+    ipoSettlementGroups,
+    profitPersonName,
+    listingCutoff,
+    loading,
+    loadError,
+    invalidatePayoutsData,
+  } = usePayoutsData()
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-
-  // Everything below that ISN'T the shared v_allotment_board cache
-  // (settlement_payments, the ALLOTTED-with-embeds projection query, and
-  // the live stock-price lookup derived from it) — was a local useState +
-  // manual load() called once on mount, reset to loading=true on every
-  // visit to this page exactly like Dashboard's own data was before
-  // v1.183.0. One useQuery instead, so revisiting Payouts within
-  // staleTime is an instant cache hit instead of a spinner over data that
-  // was already on screen a moment ago.
-  interface LocalPayoutsData {
-    payments: SettlementPayment[]
-    // Admin-only, separate from the SOLD settlement ledger above — allotted
-    // applications that haven't been marked SOLD yet still have real money
-    // owed to whoever funded them once they do sell, and there was no way to
-    // see who/how much until that point without checking every IPO by hand.
-    // Estimated (live price when the IPO's listed and its symbol is on file,
-    // GMP-based projection otherwise, same fallback expectedProfitBreakdown
-    // already uses for Dashboard's "Expected profit" tile) — never a
-    // confirmed figure, so kept entirely separate from the real settlement
-    // cards above rather than blended into the same total.
-    expectedCards: ReturnType<typeof buildFunderAllottedCards>
-    livePriceBySymbol: Record<string, number | null>
-    // ALL statuses, ALL applications (not just ALLOTTED-with-a-tracked-
-    // funder like expectedRes below) — the one thing the pre-existing
-    // settlement/expected-payout queries never needed and the new
-    // analytics dashboard does: "how many applications, how much invested,
-    // how many shares allotted, across every status, this period." Same
-    // ProfitProjectionRow shape (id + status_changed_at added, both needed
-    // to key a line to its own application and to a realization date —
-    // see lib/expectedProfit.ts's own note on both fields).
-    allRows: ProfitProjectionRow[]
-    case2ManagerIds: Set<string>
-  }
-  const localPayoutsQuery = useQuery<LocalPayoutsData>({
-    queryKey: queryKeys.payoutsLocal,
-    queryFn: async () => {
-      const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes] = await Promise.all([
-        supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
-        // Same shape/query NotificationsPage's admin funder query and
-        // Dashboard's profit-projection query already use — admin-only
-        // conceptually (this section only ever renders for isAdmin below),
-        // but not client-gated on the fetch itself per this app's own
-        // convention of letting RLS do the scoping rather than an
-        // isAdmin ? ... : [] branch pretending to be the security boundary.
-        supabase
-          .from('applications')
-          .select(
-            'ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-          )
-          .eq('status', 'ALLOTTED')
-          .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
-        // See DashboardPage's matching query — CASE_2 shared-account managers
-        // shouldn't have their expected remainder halved with a nonexistent
-        // third-party funder.
-        supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
-        // Broader than expectedRes above: every status (not just ALLOTTED),
-        // no funder-existence filter (self-funded applications count too
-        // for "how much invested"/"how many applications" this period).
-        supabase
-          .from('applications')
-          .select(
-            'id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
-          ),
-      ])
-      // Not fatal on its own — the page still works with the pre-existing
-      // paid/unpaid flags below, just without the live remaining-amount
-      // figures on each settlement card. Warned via toast rather than
-      // thrown, same as before — a thrown error here would put the WHOLE
-      // query into error state and blank the page, which is worse than
-      // just missing the live-remaining figures.
-      if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
-      const payments = (paymentsRes.data as SettlementPayment[]) ?? []
-
-      if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
-      // Deliberately NOT filtering out archived IPOs here — archiving is a
-      // housekeeping/declutter action for the ACTIVE-tracking pages
-      // (Dashboard, Applications, Allotment board all filter it out because
-      // there's nothing left to DO on an archived IPO), never a "this money
-      // never happened" action. This feeds buildPayoutAnalytics, which is
-      // this page's own lifetime "Profit till date" / ROI / IPO-wise
-      // breakdown — auto-archive only ever fires once an IPO is FULLY
-      // settled (every row SOLD-and-paid or NOT_ALLOTTED, see
-      // lib/autoArchive.ts), meaning the single most common real-world case
-      // (a fully paid-out, sold IPO) used to have its own realized profit
-      // silently drop out of every lifetime total the moment it archived —
-      // permanently, since nothing un-archives it on its own. Confirmed via
-      // a real user report: profit from a sold, archived IPO (Dhoot
-      // Transmission) was simply gone from Payouts.
-      const allRows = (allRowsRes.data ?? []) as unknown as ProfitProjectionRow[]
-
-      if (expectedRes.error) {
-        showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
-        return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>() }
-      }
-      // Archived IPOs can't actually have ALLOTTED-not-yet-sold rows in
-      // practice (auto-archive requires every row already resolved), so
-      // this filter was never doing anything real for THIS query — kept
-      // consistent with allRows above rather than leaving one query
-      // archived-filtered and the other not for no functional reason.
-      const expectedRowsBaseAll = (expectedRes.data ?? []) as unknown as ProfitProjectionRow[]
-      // Same listing-day cutoff as buildUnrealizedProfitLines below (see
-      // lib/expectedProfit.ts's ListingCutoff) — a row whose IPO lists
-      // today, before 10am IST, is held back from every projected-profit
-      // figure on this page, not just the analytics dashboard's own number,
-      // so "Expected profit"/expectedByFunder never disagree with it.
-      const { dateStr: todayIstStrLocal, hour: nowIstHourLocal } = nowIst()
-      const expectedRowsBase = expectedRowsBaseAll.filter(
-        (r) => !(r.ipos?.listing_date === todayIstStrLocal && nowIstHourLocal < 10),
-      )
-      const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
-      const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
-      // Symbols from BOTH the funder-card projection and the broader
-      // allRows set — allRows' own ALLOTTED rows feed buildUnrealizedProfitLines
-      // (the analytics dashboard's unrealized-profit figure), which needs
-      // the same live-price lookup expectedCards already triggers, not a
-      // second round trip to the same Edge Function.
-      const symbols = Array.from(
-        new Set([
-          ...expectedCards.map((c) => c.symbol).filter((s): s is string => !!s),
-          ...allRows.filter((r) => r.status === 'ALLOTTED').map((r) => r.ipos?.symbol).filter((s): s is string => !!s),
-        ]),
-      )
-      let livePriceBySymbol: Record<string, number | null> = {}
-      if (symbols.length > 0) {
-        const { data: priceData } = await supabase.functions.invoke<{
-          prices?: Record<string, { price: number | null; stale: boolean }>
-        }>('fetch-stock-price', { body: { symbols } })
-        for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
-      }
-      return { payments, expectedCards, livePriceBySymbol, allRows, case2ManagerIds }
-    },
-  })
-  const payments = localPayoutsQuery.data?.payments ?? EMPTY_PAYMENTS
-  const expectedCards = localPayoutsQuery.data?.expectedCards ?? []
-  const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? EMPTY_LIVE_PRICES
-  const allRows = localPayoutsQuery.data?.allRows ?? EMPTY_PROJECTION_ROWS
-  const case2ManagerIds = localPayoutsQuery.data?.case2ManagerIds ?? EMPTY_CASE2_IDS
-  const loading = boardQuery.isPending || localPayoutsQuery.isPending
-  const loadError = localPayoutsQuery.error instanceof Error ? localPayoutsQuery.error.message : null
-
-  // Both queries this page reads from — called after any mutation so the
-  // page reflects its own write immediately rather than waiting on
-  // RealtimeCacheSync's realtime round trip (allotmentBoard) or the next
-  // staleTime window (payouts-local).
-  function invalidatePayoutsData() {
-    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
-    queryClient.invalidateQueries({ queryKey: queryKeys.payoutsLocal })
+  const [openIpoRangeIds, setOpenIpoRangeIds] = useState<Set<string>>(new Set())
+  function toggleIpoRangeOpen(ipoId: string) {
+    setOpenIpoRangeIds((s) => {
+      const next = new Set(s)
+      if (next.has(ipoId)) next.delete(ipoId)
+      else next.add(ipoId)
+      return next
+    })
   }
 
   async function markPaid(line: PayoutLine) {
@@ -489,22 +325,6 @@ export function PayoutsPage() {
     invalidatePayoutsData()
   }
 
-  const paymentsByApp = new Map<string, SettlementPayment[]>()
-  for (const p of payments) {
-    if (!paymentsByApp.has(p.application_id)) paymentsByApp.set(p.application_id, [])
-    paymentsByApp.get(p.application_id)!.push(p)
-  }
-  // profitPersonName is '' for a non-admin, not their own name — see the
-  // long comment on Dashboard's equivalent buildPendingPayouts call for
-  // why: computeProfitSplit (inside buildSettlementCards) uses this to
-  // detect "is the funder ALSO the profit-taking admin," and a funder's
-  // own name here would spuriously match their own row, zeroing what
-  // they're owed. A non-admin viewer is never the profit-taking admin by
-  // construction.
-  const profitPersonName = isAdmin ? (profile?.full_name ?? '') : ''
-  const settlementCards = buildSettlementCards(rows, profitPersonName, paymentsByApp)
-  const ipoSettlementGroups = groupCardsByIpo(settlementCards)
-
   // --- Profit & Payout Analytics dashboard (v1.187.0) ---
   // Default period is This Month -> today, per spec. Everything below is
   // derived from buildPayoutAnalytics (lib/payoutAnalytics.ts), which
@@ -514,13 +334,7 @@ export function PayoutsPage() {
   const [rangePreset, setRangePreset] = useState<DateRangePreset>('this_month')
   const [customStart, setCustomStart] = useState('')
   const [customEnd, setCustomEnd] = useState('')
-  const { dateStr: todayIstStr, hour: nowIstHour } = nowIst()
-  // Same listing-day-before-10am hold-back as expectedRowsBase's own filter
-  // above (see lib/expectedProfit.ts's ListingCutoff) — scoped to this page
-  // only, so Dashboard/Notifications' own funder-facing projections are
-  // unaffected. useMemo'd on the hour so it only actually changes value once
-  // per hour, not on every render.
-  const listingCutoff: ListingCutoff = useMemo(() => ({ todayIstStr, hour: nowIstHour }), [todayIstStr, nowIstHour])
+  const todayIstStr = listingCutoff.todayIstStr
   const range = useMemo(
     () =>
       resolveDateRange(
@@ -544,16 +358,6 @@ export function PayoutsPage() {
       ),
     [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol, listingCutoff],
   )
-  const [fundersOpen, setFundersOpen] = useState<Set<string>>(new Set())
-  function toggleFunderOpen(name: string) {
-    setFundersOpen((s) => {
-      const next = new Set(s)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
   // Counts up from 0 on mount/change instead of snapping straight to the
   // number — useCountUp itself no-ops (renders the real value immediately)
   // while analytics is still the empty-array default, so there's nothing to
@@ -561,40 +365,11 @@ export function PayoutsPage() {
   // that gap instead.
   const animatedTotalProfit = useCountUp(analytics.summary.totalProfit)
 
-  if (!isAdmin) {
-    // rows (v_allotment_board, SOLD only) is already RLS-scoped to just
-    // this funder's own applications — no separate fetch/filter needed,
-    // same settlementCards/ipoSettlementGroups the admin view uses, just
-    // read-only (no log-a-payment control — settlement_payments writes are
-    // genuinely admin-only at the RLS level) and without the cross-funder
-    // "You need to send"/old boolean-flag sections that are an admin's own
-    // management concern, not something a funder needs.
-    return (
-      <div className="space-y-5">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
-            Your payouts
-          </h1>
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            What you're owed on applications you've funded that have already sold.
-          </p>
-        </div>
-        {loading ? (
-          <InlineSpinner />
-        ) : ipoSettlementGroups.length === 0 ? (
-          <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Nothing sold yet on an application you've funded.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {ipoSettlementGroups.map((g) => (
-              <IpoSettlementCard key={g.ipoName} group={g} onLogged={invalidatePayoutsData} readOnly />
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
+  // A funder-only viewer gets the same detail page an admin drills into
+  // from the Funders list below — v_allotment_board/the ALLOTTED-with-embeds
+  // query are already RLS-scoped to just their own data, so rendering it
+  // here with no funderName param naturally shows just their own numbers.
+  if (!isAdmin) return <FunderPayoutsPage />
 
   const allLines = buildPayoutLines(rows, profile?.full_name ?? '')
   const outstandingLines = allLines.filter((l) => !l.paid)
@@ -764,48 +539,26 @@ export function PayoutsPage() {
         </div>
       )}
 
-      {/* Every funder, one dropdown each — compact per-IPO send status,
-          "sent" included so a fully-paid funder still shows up here. */}
+      {/* Every funder — click through to their own detail page (every
+          allotted IPO, money transactions, an overall summary) instead of
+          an inline dropdown here. */}
       {funderCompactGroups.length > 0 && (
         <div className="card divide-y p-0 text-sm" style={{ borderColor: 'var(--border)' }}>
           {funderCompactGroups.map((g) => {
-            const open = fundersOpen.has(g.name)
+            const totalToSend = g.lines.reduce((s, l) => s + l.toSend, 0)
             return (
-              <div key={g.name}>
-                <button
-                  type="button"
-                  onClick={() => toggleFunderOpen(g.name)}
-                  className="flex w-full items-center justify-between gap-2 p-3"
-                >
-                  <span className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {g.name}
-                  </span>
-                  <span style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : undefined }}>
-                    <ChevronDownIcon size={16} fill="var(--ink-muted)" />
-                  </span>
-                </button>
-                {open && (
-                  <div className="space-y-1 px-3 pb-3">
-                    {g.lines.map((l, i) => (
-                      <div key={i} className="flex items-center justify-between gap-2 text-xs">
-                        <span className="min-w-0 truncate" style={{ color: 'var(--ink-muted)' }}>
-                          {l.ipoName}
-                        </span>
-                        <span className="shrink-0">
-                          {l.toSend > SETTLED_EPSILON ? (
-                            <span style={{ color: 'var(--critical-text)' }}>Send {rupees(l.toSend)}</span>
-                          ) : null}
-                          {l.sent > 0 && (
-                            <span style={{ color: 'var(--good)' }} className={l.toSend > SETTLED_EPSILON ? 'ml-2' : ''}>
-                              Sent {rupees(l.sent)}
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <Link
+                key={g.name}
+                to={`/payouts/funder/${encodeURIComponent(g.name)}`}
+                className="flex w-full items-center justify-between gap-2 p-3 transition-colors hover:bg-[var(--hover-surface)]"
+              >
+                <span className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                  {g.name}
+                </span>
+                <span className="shrink-0 text-xs" style={{ color: totalToSend > SETTLED_EPSILON ? 'var(--critical-text)' : 'var(--good)' }}>
+                  {totalToSend > SETTLED_EPSILON ? `Send ${rupees(totalToSend)}` : 'Fully paid'}
+                </span>
+              </Link>
             )
           })}
         </div>
@@ -876,32 +629,55 @@ export function PayoutsPage() {
 
         {/* Applied/allotted per IPO, with which account and funder — a
             compact substitute for the old full IPO-wise/account-wise
-            tables. */}
+            tables. Allotted IPOs get a highlighted card (money's actually
+            moved); names sit behind a dropdown instead of always shown. */}
         {analytics.ipoAccountBreakdown.length > 0 && (
-          <div className="card space-y-3 p-4">
-            <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-              IPOs this range
-            </h2>
-            {analytics.ipoAccountBreakdown.map((r) => (
-              <div key={r.ipoId} className="border-t pt-3 first:border-t-0 first:pt-0" style={{ borderColor: 'var(--border)' }}>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="min-w-0 truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                    {r.ipoName}
-                  </span>
-                  <span className="shrink-0 text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    {r.allotted}/{r.applied} allotted
-                  </span>
+          <div className="space-y-2">
+            {analytics.ipoAccountBreakdown.map((r) => {
+              const isAllotted = r.allotted > 0
+              const profit = analytics.ipoBreakdown.find((b) => b.ipoId === r.ipoId)?.profit ?? 0
+              const open = openIpoRangeIds.has(r.ipoId)
+              return (
+                <div
+                  key={r.ipoId}
+                  className="card p-3"
+                  style={isAllotted ? { borderColor: 'var(--good)', background: 'var(--hover-surface)' } : undefined}
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleIpoRangeOpen(r.ipoId)}
+                    className="flex w-full items-center justify-between gap-2"
+                  >
+                    <span className="min-w-0 truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {r.ipoName.split(' ')[0]}
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 text-xs">
+                      <span style={{ color: 'var(--ink-muted)' }}>
+                        {r.allotted}/{r.applied} allotted
+                      </span>
+                      {isAllotted && (
+                        <span className="font-mono-ipo font-semibold" style={{ color: profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
+                          {rupees(profit)}
+                        </span>
+                      )}
+                      <span style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : undefined }}>
+                        <ChevronDownIcon size={14} fill="var(--ink-muted)" />
+                      </span>
+                    </span>
+                  </button>
+                  {open && (
+                    <div className="mt-2 space-y-0.5 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+                      {r.accounts.map((a, i) => (
+                        <p key={i} className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          {a.holderName}
+                          {a.funderName && a.funderName !== a.holderName && ` · via ${a.funderName}`}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="mt-1 space-y-0.5">
-                  {r.accounts.map((a, i) => (
-                    <p key={i} className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {a.holderName}
-                      {a.funderName && a.funderName !== a.holderName && ` · via ${a.funderName}`}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {/* Best / worst — one card, not two */}
@@ -1159,7 +935,7 @@ const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
 // sides (holder owed you, you owed the funder) are fully paid — the whole
 // point of grouping this way is that IPO-level state ("is this one done")
 // is exactly what used to require scanning every application card by eye.
-function IpoSettlementCard({
+export function IpoSettlementCard({
   group,
   onLogged,
   readOnly,
