@@ -480,7 +480,21 @@ export function AllotmentBoardPage() {
                       )}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 align-middle">{row.bank_account_holder_name ?? '—'}</td>
+                  {/* Funder name + the UPI the money actually moved through.
+                      Visible to whoever can already see the row — admin,
+                      the funder themselves, and the account holder — since
+                      v_allotment_board's `b.upi_id` comes from the same
+                      RLS-scoped bank_accounts join that already gates
+                      bank_account_holder_name right above it: anyone who can
+                      read the name here can read the UPI too. */}
+                  <td className="px-4 py-2.5 align-middle">
+                    <span className="block">{row.bank_account_holder_name ?? '—'}</span>
+                    {row.upi_id && (
+                      <span className="block font-mono text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        {row.upi_id}
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 align-middle">
                     <StatusBadge status={row.status} />
                   </td>
@@ -726,6 +740,15 @@ function SoldPayoutsSection({
                       {row.listing_date && ` · ${formatShortDate(row.listing_date)}`}
                       {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
                     </p>
+                    {/* UPI on its own line, not appended to the terse summary
+                        above — a UPI id is long enough that inlining it there
+                        would push the listing date and GMP off the end on a
+                        phone. Same visibility as the funder name beside it. */}
+                    {row.upi_id && (
+                      <p className="mt-0.5 truncate font-mono text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                        {row.upi_id}
+                      </p>
+                    )}
                   </div>
                   {/* Stacked on phone (flex-col), one row from sm: up —
                       three elements (status, Mark sold/Edit sale, Undo)

@@ -28,7 +28,7 @@ export function FunderPayoutsPage() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const decodedName = funderNameParam ? decodeURIComponent(funderNameParam) : null
-  const { settlementCards, loading, loadError, invalidatePayoutsData } = usePayoutsData()
+  const { settlementCards, boardQuery, loading, loadError, invalidatePayoutsData } = usePayoutsData()
 
   // Admin scopes by the :funderName in the route. A funder-only viewer has
   // no param, and RLS alone is NOT a sufficient filter here: p_apps_member_write
@@ -42,7 +42,28 @@ export function FunderPayoutsPage() {
   const myCards = decodedName
     ? settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf && sameIdentity(c.funderName ?? '', decodedName))
     : settlementCards.filter((c) => c.hasFunder && !c.isFunderSelf && c.funderLinkedUserId === profile?.id)
-  const displayName = decodedName ?? myCards[0]?.funderName ?? 'Your'
+  // Allotted, not yet sold — the positions this funder's money is currently
+  // sitting in. Scoped exactly like myCards above (name for admin,
+  // funding-account owner for a funder viewing themselves).
+  //
+  // Shown as FACTS only: which IPO, whose account, how much was actually
+  // put in (bid_amount, a real recorded number). Deliberately no projected
+  // return — that estimate is what made this page unreadable before. But
+  // dropping the section entirely (v1.204.0) went too far: a funder could
+  // no longer see that their money was committed to an IPO at all, only
+  // settled history. Both of those are wrong; the fix is real numbers, not
+  // no numbers.
+  const allottedRows = (boardQuery.data ?? []).filter((r) => {
+    if (r.status !== 'ALLOTTED') return false
+    if (!r.bank_account_holder_name) return false
+    if (r.bank_account_holder_name === r.holder_name) return false
+    return decodedName
+      ? sameIdentity(r.bank_account_holder_name, decodedName)
+      : r.bank_account_linked_user_id === profile?.id
+  })
+  const allottedInvested = allottedRows.reduce((s, r) => s + (r.bid_amount ?? 0), 0)
+
+  const displayName = decodedName ?? myCards[0]?.funderName ?? allottedRows[0]?.bank_account_holder_name ?? 'Your'
 
   // A settlement statement, not a dashboard: three figures that reconcile
   // by simple subtraction, all of them CONFIRMED money from applications
@@ -126,6 +147,38 @@ export function FunderPayoutsPage() {
         </p>
       </div>
 
+      {/* Allotted, not yet sold — where this funder's money currently is.
+          Facts only: IPO, whose account, and what was actually invested.
+          No projected return (see allottedRows' own comment). */}
+      {allottedRows.length > 0 && (
+        <div className="card p-4 text-sm">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+              Allotted — awaiting sale
+            </p>
+            <span className="shrink-0 font-mono-ipo text-xs font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {rupees(allottedInvested)} invested
+            </span>
+          </div>
+          <div className="space-y-1">
+            {allottedRows.map((r) => (
+              <div key={r.application_id} className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
+                  {r.company_name.split(' ')[0]}
+                  <span style={{ color: 'var(--ink-muted)' }}> · {r.holder_name}</span>
+                </span>
+                <span className="shrink-0 font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  {rupees(r.bid_amount ?? 0)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-2 border-t pt-2 text-[11px]" style={{ borderColor: 'var(--border)', color: 'var(--ink-muted)' }}>
+            Nothing is owed on these yet — they settle once marked sold.
+          </p>
+        </div>
+      )}
+
       {/* Sold — real settlement, with the log-a-payment control an admin
           uses; read-only for the funder themselves (settlement_payments
           writes are admin-only at the RLS level anyway). */}
@@ -136,9 +189,11 @@ export function FunderPayoutsPage() {
           ))}
         </div>
       ) : (
-        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-          No settled transactions yet.
-        </p>
+        allottedRows.length === 0 && (
+          <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+            Nothing allotted or sold yet.
+          </p>
+        )
       )}
     </div>
   )
