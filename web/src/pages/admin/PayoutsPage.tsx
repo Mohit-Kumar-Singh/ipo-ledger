@@ -1166,13 +1166,69 @@ function SettlementCardView({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => setShowDetails((v) => !v)}
-        className="link-accent text-xs font-medium"
-      >
-        {showDetails ? 'Hide calculation' : 'Show calculation'}
-      </button>
+      {/* Log-a-payment lives here, right under the two numbers it settles —
+          not three levels deep inside "Show calculation." That's where it
+          used to be, and it read as though the feature didn't exist at all:
+          you had to open the full math breakdown, scroll past it and the
+          payment history, to find the one control that actually lets you
+          settle. "Show calculation" still exists for the breakdown itself,
+          it just no longer gates the ability to log a payment — the two
+          triggers sit side by side so neither reads as buried. */}
+      <div className="flex flex-wrap items-center gap-3">
+        {!readOnly && !showLog && (c.amountFromHolder > 0 || c.amountToFunder > 0) && (
+          <button
+            onClick={() => {
+              selectKind(c.amountFromHolder > 0 ? 'holder_to_admin' : 'admin_to_funder')
+              setShowLog(true)
+            }}
+            className="link-accent text-xs font-medium"
+          >
+            + Log a payment
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setShowDetails((v) => !v)}
+          className="link-accent text-xs font-medium"
+        >
+          {showDetails ? 'Hide calculation' : 'Show calculation'}
+        </button>
+      </div>
+
+      {!readOnly && showLog && (c.amountFromHolder > 0 || c.amountToFunder > 0) && (
+        <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+          <select value={kind} onChange={(e) => selectKind(e.target.value as SettlementPaymentKind)} className="input text-xs">
+            {c.amountFromHolder > 0 && <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>}
+            {c.amountToFunder > 0 && <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>}
+            {c.amountToFunder > 0 && <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>}
+          </select>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              className="input text-xs"
+            />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-xs" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={logPayment} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
+              {saving ? 'Logging…' : 'Log payment'}
+            </button>
+            <button
+              onClick={() => {
+                idempotencyKeyRef.current = null
+                setShowLog(false)
+              }}
+              className="btn-secondary text-xs"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {showDetails && (
         <div className="space-y-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
@@ -1250,52 +1306,6 @@ function SettlementCardView({
         </div>
       )}
 
-      {!readOnly &&
-        (c.amountFromHolder > 0 || c.amountToFunder > 0) &&
-        (showLog ? (
-          <div className="space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
-            <select value={kind} onChange={(e) => selectKind(e.target.value as SettlementPaymentKind)} className="input text-xs">
-              {c.amountFromHolder > 0 && <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>}
-              {c.amountToFunder > 0 && <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>}
-              {c.amountToFunder > 0 && <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>}
-            </select>
-            <div className="flex gap-2">
-              <input
-                type="number"
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                placeholder="Amount"
-                className="input text-xs"
-              />
-              <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-xs" />
-            </div>
-            <div className="flex gap-2">
-              <button onClick={logPayment} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
-                {saving ? 'Logging…' : 'Log payment'}
-              </button>
-              <button
-                onClick={() => {
-                  idempotencyKeyRef.current = null
-                  setShowLog(false)
-                }}
-                className="btn-secondary text-xs"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        ) : (
-          <button
-            onClick={() => {
-              selectKind(c.amountFromHolder > 0 ? 'holder_to_admin' : 'admin_to_funder')
-              setShowLog(true)
-            }}
-            className="link-accent text-xs font-medium"
-          >
-            + Log a payment
-          </button>
-        ))}
         </div>
       )}
     </div>
