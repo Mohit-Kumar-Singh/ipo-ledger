@@ -400,7 +400,17 @@ export function AllotmentBoardPage() {
 
       {loading && <InlineSpinner />}
 
-      {!loading && selectedIpoId && isAdmin && (
+      {/* No longer isAdmin-gated on the READ side — v_allotment_board's own
+          RLS already scopes `rows` to what this viewer can see (their own
+          demat accounts, or applications they funded), so a funder who
+          funded an allotted application couldn't see it here at all before,
+          contrary to this app's own "let RLS do the scoping" convention
+          (CLAUDE.md). canMark below still gates every WRITE action
+          (Mark sold, Notify holder, Undo, mark-paid) — a funder who isn't
+          also the account owner gets a read-only card, matching the same
+          RLS write policy (p_apps_member_write) that would reject the
+          mutation anyway. */}
+      {!loading && selectedIpoId && (
         <SoldPayoutsSection
           rows={rows.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')}
           soldForms={soldForms}
@@ -411,8 +421,16 @@ export function AllotmentBoardPage() {
           savingSold={savingSold}
           onMarkPaid={markPaid}
           markingPaid={markingPaid}
-          profitPersonName={profile?.full_name ?? ''}
+          // '' for anyone who isn't admin — NOT profile.full_name.
+          // computeProfitSplit (inside SoldBreakdown) uses this to detect
+          // "is the funder ALSO the profit-taking admin" (isFunderSelf),
+          // which zeroes their payout when true; a funder's own name here
+          // would spuriously match their own funder row on this exact card.
+          // Same reasoning as Dashboard/Payouts' equivalent calls.
+          profitPersonName={isAdmin ? (profile?.full_name ?? '') : ''}
           onUndo={(id) => markStatus(id, 'APPLIED')}
+          isAdmin={isAdmin}
+          canMark={canMark}
         />
       )}
 
@@ -630,6 +648,8 @@ function SoldPayoutsSection({
   markingPaid,
   profitPersonName,
   onUndo,
+  isAdmin,
+  canMark,
 }: {
   rows: AllotmentBoardRow[]
   soldForms: Record<string, SoldFormState>
@@ -646,6 +666,16 @@ function SoldPayoutsSection({
   // offered for ALLOTTED, not SOLD: reverting a sale needs unwinding the
   // sell_price/payout-paid fields too, which this button doesn't touch.
   onUndo: (applicationId: string) => void
+  isAdmin: boolean
+  // Same permission check the applied-list table already uses (admin, or
+  // this row's own demat account owner) — matches p_apps_member_write at
+  // the RLS level exactly, so every write control gated by this would be
+  // rejected by the database anyway for anyone it's hidden from. A pure
+  // funder (not the account owner) always gets false here, which is also
+  // why "Notify holder" has to be gated by it: that button fetches and
+  // WhatsApps the holder's own login credentials, not something a funder
+  // who merely paid for the application should be able to trigger.
+  canMark: (row: AllotmentBoardRow) => boolean
 }) {
   // Moved above the main applied-list table and made collapsible — sold/
   // payout status is the thing actually worth acting on once allotment's
@@ -761,12 +791,12 @@ function SoldPayoutsSection({
                       table shares — only the ACTIONS went back to text. */}
                   <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
                     <StatusBadge status={row.status} />
-                    {!isEditing && (
+                    {!isEditing && canMark(row) && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
                         {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
                       </button>
                     )}
-                    {row.status === 'ALLOTTED' && (
+                    {row.status === 'ALLOTTED' && canMark(row) && (
                       <button
                         onClick={() => notifyHolder(row)}
                         disabled={notifying === row.application_id}
@@ -776,7 +806,7 @@ function SoldPayoutsSection({
                         {notifying === row.application_id ? 'Preparing…' : 'Notify holder'}
                       </button>
                     )}
-                    {row.status === 'ALLOTTED' && (
+                    {row.status === 'ALLOTTED' && canMark(row) && (
                       <button
                         onClick={() => onUndo(row.application_id)}
                         className="text-xs font-medium hover:underline"
@@ -807,6 +837,8 @@ function SoldPayoutsSection({
                     profitPersonName={profitPersonName}
                     onMarkPaid={(field) => onMarkPaid(row.application_id, field)}
                     markingPaid={markingPaid}
+                    isAdmin={isAdmin}
+                    canAct={canMark(row)}
                   />
                 )}
               </div>
@@ -977,11 +1009,18 @@ function SoldBreakdown({
   profitPersonName,
   onMarkPaid,
   markingPaid,
+  isAdmin,
+  canAct,
 }: {
   row: AllotmentBoardRow
   profitPersonName: string
   onMarkPaid: (field: 'demat_cut_paid' | 'funder_share_paid') => void
   markingPaid: string | null
+  isAdmin: boolean
+  // Whether THIS viewer can write demat_cut_paid/funder_share_paid on THIS
+  // row — see SoldPayoutsSection's canMark. Gates the "Mark paid" controls
+  // (via PayoutLine's own canAct), not the read side.
+  canAct: boolean
 }) {
   if (row.sell_price == null) return null
   const result = computeProfitSplit({
@@ -1002,7 +1041,13 @@ function SoldBreakdown({
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>
         <Stat label="Total sold" value={result.totalSoldAmount} />
         <Stat label="Gross profit" value={result.grossProfit} />
-        <Stat label="Your share" value={result.profitPersonShare} />
+        {/* Admin-only — result.profitPersonShare is specifically the
+            profit-TAKING admin's own cut (profitPersonName is '' for
+            anyone else, so it's meaningless to compute for them anyway).
+            The two PayoutLines below already tell a funder/holder their
+            own real number, under their own name, so nothing is hidden
+            from them here — this one number just isn't theirs. */}
+        {isAdmin && <Stat label="Your share" value={result.profitPersonShare} />}
       </div>
       {(!result.isDematHolderSelf && result.dematCutAmount > 0) || result.funderShare > 0 ? (
         <div className="flex flex-col gap-2">
@@ -1014,6 +1059,7 @@ function SoldBreakdown({
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
               phone={payoutCutContact(row).phone}
               onMessage={() => sendCustomWhatsapp(payoutCutContact(row).phone!, payoutMessage(row, result, 'cut'))}
+              canAct={canAct}
             />
           )}
           {result.funderShare > 0 && (
@@ -1028,11 +1074,12 @@ function SoldBreakdown({
                   ? () => sendCustomWhatsapp(row.bank_account_phone!, payoutMessage(row, result, 'share'))
                   : undefined
               }
+              canAct={canAct}
             />
           )}
         </div>
       ) : (
-        <p style={{ color: 'var(--good)' }}>No outstanding payouts — everything stays with you.</p>
+        <p style={{ color: 'var(--good)' }}>{isAdmin ? 'No outstanding payouts — everything stays with you.' : 'No outstanding payouts.'}</p>
       )}
     </div>
   )
@@ -1045,6 +1092,7 @@ function PayoutLine({
   marking,
   phone,
   onMessage,
+  canAct = true,
 }: {
   label: string
   paid: boolean
@@ -1052,6 +1100,11 @@ function PayoutLine({
   marking: boolean
   phone?: string | null
   onMessage?: () => void
+  // Gates only the WRITE (Mark paid) — matches the RLS write policy on
+  // demat_cut_paid/funder_share_paid exactly (see SoldPayoutsSection's own
+  // canMark comment), so a funder who isn't also the account owner sees
+  // "Pending" instead of a button that would fail under RLS anyway.
+  canAct?: boolean
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
@@ -1072,10 +1125,12 @@ function PayoutLine({
             <FileCheckIcon size={12} />
             Paid
           </span>
-        ) : (
+        ) : canAct ? (
           <button onClick={onMarkPaid} disabled={marking} className="link-accent font-medium disabled:opacity-50">
             {marking ? 'Marking…' : 'Mark paid'}
           </button>
+        ) : (
+          <span style={{ color: 'var(--ink-muted)' }}>Pending</span>
         )}
       </div>
     </div>
