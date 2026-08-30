@@ -230,25 +230,39 @@ export function ArchivesPage() {
                   lotSize: r.lot_size,
                   lots: r.lots,
                   bidAmount: r.bid_amount ?? 0,
-                  // Genuinely nullable — see AllotmentBoardRow's own
-                  // comment on this field (demat_accounts has no
-                  // funder-visibility RLS policy, so a funder-only viewer's
-                  // own copy of a row they didn't personally link can come
-                  // back with this null). Admin-only page today, but the
-                  // fallback costs nothing and keeps this consistent with
-                  // every other call site now that the type says so.
+                  // v_allotment_board resolves this through
+                  // get_demat_profit_share_percent() (migration 0088), so
+                  // it's never actually null for anyone by the time it gets
+                  // here — the fallback is just defensive, matching every
+                  // other call site's convention.
                   cutPercent: r.profit_share_percent ?? 25,
                   dematHolderName: r.holder_name,
                   funderName: r.bank_account_holder_name,
-                  profitPersonName: profile?.full_name ?? '',
+                  // '' for a non-admin, NOT profile.full_name — this page
+                  // is NOT admin-only (no route/nav gate; `rows` is the
+                  // same RLS-scoped v_allotment_board every other page
+                  // shares, so a funder's own archived, sold applications
+                  // show up here too). Passing their own name here computed
+                  // `profitPersonShare` as the admin's own cut and labelled
+                  // it "profit"/"Your share" to them with no indication it
+                  // wasn't theirs — same bug already fixed on Dashboard
+                  // (v1.203.2), Notifications (v1.204.2), and
+                  // AllotmentBoardPage's post-sale breakdown (v1.206.0);
+                  // this page's own isAdmin (line 48) just wasn't applied
+                  // here yet.
+                  profitPersonName: isAdmin ? (profile?.full_name ?? '') : '',
                   splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
                 }),
               )
             }
-            // Total profit (the profit-person's own share, same computation
-            // PayoutsPage uses) across every SOLD application under this
-            // IPO — only meaningful once something's actually been sold.
-            const totalProfit = Array.from(splitByAppId.values()).reduce((sum, result) => sum + result.profitPersonShare, 0)
+            // Admin-only total — see profitPersonName's own comment just
+            // above. 0 for a non-admin (profitPersonName is '', so nothing
+            // ever matches admin's own share here), which correctly
+            // suppresses the "· ₹X profit" summary line below via the
+            // `totalProfit !== 0` check already in place.
+            const totalProfit = isAdmin
+              ? Array.from(splitByAppId.values()).reduce((sum, result) => sum + result.profitPersonShare, 0)
+              : 0
             // Compact, single-line, plain-text summary rather than a row of
             // colored pill badges — Archives is a put-away section by
             // design, and a badge per status was both visually loud for
@@ -357,7 +371,7 @@ export function ArchivesPage() {
                                         {' — sold at ₹'}
                                         {r.sell_price}
                                         {'/share'}
-                                        {split && (
+                                        {isAdmin && split && (
                                           <span style={{ color: 'var(--good-text)' }}> · {rupees(split.profitPersonShare)} profit</span>
                                         )}
                                       </>
@@ -380,7 +394,10 @@ export function ArchivesPage() {
                             <th className="py-1.5 pr-3 font-medium">Gross profit</th>
                             <th className="py-1.5 pr-3 font-medium">Holder cut</th>
                             <th className="py-1.5 pr-3 font-medium">Funder share</th>
-                            <th className="py-1.5 pr-3 font-medium">Your share</th>
+                            {/* Admin-only — see profitPersonName's own comment
+                                above; this column's value is specifically the
+                                admin's own cut, not whoever's actually looking. */}
+                            {isAdmin && <th className="py-1.5 pr-3 font-medium">Your share</th>}
                             <th className="py-1.5 font-medium">Payouts</th>
                           </tr>
                         </thead>
@@ -414,9 +431,11 @@ export function ArchivesPage() {
                                 <td className="py-1.5 pr-3" style={{ color: 'var(--ink-secondary)' }}>
                                   {split ? (!split.hasFunder || split.isFunderSelf ? 'self' : rupees(split.funderShare)) : '—'}
                                 </td>
-                                <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--good)' }}>
-                                  {split ? rupees(split.profitPersonShare) : '—'}
-                                </td>
+                                {isAdmin && (
+                                  <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--good)' }}>
+                                    {split ? rupees(split.profitPersonShare) : '—'}
+                                  </td>
+                                )}
                                 <td className="py-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
                                   {r.status === 'SOLD'
                                     ? [

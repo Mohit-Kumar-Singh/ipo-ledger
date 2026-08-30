@@ -328,6 +328,13 @@ export function DashboardPage() {
     [profile?.id, isAdmin],
   )
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
+  // One key per (application, mark-paid ATTEMPT) — keyed by applicationId so
+  // it survives a retry of the SAME attempt (a timed-out request that
+  // actually landed, a second click after a transient error) but a fresh
+  // click on a DIFFERENT application gets its own. Cleared once that
+  // application's payment actually lands. See markPayoutPaid's own comment
+  // on why this exists at all.
+  const markPaidIdempotencyKeys = useRef<Map<string, string>>(new Map())
   // A Set, not a single "currently expanded" id — each IpoDashboardCard
   // owns its own expand state and several can be open across the grid at
   // once, independent of each other, not a single shared panel that only
@@ -359,16 +366,49 @@ export function DashboardPage() {
   // pendingPayouts is now built off that same live ledger (see
   // buildPendingPayouts), so this has to write to the thing that ledger
   // actually reads, same as PayoutsPage's own log-a-payment form does.
+  //
+  // Routed through log_settlement_payment (the RPC PayoutsPage's own
+  // log-a-payment form uses), NOT a raw insert into settlement_payments —
+  // this used to insert directly with no idempotency_key, which means a
+  // network timeout followed by a retry (or a fast double-click before the
+  // button visibly disabled) had zero protection against logging the same
+  // payment twice, silently overstating what's actually been paid. The RPC
+  // dedupes on idempotency_key (migration 0084's unique index) and reports
+  // 23505 for an attempt that already landed instead of creating a
+  // duplicate row.
+  //
+  // line.amount is always the FULL remainingToFunder for this application
+  // (buildPendingPayouts only ever adds a line for the whole remaining
+  // amount, never a partial one), so this payment always fully settles the
+  // funder side — p_set_funder_share_paid: true reflects that; the holder
+  // side is untouched by a funder payout, so p_set_demat_cut_paid stays false.
   async function markPayoutPaid(line: PendingPayoutLine) {
     setMarkingPaid(line.applicationId)
-    const { error } = await supabase
-      .from('settlement_payments')
-      .insert({ application_id: line.applicationId, kind: 'admin_to_funder', amount: line.amount })
+    if (!markPaidIdempotencyKeys.current.has(line.applicationId)) {
+      markPaidIdempotencyKeys.current.set(line.applicationId, crypto.randomUUID())
+    }
+    const idempotencyKey = markPaidIdempotencyKeys.current.get(line.applicationId)!
+    const { error } = await supabase.rpc('log_settlement_payment', {
+      p_application_id: line.applicationId,
+      p_kind: 'admin_to_funder',
+      p_amount: line.amount,
+      p_note: null,
+      p_idempotency_key: idempotencyKey,
+      p_set_demat_cut_paid: false,
+      p_set_funder_share_paid: true,
+    })
     setMarkingPaid(null)
     if (error) {
-      showToast(error.message, 'critical')
-      return
+      // 23505 on idempotency_key means THIS exact attempt already landed —
+      // not a real failure, same reasoning PayoutsPage's own logPayment
+      // documents. Anything else is a genuine error and keeps the key for
+      // a real retry.
+      if (error.code !== '23505') {
+        showToast(error.message, 'critical')
+        return
+      }
     }
+    markPaidIdempotencyKeys.current.delete(line.applicationId)
     // queryClient.setQueryData, not a local setData — data now lives in
     // the dashboardQuery cache (below), not component state, so this has
     // to patch the SAME place a background refetch would write to.

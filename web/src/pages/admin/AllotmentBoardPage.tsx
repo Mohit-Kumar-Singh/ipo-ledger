@@ -828,6 +828,7 @@ function SoldPayoutsSection({
                     onSave={() => onSave(row)}
                     saving={savingSold === row.application_id}
                     profitPersonName={profitPersonName}
+                    isAdmin={isAdmin}
                   />
                 )}
 
@@ -858,6 +859,7 @@ function SoldForm({
   onSave,
   saving,
   profitPersonName,
+  isAdmin,
 }: {
   row: AllotmentBoardRow
   form: SoldFormState
@@ -866,6 +868,7 @@ function SoldForm({
   onSave: () => void
   saving: boolean
   profitPersonName: string
+  isAdmin: boolean
 }) {
   const shares = row.lot_size * row.lots
   const preview = computeProfitSplit({
@@ -922,7 +925,12 @@ function SoldForm({
             value={preview.dematCutAmount}
             note={preview.isDematHolderSelf ? 'self' : undefined}
           />
-          <Stat label="Your share" value={preview.profitPersonShare} />
+          {/* Admin-only — same reasoning as SoldBreakdown's own "Your share"
+              (below, post-save): preview.profitPersonShare is the admin's
+              own cut regardless of who's filling out this form, and the
+              account owner marking their own sale is a real, reachable
+              case here (canMark allows the demat owner, not just admin). */}
+          {isAdmin && <Stat label="Your share" value={preview.profitPersonShare} />}
         </div>
       )}
 
