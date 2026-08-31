@@ -361,6 +361,13 @@ export function DashboardPage() {
   // warning ("approve these before 4:50pm").
   const hasShownListingToast = useRef(localStorage.getItem('listingToastShownDate') === nowIst().dateStr)
   const hasShownMandateCutoffToast = useRef(localStorage.getItem('mandateCutoffToastShownDate') === nowIst().dateStr)
+  // Same pattern again — a listed-but-symbolless IPO otherwise only ever
+  // surfaces as a tiny link-icon next to "Expected profit" (easy to miss,
+  // and does nothing for anyone not already staring at that panel). This
+  // fires once per day for WHICHEVER ipo(s) actually need it — generic
+  // over every current and future IPO, not a one-off fix aimed at whatever
+  // IPO happened to be listing the day this was written.
+  const hasShownSymbolToast = useRef(localStorage.getItem('symbolToastShownDate') === nowIst().dateStr)
 
   // Logs a settlement_payments row instead of flipping a boolean flag —
   // pendingPayouts is now built off that same live ledger (see
@@ -763,6 +770,25 @@ export function DashboardPage() {
       0,
     )
     const expectedProfitByIpo = buildExpectedProfitByIpo(profitCards, livePriceBySymbol, todayStr, bookedProfitLines, isAdmin)
+
+    // Nudge to add the NSE symbol — isAdmin-gated like the other toasts
+    // here (a funder viewer can't edit an IPO's symbol on IposPage anyway).
+    // Reads straight off needsSymbolForLivePrice, which is already computed
+    // per-IPO above with no IPO singled out by name — this fires for any
+    // IPO that lists with no symbol on file, today or ten years from now,
+    // not just whichever one happened to trigger the original investigation.
+    if (isAdmin && !hasShownSymbolToast.current) {
+      const needingSymbol = expectedProfitByIpo.filter((b) => b.needsSymbolForLivePrice)
+      if (needingSymbol.length > 0) {
+        hasShownSymbolToast.current = true
+        localStorage.setItem('symbolToastShownDate', todayStr)
+        const names = needingSymbol.map((b) => b.ipoName).join(', ')
+        showToast(
+          `${names} listed with no NSE symbol on file — add it on the IPOs page so "Expected profit" tracks the live price instead of the frozen GMP estimate.`,
+          'info',
+        )
+      }
+    }
 
     // Real mandate_status (0047/0048), not the previous proxy of "every
     // still-APPLIED application" — that counted plenty of applications
