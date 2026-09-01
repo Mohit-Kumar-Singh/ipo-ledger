@@ -11,13 +11,16 @@
 //
 // Deliberately generic over EVERY IPO in this state, not just whichever one
 // happened to be listing the day this was written — a freshly-listed
-// small-cap is often not indexed by Yahoo's search yet (confirmed: it
-// returned nothing for a same-day SME listing), so this keeps retrying once
-// a day, for as long as the IPO stays un-archived, until it resolves or the
-// IPO settles. When it can't resolve, it does nothing further here — the
-// Dashboard's own needsSymbolForLivePrice toast (DashboardPage.tsx) is what
-// tells an admin to add it by hand; this function's job is only to make that
-// manual step unnecessary whenever it safely can be.
+// small-cap is often not indexed by Yahoo's fuzzy search yet (confirmed: it
+// returned nothing for two same-day SME listings), which is why
+// resolveNseSymbol also tries direct ticker guesses against the live-quote
+// endpoint (confirmed to already have same-day data for both) before giving
+// up. This keeps retrying once a day, for as long as the IPO stays
+// un-archived, until it resolves or the IPO settles. When it can't resolve,
+// it does nothing further here — the Dashboard's own needsSymbolForLivePrice
+// toast (DashboardPage.tsx) is what tells an admin to add it by hand; this
+// function's job is only to make that manual step unnecessary whenever it
+// safely can be.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
 import { jsonResponse, logError, logRequest } from '../_shared/http.ts'
@@ -44,7 +47,7 @@ Deno.serve(async (req) => {
     const today = new Date().toISOString().slice(0, 10)
     const { data: ipos, error } = await admin
       .from('ipos')
-      .select('id, company_name')
+      .select('id, company_name, price_high')
       .is('symbol', null)
       .eq('is_archived', false)
       .lte('listing_date', today)
@@ -54,7 +57,7 @@ Deno.serve(async (req) => {
     let unresolved = 0
     for (const ipo of ipos ?? []) {
       try {
-        const symbol = await resolveNseSymbol(ipo.company_name)
+        const symbol = await resolveNseSymbol(ipo.company_name, ipo.price_high)
         if (!symbol) {
           unresolved++
           continue
