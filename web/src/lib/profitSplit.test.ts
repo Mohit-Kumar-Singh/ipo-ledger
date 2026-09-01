@@ -81,10 +81,58 @@ describe('computeProfitSplit — core 3-way split', () => {
     expect(r.profitPersonShare).toBe(0)
   })
 
-  it('a loss (sold below cost) produces a negative share, not a clamped zero — the admin genuinely absorbs a loss on their own share', () => {
+  it('a loss (sold below cost) produces a negative share, not a clamped zero', () => {
     const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700 })
     expect(r.grossProfit).toBe(-10_000)
     expect(r.profitPersonShare).toBeLessThan(0)
+  })
+})
+
+describe('computeProfitSplit — a loss is never the account holder\'s to share', () => {
+  // BASE: real distinct funder ('Funder B'), 25% holder cut, splitWithFunder
+  // true. Sold at 700/share vs 800 bid -> grossProfit = -10,000.
+  it('holder gets zero (not a negative cut) and the whole loss splits 50/50 with a real funder — regardless of splitWithFunder', () => {
+    const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700, splitWithFunder: false })
+    expect(r.grossProfit).toBe(-10_000)
+    expect(r.dematCutAmount).toBe(0)
+    expect(r.funderShare).toBe(-5_000)
+    expect(r.profitPersonShare).toBe(-5_000)
+    // Reconciles exactly: nothing paid to the holder, funder + admin sum to
+    // the whole loss.
+    expect(r.funderShare + r.profitPersonShare).toBe(r.grossProfit)
+  })
+
+  it("confirms the old bug this replaces: amountFromHolder (totalSoldAmount - dematCutAmount) no longer exceeds what the sale actually returned", () => {
+    const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700 })
+    const amountFromHolder = r.totalSoldAmount - r.dematCutAmount
+    expect(amountFromHolder).toBe(r.totalSoldAmount)
+    expect(amountFromHolder).toBeLessThanOrEqual(r.totalSoldAmount)
+  })
+
+  it('no real funder (self-funded, funderName null) — admin alone absorbs the whole loss', () => {
+    const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700, funderName: null })
+    expect(r.dematCutAmount).toBe(0)
+    expect(r.funderShare).toBe(0)
+    expect(r.profitPersonShare).toBe(-10_000)
+  })
+
+  it('funder IS the profit person (no separate third party) — admin alone absorbs the whole loss', () => {
+    const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700, funderName: 'Admin' })
+    expect(r.dematCutAmount).toBe(0)
+    expect(r.funderShare).toBe(0)
+    expect(r.profitPersonShare).toBe(-10_000)
+  })
+
+  it('the demat holder genuinely funded their own application (isDematHolderSelf) — they still bear their own loss, same as risking any own capital', () => {
+    const r = computeProfitSplit({ ...BASE, sellPricePerShare: 700, dematHolderName: 'Admin', profitPersonName: 'Admin' })
+    expect(r.isDematHolderSelf).toBe(true)
+    // Unlike the third-party-holder case above, this does NOT special-case
+    // to dematCutAmount=0 — it's their own capital, so the existing
+    // fold-the-cut-back-into-their-own-share path applies untouched.
+    expect(r.dematCutAmount).toBe(-2_500)
+    expect(r.funderShare).toBe(-3_750)
+    expect(r.profitPersonShare).toBe(-6_250)
+    expect(r.funderShare + r.profitPersonShare).toBe(r.grossProfit)
   })
 })
 

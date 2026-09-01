@@ -144,6 +144,27 @@ describe('expectedProfitBreakdown', () => {
     expect(noSplit.amountToReturn).toBeLessThan(split.amountToReturn)
   })
 
+  it('a projected LOSS is never the account holder\'s to share — holder cut is 0, the whole loss splits 50/50 with the funder', () => {
+    // lotAmount = 871*17 = 14,807; a live price of 700/share sells for
+    // 700*17 = 11,900 -> a projected loss of -2,907.
+    const b = expectedProfitBreakdown(card, 700)
+    expect(b.profitPerLot).toBeLessThan(0)
+    expect(b.holderCutTotal).toBe(0)
+    // netProfitPerLot * totalLots isn't exposed directly, but netYourProfit +
+    // funderShareTotal must reconstruct the whole loss exactly (holder took
+    // none of it) — same reconciliation invariant as the profit case above.
+    expect(b.netYourProfit + b.funderShareTotal).toBe(b.profitPerLot * card.totalLots)
+    expect(b.netYourProfit).toBeLessThan(0)
+    expect(b.funderShareTotal).toBeLessThan(0)
+  })
+
+  it('a projected LOSS with no real funder (splitWithFunder off) falls entirely to the admin', () => {
+    const b = expectedProfitBreakdown({ ...card, splitWithFunder: false }, 700)
+    expect(b.holderCutTotal).toBe(0)
+    expect(b.funderShareTotal).toBe(0)
+    expect(b.netYourProfit).toBe(b.profitPerLot * card.totalLots)
+  })
+
   it('multiple lots scale the total figures but not the per-lot ones', () => {
     const b = expectedProfitBreakdown({ ...card, totalLots: 3 })
     const one = expectedProfitBreakdown({ ...card, totalLots: 1 })

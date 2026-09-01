@@ -206,19 +206,38 @@ export function expectedProfitBreakdown(card: FunderAllottedCard, livePricePerSh
       ? Math.round(livePricePerShare! * card.lotSize)
       : Math.round(lotAmount * (1 + gmpPercent / 100))
   const profitPerLot = soldPrice - lotAmount
-  const netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
-  // The account holder's own cut, per lot — profitPerLot minus what's left
-  // after it, so this always sums exactly back to profitPerLot with
-  // netProfitPerLot (both derived from the same rounding), rather than a
-  // second independently-rounded multiply that could drift by a rupee.
-  const holderCutPerLot = profitPerLot - netProfitPerLot
-  // A CASE_2 shared account's manager IS the funder, or this specific
-  // application had its own "don't split with funder" override on
-  // (card.splitWithFunder, set in buildFunderAllottedCards) — either way
-  // there's no separate third party to halve the remainder with; the whole
-  // remainder is the admin's own profit, and the funder gets only their
-  // principal back, nothing extra.
-  const funderSharePerLot = card.splitWithFunder ? Math.round(netProfitPerLot / 2) : 0
+
+  let netProfitPerLot: number
+  let holderCutPerLot: number
+  let funderSharePerLot: number
+  if (profitPerLot < 0) {
+    // A projected LOSS is never the account holder's to share — same rule,
+    // same reasoning, as profitSplit.ts's computeProfitSplit (the real,
+    // post-sale version of this same math): their cut is compensation for
+    // lending their demat account, not a stake in capital they never
+    // risked. Splits the whole projected loss 50/50 with a real funder
+    // regardless of card.splitWithFunder's usual meaning for a PROFIT's
+    // remainder — falls entirely to the admin alone only when there's no
+    // separate funder at all (splitWithFunder is false only for a CASE_2
+    // shared account, which has no third party to begin with).
+    holderCutPerLot = 0
+    funderSharePerLot = card.splitWithFunder ? Math.round(profitPerLot / 2) : 0
+    netProfitPerLot = profitPerLot
+  } else {
+    netProfitPerLot = Math.round(profitPerLot * (1 - card.cutPercent / 100))
+    // The account holder's own cut, per lot — profitPerLot minus what's left
+    // after it, so this always sums exactly back to profitPerLot with
+    // netProfitPerLot (both derived from the same rounding), rather than a
+    // second independently-rounded multiply that could drift by a rupee.
+    holderCutPerLot = profitPerLot - netProfitPerLot
+    // A CASE_2 shared account's manager IS the funder, or this specific
+    // application had its own "don't split with funder" override on
+    // (card.splitWithFunder, set in buildFunderAllottedCards) — either way
+    // there's no separate third party to halve the remainder with; the whole
+    // remainder is the admin's own profit, and the funder gets only their
+    // principal back, nothing extra.
+    funderSharePerLot = card.splitWithFunder ? Math.round(netProfitPerLot / 2) : 0
+  }
   const yourProfitPerLot = netProfitPerLot - funderSharePerLot
   const netYourProfit = yourProfitPerLot * card.totalLots
   const holderCutTotal = holderCutPerLot * card.totalLots

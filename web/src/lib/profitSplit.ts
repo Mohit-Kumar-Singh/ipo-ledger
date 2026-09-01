@@ -33,13 +33,49 @@ export function computeProfitSplit(input: ProfitSplitInput): ProfitSplitResult {
   const totalSoldAmount = input.sellPricePerShare * input.lotSize * input.lots
   const grossProfit = totalSoldAmount - input.bidAmount
   const isDematHolderSelf = namesMatch(input.dematHolderName, input.profitPersonName)
+  const hasFunder = input.funderName != null && input.funderName.trim() !== ''
+  const isFunderSelf = hasFunder ? namesMatch(input.funderName, input.profitPersonName) : true
+
+  // A LOSS is never the account holder's to share — their "cut" is
+  // compensation for lending their demat account to hold someone else's
+  // money, not a stake in capital they never risked, so there's nothing of
+  // theirs to deduct when the sale comes in under cost. Confirmed as an
+  // actual live bug, not just a missing feature: applying the same
+  // percentage-of-profit formula to a NEGATIVE grossProfit (the old
+  // behavior below) made dematCutAmount negative too, which made
+  // amountFromHolder (settlement.ts) exceed totalSoldAmount — the holder
+  // was being asked to hand back MORE than the sale actually returned.
+  // Splits the whole loss 50/50 with a genuine third-party funder
+  // regardless of that sale's splitWithFunder toggle (that toggle only
+  // ever governs how a PROFIT's remainder splits, not this) — falls
+  // entirely to the admin alone when there's no separate funder to split
+  // with, same as a profit would. The one case NOT covered here: the
+  // demat holder genuinely funded their own application (isDematHolderSelf)
+  // — that's real capital they put up themselves, so they bear their own
+  // loss same as anyone would; the branch below already handles that
+  // correctly by folding dematCutAmount back into their own share.
+  if (grossProfit < 0 && !isDematHolderSelf) {
+    const hasRealFunder = hasFunder && !isFunderSelf
+    const funderShare = hasRealFunder ? grossProfit / 2 : 0
+    const profitPersonShare = grossProfit - funderShare
+    return {
+      totalSoldAmount,
+      grossProfit,
+      dematCutAmount: 0,
+      isDematHolderSelf,
+      remainingAfterCut: grossProfit,
+      hasFunder,
+      isFunderSelf,
+      funderShare,
+      profitPersonShare,
+    }
+  }
+
   // The cut is always computed the same way; when the demat holder *is* the
   // profit person it just isn't an external payout — it flows back into
   // their own share below instead of being a line item owed to someone else.
   const dematCutAmount = grossProfit * (input.cutPercent / 100)
   const remainingAfterCut = grossProfit - dematCutAmount
-  const hasFunder = input.funderName != null && input.funderName.trim() !== ''
-  const isFunderSelf = hasFunder ? namesMatch(input.funderName, input.profitPersonName) : true
   const funderShare = hasFunder && input.splitWithFunder && !isFunderSelf ? remainingAfterCut / 2 : 0
   const profitPersonShare = remainingAfterCut - funderShare + (isDematHolderSelf ? dematCutAmount : 0)
 
