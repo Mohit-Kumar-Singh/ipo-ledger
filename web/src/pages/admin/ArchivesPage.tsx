@@ -315,7 +315,9 @@ export function ArchivesPage() {
                           {totalProfit !== 0 && (
                             <>
                               {summaryParts.length > 0 ? ' · ' : ''}
-                              <span style={{ color: 'var(--good-text)' }}>{rupees(totalProfit)} profit</span>
+                              <span style={{ color: totalProfit >= 0 ? 'var(--good-text)' : 'var(--critical-text)' }}>
+                                {rupees(Math.abs(totalProfit))} {totalProfit >= 0 ? 'profit' : 'loss'}
+                              </span>
                             </>
                           )}
                         </p>
@@ -372,7 +374,10 @@ export function ArchivesPage() {
                                         {r.sell_price}
                                         {'/share'}
                                         {isAdmin && split && (
-                                          <span style={{ color: 'var(--good-text)' }}> · {rupees(split.profitPersonShare)} profit</span>
+                                          <span style={{ color: split.profitPersonShare >= 0 ? 'var(--good-text)' : 'var(--critical-text)' }}>
+                                            {' · '}
+                                            {rupees(Math.abs(split.profitPersonShare))} {split.profitPersonShare >= 0 ? 'profit' : 'loss'}
+                                          </span>
                                         )}
                                       </>
                                     ) : (
@@ -432,7 +437,16 @@ export function ArchivesPage() {
                                   {split ? (!split.hasFunder || split.isFunderSelf ? 'self' : rupees(split.funderShare)) : '—'}
                                 </td>
                                 {isAdmin && (
-                                  <td className="py-1.5 pr-3 font-medium" style={{ color: 'var(--good)' }}>
+                                  <td
+                                    className="py-1.5 pr-3 font-medium"
+                                    style={{
+                                      color: !split
+                                        ? 'var(--ink-secondary)'
+                                        : split.profitPersonShare >= 0
+                                          ? 'var(--good)'
+                                          : 'var(--critical)',
+                                    }}
+                                  >
                                     {split ? rupees(split.profitPersonShare) : '—'}
                                   </td>
                                 )}

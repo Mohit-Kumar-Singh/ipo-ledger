@@ -919,7 +919,7 @@ function SoldForm({
       {hasEntry && (
         <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>
           <Stat label="Total sold" value={preview.totalSoldAmount} />
-          <Stat label="Gross profit" value={preview.grossProfit} />
+          <Stat label="Gross profit" value={preview.grossProfit} signed />
           <Stat
             label={`${payoutCutContact(row).name}'s cut (${row.profit_share_percent ?? 25}%)`}
             value={preview.dematCutAmount}
@@ -930,7 +930,7 @@ function SoldForm({
               own cut regardless of who's filling out this form, and the
               account owner marking their own sale is a real, reachable
               case here (canMark allows the demat owner, not just admin). */}
-          {isAdmin && <Stat label="Your share" value={preview.profitPersonShare} />}
+          {isAdmin && <Stat label="Your share" value={preview.profitPersonShare} signed />}
         </div>
       )}
 
@@ -969,23 +969,28 @@ export function payoutMessage(
   const price = (row.sell_price ?? 0).toFixed(2)
   const total = Math.round(result.totalSoldAmount)
   const invested = Math.round(row.bid_amount ?? 0)
-  const profit = total - invested
   // Genuinely nullable — see AllotmentBoardRow's own comment on this
   // field. This builds an actual WhatsApp message someone gets sent, so a
   // silent null-to-0 coercion here wouldn't just mis-render a UI number,
   // it would send a real person a wrong payout figure.
   const cutPct = row.profit_share_percent ?? 25
-  // Each line's number feeds the next (cut, then remainder, then the 50/50
-  // split) using values already rounded to whole rupees — so the equations
-  // in the message add up cleanly instead of showing paise-level fractions.
-  const cutAmount = Math.round((profit * cutPct) / 100)
+  // Pulled straight from `result` (computeProfitSplit's actual output),
+  // not recomputed here — this used to reimplement the same cut/remainder
+  // math from scratch with its own local variables (a second, silently-
+  // drifting copy of the same math profitSplit.ts already does). That
+  // meant it never inherited the "a loss is never the account holder's
+  // to share" fix: on a real loss it would still have applied cutPct to
+  // a negative profit and halved the WRONG remainder in the funder's own
+  // WhatsApp message.
+  const profit = Math.round(result.grossProfit)
+  const cutAmount = Math.round(result.dematCutAmount)
+  const remaining = Math.round(result.remainingAfterCut)
+  const profitLabel = profit >= 0 ? 'Profit' : 'Loss'
 
   const saleLine = (prefix: string) =>
     `${prefix}${row.company_name} — sold ${shares.toLocaleString('en-IN')} shares at around  ₹${price}/share.\n` +
     `sold at Total ₹${total.toLocaleString('en-IN')},\n` +
-    `${total}-${invested}= ${profit}(Profit)\n`
-
-  const remaining = profit - cutAmount
+    `${total}-${invested}= ${profit}(${profitLabel})\n`
 
   if (kind === 'cut') {
     const sendBack = invested + remaining
@@ -993,7 +998,7 @@ export function payoutMessage(
       `*${row.company_name}* — sold ${shares.toLocaleString('en-IN')} shares at around ₹${price}/share.\n\n` +
       `• Total sold: ₹${total.toLocaleString('en-IN')}\n` +
       `• Invested: ₹${invested.toLocaleString('en-IN')}\n` +
-      `• Profit: ₹${total.toLocaleString('en-IN')} − ₹${invested.toLocaleString('en-IN')} = ₹${profit.toLocaleString('en-IN')}\n\n` +
+      `• ${profitLabel}: ₹${total.toLocaleString('en-IN')} − ₹${invested.toLocaleString('en-IN')} = ₹${profit.toLocaleString('en-IN')}\n\n` +
       `*Your ${cutPct}% profit-sharing (incl. TAX) cut:*\n` +
       `₹${profit.toLocaleString('en-IN')} × ${cutPct}% = ₹${cutAmount.toLocaleString('en-IN')}\n\n` +
       `*Total to send back:*\n` +
@@ -1002,12 +1007,12 @@ export function payoutMessage(
     )
   }
 
-  const funderShare = Math.round(remaining / 2)
+  const funderShare = Math.round(result.funderShare)
   const payout = invested + funderShare
   return (
     saleLine(`${row.holder_name}:- `) +
-    `after ${row.holder_name} (${cutPct}%):${profit}-${cutPct}%=${remaining}\n\n` +
-    `Here's your share of the profit:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n` +
+    `after ${row.holder_name} (${cutPct}%):${profit}-${cutAmount}=${remaining}\n\n` +
+    `Here's your share of the ${profitLabel.toLowerCase()}:${remaining}/2= ₹${funderShare.toLocaleString('en-IN')}.\n` +
     `Total = ${invested}+${funderShare}=${payout}`
   )
 }
@@ -1048,16 +1053,23 @@ function SoldBreakdown({
     <div className="mt-3 space-y-3 border-t pt-3 text-xs" style={{ borderColor: 'var(--border)' }}>
       <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>
         <Stat label="Total sold" value={result.totalSoldAmount} />
-        <Stat label="Gross profit" value={result.grossProfit} />
+        <Stat label="Gross profit" value={result.grossProfit} signed />
         {/* Admin-only — result.profitPersonShare is specifically the
             profit-TAKING admin's own cut (profitPersonName is '' for
             anyone else, so it's meaningless to compute for them anyway).
             The two PayoutLines below already tell a funder/holder their
             own real number, under their own name, so nothing is hidden
             from them here — this one number just isn't theirs. */}
-        {isAdmin && <Stat label="Your share" value={result.profitPersonShare} />}
+        {isAdmin && <Stat label="Your share" value={result.profitPersonShare} signed />}
       </div>
-      {(!result.isDematHolderSelf && result.dematCutAmount > 0) || result.funderShare > 0 ? (
+      {/* result.funderShare !== 0, not > 0 — on a loss it's negative (the
+          funder's own share of the loss, see profitSplit.ts), which is
+          still very much an outstanding payout (the funder gets back LESS
+          than their principal, and needs to be told exactly how much).
+          `> 0` used to hide this entire line the moment a sale went
+          negative, silently claiming "no outstanding payouts" on a sale
+          that very much still needed settling. */}
+      {(!result.isDematHolderSelf && result.dematCutAmount > 0) || result.funderShare !== 0 ? (
         <div className="flex flex-col gap-2">
           {!result.isDematHolderSelf && result.dematCutAmount > 0 && (
             <PayoutLine
@@ -1070,9 +1082,13 @@ function SoldBreakdown({
               canAct={canAct}
             />
           )}
-          {result.funderShare > 0 && (
+          {result.funderShare !== 0 && (
             <PayoutLine
-              label={`${row.bank_account_holder_name} — ₹${Math.round(result.funderShare).toLocaleString('en-IN')} share`}
+              label={
+                result.funderShare > 0
+                  ? `${row.bank_account_holder_name} — ₹${Math.round(result.funderShare).toLocaleString('en-IN')} share`
+                  : `${row.bank_account_holder_name} — ₹${Math.round(-result.funderShare).toLocaleString('en-IN')} loss share (gets back less than invested)`
+              }
               paid={row.funder_share_paid}
               onMarkPaid={() => onMarkPaid('funder_share_paid')}
               marking={markingPaid === row.application_id + 'funder_share_paid'}
@@ -1145,11 +1161,28 @@ function PayoutLine({
   )
 }
 
-function Stat({ label, value, note }: { label: string; value: number; note?: string }) {
+function Stat({
+  label,
+  value,
+  note,
+  signed,
+}: {
+  label: string
+  value: number
+  note?: string
+  // 'Gross profit'/'Your share' can now genuinely go negative (a real
+  // loss) — colors green/red by sign instead of the flat neutral ink
+  // every other Stat (e.g. 'Total sold', which is never itself a
+  // profit/loss figure) still uses.
+  signed?: boolean
+}) {
   return (
     <div>
       <p style={{ color: 'var(--ink-muted)' }}>{label}</p>
-      <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+      <p
+        className="font-medium"
+        style={{ color: signed ? (value >= 0 ? 'var(--good)' : 'var(--critical)') : 'var(--ink-primary)' }}
+      >
         ₹{Math.round(value).toLocaleString('en-IN')}
         {note ? ` (${note})` : ''}
       </p>

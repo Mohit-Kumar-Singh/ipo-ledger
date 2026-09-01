@@ -764,7 +764,10 @@ export function NotificationsPage() {
                     </button>
                   ) : (
                     profit != null && (
-                      <span className="shrink-0 text-sm font-semibold" style={{ color: 'var(--good)' }}>
+                      <span
+                        className="shrink-0 text-sm font-semibold"
+                        style={{ color: profit >= 0 ? 'var(--good)' : 'var(--critical)' }}
+                      >
                         {rupees(profit)}
                       </span>
                     )

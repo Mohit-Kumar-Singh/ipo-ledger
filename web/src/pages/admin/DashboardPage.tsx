@@ -1505,7 +1505,10 @@ function ExpectedProfitPanel({ blocks }: { blocks: ExpectedProfitIpoBlock[] }) {
                   )}
                 </span>
                 <span className="shrink-0 text-right">
-                  <span className="block font-medium" style={{ color: 'var(--good)' }}>
+                  {/* Signed — a projected loss (see expectedProfitBreakdown's
+                      "a loss is never the account holder's to share" fix)
+                      can make this negative now; was flat green before. */}
+                  <span className="block font-medium" style={{ color: f.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}>
                     {rupees(f.profit)}
                   </span>
                   {/* Invested + profit — the actual figure to hand back,

@@ -510,7 +510,13 @@ export function PayoutsPage() {
               <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
                 My profit
               </p>
-              <p className="font-mono-ipo font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {/* Signed — a real loss (see profitSplit.ts's "a loss is
+                  never the account holder's to share" fix) can genuinely
+                  make this negative now; was flat neutral ink before. */}
+              <p
+                className="font-mono-ipo font-semibold"
+                style={{ color: totalMyProfit >= 0 ? 'var(--good)' : 'var(--critical)' }}
+              >
                 {rupees(totalMyProfit)}
               </p>
             </div>
@@ -648,10 +654,18 @@ export function PayoutsPage() {
             {range.label} · Total profit
           </p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
-            <p className="font-mono-ipo text-4xl font-bold" style={{ color: 'var(--good)' }}>
+            {/* Signed — a range with a net loss (see profitSplit.ts's "a
+                loss is never the account holder's to share" fix) should
+                read as red, not the flat green this always used before. */}
+            <p
+              className="font-mono-ipo text-4xl font-bold"
+              style={{ color: analytics.summary.totalProfit >= 0 ? 'var(--good)' : 'var(--critical)' }}
+            >
               {rupees(animatedTotalProfit)}
             </p>
-            <span className="badge badge-good">{analytics.summary.roi.toFixed(2)}% ROI</span>
+            <span className={`badge ${analytics.summary.roi >= 0 ? 'badge-good' : 'badge-critical'}`}>
+              {analytics.summary.roi.toFixed(2)}% ROI
+            </span>
           </div>
         </div>
 
@@ -715,7 +729,12 @@ export function PayoutsPage() {
               <div className="py-2 sm:py-0 sm:pr-4">
                 <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>🏆 Best performing</p>
                 <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{analytics.best.ipoName}</p>
-                <p className="font-mono-ipo text-sm" style={{ color: 'var(--good)' }}>
+                {/* Signed — "best" just means least-bad when every IPO in
+                    range lost money; still red in that case, not green. */}
+                <p
+                  className="font-mono-ipo text-sm"
+                  style={{ color: analytics.best.profit >= 0 ? 'var(--good)' : 'var(--critical)' }}
+                >
                   {rupees(analytics.best.profit)} · {analytics.best.roi.toFixed(1)}% ROI
                 </p>
               </div>
@@ -1244,13 +1263,27 @@ function SettlementCardView({
           <div className="space-y-0.5" style={{ color: 'var(--ink-secondary)' }}>
             <p>Total sold: {rupees(c.totalSoldAmount)}</p>
             <p>Invested: {rupees(c.bidAmount)}</p>
-            <p>
-              Profit: {rupees(c.totalSoldAmount)} − {rupees(c.bidAmount)} = {rupees(c.profitTotal)}
+            <p style={c.profitTotal < 0 ? { color: 'var(--critical-text)' } : undefined}>
+              {c.profitTotal >= 0 ? 'Profit' : 'Loss'}: {rupees(c.totalSoldAmount)} − {rupees(c.bidAmount)} = {rupees(c.profitTotal)}
             </p>
-            <p className="pt-1">Their {c.cutPercent}% profit-sharing (incl. TAX) cut:</p>
-            <p>
-              {rupees(c.profitTotal)} × {c.cutPercent}% = {rupees(c.dematCutAmount)}
-            </p>
+            {/* A loss is never the account holder's to share (profitSplit.ts)
+                — dematCutAmount is always exactly 0 here, not
+                profitTotal × cutPercent%, which would be a real (negative)
+                number and make this line read as a false equation. */}
+            {c.profitTotal >= 0 ? (
+              <>
+                <p className="pt-1">Their {c.cutPercent}% profit-sharing (incl. TAX) cut:</p>
+                <p>
+                  {rupees(c.profitTotal)} × {c.cutPercent}% = {rupees(c.dematCutAmount)}
+                </p>
+              </>
+            ) : (
+              <p className="pt-1">No cut on a loss — {c.holderName} isn't liable for any of it.</p>
+            )}
+            {/* Not sign-conditional like the profit/cut lines above — this is
+                simply "how much to collect," which is always a receivable
+                regardless of whether the sale itself was a profit or a
+                loss. */}
             <p className="pt-1 font-medium" style={{ color: 'var(--good)' }}>
               Total to receive: {rupees(c.bidAmount)} + {rupees(cutRemainder)} = {rupees(c.amountFromHolder)}
             </p>
