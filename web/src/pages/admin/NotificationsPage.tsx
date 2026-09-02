@@ -246,15 +246,29 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
   // profit_share_percent), otherwise shows one decimal so a genuine mixed-
   // cut average (e.g. 25%/30% split) isn't silently misrepresented as 28%.
   const cutPercentLabel = `${Math.round(card.cutPercent) === card.cutPercent ? card.cutPercent : card.cutPercent.toFixed(1)}%`
+  // This is a pre-sale GMP/live-price PROJECTION — it can land negative. Per
+  // expectedProfitBreakdown (and profitSplit.ts), a projected loss is never
+  // the account holder's to share: their cut is 0, not profitPerLot ×
+  // cutPercent%, so the "account holder tax cut" equation below would be
+  // factually wrong prose on a loss even though every rupee figure is right.
+  const isLoss = b.profitPerLot < 0
+  const pl = isLoss ? 'loss' : 'profit'
+  const holderLabel = card.holderNames.map((h) => h.name).join(' / ')
+  const cutLine = isLoss
+    ? `> No cut on a loss — ${holderLabel} isn't liable for any of it.\n`
+    : `> ${rupees(b.profitPerLot)}− ${cutPercentLabel} (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n`
+  const returnLine = isLoss
+    ? `> Amount to return = ${rupees(b.investedTotal)} (invested) − ${rupees(Math.abs(b.netYourProfit))} (your share of the loss) =  ${rupees(b.amountToReturn)}\n\n`
+    : `> Amount to return = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) =  ${rupees(b.amountToReturn)}\n\n`
   return (
     `${intro}\n\n` +
-    `_Expected profit_\n` +
+    `_Expected ${pl}_\n` +
     `${rupees(b.yourProfitPerLot)}*${card.totalLots} (no. of ipo alloted)=  *${rupees(b.netYourProfit)}*\n` +
     `> ${rupees(b.lotAmount)} +  ${b.gmpPercent}% (GMP)≈ ${rupees(b.soldPrice)} ( sold price)\n` +
-    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot \n` +
-    `> ${rupees(b.profitPerLot)}− ${cutPercentLabel} (accunt holder tax cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
-    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share ) = ${rupees(b.yourProfitPerLot)} your profit/lot\n` +
-    `> Amount to return = ${rupees(b.investedTotal)} (invested) + ${rupees(b.netYourProfit)} (profit) =  ${rupees(b.amountToReturn)}\n\n` +
+    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} ${pl}/lot \n` +
+    cutLine +
+    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share ) = ${rupees(b.yourProfitPerLot)} your ${pl}/lot\n` +
+    returnLine +
     `${listingLine}${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )
@@ -285,21 +299,39 @@ function buildSoldFunderMessage(card: SoldFunderCard): string {
   // total the holder actually has to pay out.
   const holderPays = b.netProfitPerLot * card.totalLots
   const totalSoldAmount = b.soldPrice * card.totalLots
+  // Same sign caveat as buildFunderAllottedMessage — a real sell price below
+  // the issue price makes this a genuine loss, which (per
+  // expectedProfitBreakdown / profitSplit.ts) the account holder never
+  // shares: the "account holder cut" equation and the "my profit + your
+  // funder profit combined" line are both false prose on a loss, even though
+  // the rupee figures (b.netYourProfit, b.amountToReturn, …) are correct.
+  const isLoss = b.profitPerLot < 0
+  const pl = isLoss ? 'loss' : 'profit'
+  const holderLabel = card.holderNames.map((h) => h.name).join(' / ')
+  const cutLine = isLoss
+    ? `> No cut on a loss — ${holderLabel} isn't liable for any of it.\n`
+    : `> ${rupees(b.profitPerLot)} − ${cutPercentLabel} (account holder cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n`
+  const holderSection = isLoss
+    ? `_Account holder returns_\n` +
+      `${rupees(b.lotAmount)} (original lot price) × ${card.totalLots} = ${rupees(b.investedTotal)} (principal)\n` +
+      `− ${rupees(Math.abs(holderPays))} (the loss — mine + your funder share, not ${holderLabel}'s)\n` +
+      `*Remaining to pay you* = ${rupees(b.investedTotal)} − ${rupees(Math.abs(b.netYourProfit))} (your half of the loss) = *${rupees(b.amountToReturn)}*`
+    : `_Account holder pays_\n` +
+      `${rupees(b.lotAmount)} (original lot price) × ${card.totalLots} = ${rupees(b.investedTotal)} (principal)\n` +
+      `+ ${rupees(holderPays)} (my profit + your funder profit combined)\n` +
+      `*Remaining to pay you* = ${rupees(b.investedTotal)} + ${rupees(b.netYourProfit)} (your half of it) = *${rupees(b.amountToReturn)}*`
   const intro =
     `Hi ${card.funderName}, your *${card.ipoName}* application(s) have been *sold* at ` +
     `${rupees(card.sellPricePerShare)}/share for a total of ${rupees(totalSoldAmount)} ${PARTY}:\n\n${list}`
   return (
     `${intro}\n\n` +
-    `_Profit_\n` +
+    `_${isLoss ? 'Loss' : 'Profit'}_\n` +
     `${rupees(b.yourProfitPerLot)} × ${card.totalLots} (lots) = *${rupees(b.netYourProfit)}*\n` +
     `> ${rupees(card.sellPricePerShare)}/share × lot size = ${rupees(b.soldPrice)} (sold price)\n` +
-    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} profit/lot\n` +
-    `> ${rupees(b.profitPerLot)} − ${cutPercentLabel} (account holder cut) = ${rupees(b.netProfitPerLot)} net profit/lot\n` +
-    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share) = ${rupees(b.yourProfitPerLot)} your profit/lot\n\n` +
-    `_Account holder pays_\n` +
-    `${rupees(b.lotAmount)} (original lot price) × ${card.totalLots} = ${rupees(b.investedTotal)} (principal)\n` +
-    `+ ${rupees(holderPays)} (my profit + your funder profit combined)\n` +
-    `*Remaining to pay you* = ${rupees(b.investedTotal)} + ${rupees(b.netYourProfit)} (your half of it) = *${rupees(b.amountToReturn)}*` +
+    `> ${rupees(b.soldPrice)} − ${rupees(b.lotAmount)} = ${rupees(b.profitPerLot)} ${pl}/lot\n` +
+    cutLine +
+    `> ${rupees(b.netProfitPerLot)} ÷ 2 (your share + my share) = ${rupees(b.yourProfitPerLot)} your ${pl}/lot\n\n` +
+    holderSection +
     `${footnote}\n\n` +
     `> Other updates are posted on ${PORTAL_URL}`
   )

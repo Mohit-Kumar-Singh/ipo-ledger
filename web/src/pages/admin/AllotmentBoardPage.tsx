@@ -113,10 +113,19 @@ export function AllotmentBoardPage() {
   // right away instead of sitting there stale until a manual page reload.
   const ipos = useMemo(() => {
     const todayStr = nowIst().dateStr
+    // Only IPOs this viewer actually has board rows for. v_allotment_board is
+    // already RLS-scoped to their own demat accounts + applications they
+    // funded, so an IPO nobody here applied to (or one none of whose rows
+    // this viewer can see) used to sit in the picker anyway — selecting it
+    // just showed an empty board. Filtering the picker to IPOs present in
+    // `boardQuery.data` keeps it to the ones there's genuinely something to
+    // look at.
+    const ipoIdsWithRows = new Set((boardQuery.data ?? []).map((r) => r.ipo_id))
     return (iposQuery.data ?? [])
       .filter((i) => i.allotment_date != null && i.allotment_date <= todayStr && !i.is_archived)
+      .filter((i) => ipoIdsWithRows.has(i.id))
       .sort((a, b) => (b.allotment_date ?? '').localeCompare(a.allotment_date ?? ''))
-  }, [iposQuery.data])
+  }, [iposQuery.data, boardQuery.data])
 
   const rows = useMemo(
     () => (boardQuery.data ?? []).filter((r) => r.ipo_id === selectedIpoId),
@@ -218,14 +227,20 @@ export function AllotmentBoardPage() {
 
   // Allotted rows surface first so a glance at the board shows who's already
   // confirmed before scrolling past everyone still just "applied" — within
-  // each group, original load order (registrar-list order) is preserved.
+  // each group, holders are sorted alphabetically by name (was registrar-list
+  // load order, which is effectively random to anyone scanning for a
+  // specific person).
   const statusOrder: Record<AllotmentBoardRow['status'], number> = {
     ALLOTTED: 0,
     SOLD: 1,
     APPLIED: 2,
     NOT_ALLOTTED: 3,
   }
-  const sortedRows = [...rows].sort((a, b) => statusOrder[a.status] - statusOrder[b.status])
+  const sortedRows = [...rows].sort(
+    (a, b) =>
+      statusOrder[a.status] - statusOrder[b.status] ||
+      a.holder_name.localeCompare(b.holder_name, undefined, { sensitivity: 'base' }),
+  )
   // Client-side only, same reasoning as Accounts/Applications' own search —
   // one IPO's board is a household's worth of rows, not worth a server round
   // trip per keystroke.

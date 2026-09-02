@@ -13,12 +13,16 @@
 // directly by visiting /payouts itself (PayoutsPage renders this same
 // component with no param, and v_allotment_board is already RLS-scoped to
 // just their own data, so no filtering is needed for that case).
+import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
+import { supabase } from '../../lib/supabase'
+import { showToast } from '../../lib/toast'
+import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { rupees } from '../../lib/expectedProfit'
-import { groupCardsByIpo, SETTLED_EPSILON } from '../../lib/settlement'
+import { groupCardsByIpo, settledPaidFlags, SETTLED_EPSILON, type SettlementCard } from '../../lib/settlement'
 import { IpoSettlementCard } from './PayoutsPage'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { ChevronLeftIcon } from '@primer/octicons-react'
@@ -145,6 +149,17 @@ export function FunderPayoutsPage() {
               ? `${rupees(-remaining)} sent in excess, owed back to you`
               : `${rupees(remaining)} still to send`}
         </p>
+
+        {/* Admin-only bulk settle — for when the whole outstanding balance was
+            cleared in ONE physical transfer, rather than one payment per sold
+            application. Logs an admin_to_funder settlement_payment against each
+            still-outstanding IPO (most-outstanding first) until the entered
+            amount is used up, all sharing the one note. settlement_payments is
+            admin-only at the RLS level anyway, so a funder viewing their own
+            page never sees this. */}
+        {isAdmin && !isSettled && !isOverpaid && remaining > SETTLED_EPSILON && (
+          <BulkSettleControl cards={myCards} remaining={remaining} onDone={invalidatePayoutsData} />
+        )}
       </div>
 
       {/* Allotted, not yet sold — where this funder's money currently is.
@@ -195,6 +210,131 @@ export function FunderPayoutsPage() {
           </p>
         )
       )}
+    </div>
+  )
+}
+
+// Settles this funder's entire outstanding balance in one go — the case
+// where the admin sent the whole amount as a single physical transfer
+// instead of app-by-app. Distributes the entered amount greedily across the
+// funder's still-outstanding IPO cards (largest remaining first), logging
+// one admin_to_funder settlement_payment per card via the same audited
+// log_settlement_payment RPC the per-application form uses (atomic payment +
+// paid-flag write, migration 0087). An amount smaller than the full balance
+// leaves the rest outstanding; an amount larger than the balance never
+// overpays — the excess is simply not logged.
+function BulkSettleControl({
+  cards,
+  remaining,
+  onDone,
+}: {
+  cards: SettlementCard[]
+  remaining: number
+  onDone: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [amount, setAmount] = useState(String(Math.round(remaining)))
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function submit() {
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    const targets = cards
+      .filter((c) => c.remainingToFunder > SETTLED_EPSILON)
+      .sort((a, b) => b.remainingToFunder - a.remainingToFunder)
+    if (targets.length === 0) {
+      showToast('Nothing outstanding to settle.', 'info')
+      setOpen(false)
+      return
+    }
+
+    setSaving(true)
+    let left = amt
+    let applied = 0
+    const touchedIpoIds = new Set<string>()
+    try {
+      for (const c of targets) {
+        if (left <= SETTLED_EPSILON) break
+        const alloc = Math.min(left, c.remainingToFunder)
+        const flags = settledPaidFlags(c, c.remainingFromHolder, c.remainingToFunder - alloc)
+        const { error } = await supabase.rpc('log_settlement_payment', {
+          p_application_id: c.applicationId,
+          p_kind: 'admin_to_funder',
+          p_amount: alloc,
+          p_note: note.trim() || null,
+          // Fresh key per card — there's no retry loop here (a failure aborts
+          // the batch and surfaces a toast), so each call is its own attempt.
+          p_idempotency_key: crypto.randomUUID(),
+          p_set_demat_cut_paid: !!flags.demat_cut_paid,
+          p_set_funder_share_paid: !!flags.funder_share_paid,
+        })
+        // 23505 = this exact key already landed; treat as done, same as the
+        // per-application form.
+        if (error && error.code !== '23505') throw error
+        left -= alloc
+        applied += alloc
+        touchedIpoIds.add(c.ipoId)
+      }
+      // Settling the last side of the last unsettled row on an IPO can be
+      // what makes it archivable — same check the per-application form runs.
+      for (const ipoId of touchedIpoIds) await maybeAutoArchiveIpo(ipoId)
+      showToast(
+        `Logged ${rupees(applied)} across ${touchedIpoIds.size} IPO${touchedIpoIds.size === 1 ? '' : 's'}.`,
+        'good',
+      )
+      setOpen(false)
+      setNote('')
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to log settlement.', 'critical')
+    } finally {
+      setSaving(false)
+      // Refresh regardless — on a partial failure some payments did land and
+      // the statement above needs to reflect them.
+      onDone()
+    }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="link-accent mt-2 text-xs font-medium">
+        + Settle full balance
+      </button>
+    )
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+      <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+        Records one physical transfer against every outstanding IPO for this funder.
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          inputMode="decimal"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          placeholder="Amount"
+          className="input text-xs"
+        />
+        <input
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (e.g. UPI ref, date) — optional"
+          className="input text-xs"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button onClick={submit} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
+          {saving ? 'Logging…' : 'Log settlement'}
+        </button>
+        <button onClick={() => setOpen(false)} disabled={saving} className="btn-secondary text-xs disabled:opacity-50">
+          Cancel
+        </button>
+      </div>
     </div>
   )
 }
