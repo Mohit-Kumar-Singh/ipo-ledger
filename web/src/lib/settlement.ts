@@ -7,7 +7,17 @@
 // "Pending Payout" KPI both have to agree with each other, and the only way
 // to guarantee that is one function, not two independently-written ones.
 import { computeProfitSplit, effectiveSplitWithFunder, payoutCutContact } from './profitSplit'
-import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
+import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../types/database'
+
+// Human-readable label for each settlement_payments.kind — shared by the
+// per-application log-a-payment form (PayoutsPage) and the per-funder
+// payments log (FunderPayoutsPage) so the two never word the same direction
+// differently.
+export const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
+  holder_to_admin: 'Holder paid you',
+  admin_to_funder: 'You paid the funder',
+  holder_to_funder: 'Holder paid the funder directly',
+}
 
 // What the account holder owes back (principal + all profit except their
 // own cut — money COMING IN) and what's owed out to whoever funded it
@@ -185,6 +195,46 @@ export function settledPaidFlags(
     flags.funder_share_paid = true
   }
   return flags
+}
+
+// The ABSOLUTE value each paid-flag should hold for a given pair of
+// remaining amounts — unlike settledPaidFlags (which only ever reports the
+// false -> true transition an append-only insert can cause), this reports
+// both directions, for the edit/delete path where lowering or removing a
+// payment can push a side back from settled to outstanding. Same four
+// "trivially done" escape hatches as isCardFullySettled: self-held / nothing
+// owed on that side / self-funded.
+export function resolvedPaidFlags(
+  c: SettlementCard,
+  remainingFromHolder: number,
+  remainingToFunder: number,
+): { demat_cut_paid: boolean; funder_share_paid: boolean } {
+  return {
+    demat_cut_paid:
+      c.isDematHolderSelf || c.amountFromHolder <= 0 || remainingFromHolder <= SETTLED_EPSILON,
+    funder_share_paid:
+      !c.hasFunder || c.isFunderSelf || c.amountToFunder <= 0 || remainingToFunder <= SETTLED_EPSILON,
+  }
+}
+
+// Re-derive an application's two remaining balances from an arbitrary payment
+// set — the same two reducers buildSettlementCards runs, pulled out so the
+// edit/delete UI can compute "what would remain if this payment list were X"
+// without rebuilding every card.
+export function remainingFromPayments(
+  c: SettlementCard,
+  payments: SettlementPayment[],
+): { remainingFromHolder: number; remainingToFunder: number } {
+  const paidByHolder = payments
+    .filter((p) => p.kind === 'holder_to_admin' || p.kind === 'holder_to_funder')
+    .reduce((s, p) => s + p.amount, 0)
+  const sentToFunder = payments
+    .filter((p) => p.kind === 'admin_to_funder' || p.kind === 'holder_to_funder')
+    .reduce((s, p) => s + p.amount, 0)
+  return {
+    remainingFromHolder: c.amountFromHolder - paidByHolder,
+    remainingToFunder: c.amountToFunder - sentToFunder,
+  }
 }
 
 export interface IpoSettlementGroup {

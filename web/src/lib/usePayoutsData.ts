@@ -27,7 +27,10 @@ interface LocalPayoutsData {
   livePriceBySymbol: Record<string, number | null>
   allRows: ProfitProjectionRow[]
   case2ManagerIds: Set<string>
+  profileNamesById: Record<string, string>
 }
+
+const EMPTY_PROFILE_NAMES: Record<string, string> = {}
 
 export function usePayoutsData() {
   const { profile } = useAuth()
@@ -46,7 +49,7 @@ export function usePayoutsData() {
   const localPayoutsQuery = useQuery<LocalPayoutsData>({
     queryKey: queryKeys.payoutsLocal,
     queryFn: async () => {
-      const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes] = await Promise.all([
+      const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
         supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
         supabase
           .from('applications')
@@ -69,9 +72,19 @@ export function usePayoutsData() {
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
           ),
+        // Names for settlement_payments.created_by, so the per-funder
+        // payments log can say who logged each entry. Admin reads every row
+        // (p_profiles_self); a non-admin gets only their own, which is fine —
+        // they never see that log.
+        supabase.from('profiles').select('id, full_name'),
       ])
       if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
+
+      const profileNamesById: Record<string, string> = {}
+      for (const p of (profilesRes.data ?? []) as { id: string; full_name: string | null }[]) {
+        if (p.full_name) profileNamesById[p.id] = p.full_name
+      }
 
       if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
       // See lib/hydrateDemat.ts — a funder-only viewer's demat embed is
@@ -81,7 +94,7 @@ export function usePayoutsData() {
 
       if (expectedRes.error) {
         showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
-        return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>() }
+        return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>(), profileNamesById }
       }
       const expectedRowsBaseAll = await hydrateDematAccounts(
         (expectedRes.data ?? []) as unknown as ProfitProjectionRow[],
@@ -107,7 +120,7 @@ export function usePayoutsData() {
         }>('fetch-stock-price', { body: { symbols } })
         for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
       }
-      return { payments, expectedCards, livePriceBySymbol, allRows, case2ManagerIds }
+      return { payments, expectedCards, livePriceBySymbol, allRows, case2ManagerIds, profileNamesById }
     },
   })
   const payments = localPayoutsQuery.data?.payments ?? EMPTY_PAYMENTS
@@ -115,6 +128,7 @@ export function usePayoutsData() {
   const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? EMPTY_LIVE_PRICES
   const allRows = localPayoutsQuery.data?.allRows ?? EMPTY_PROJECTION_ROWS
   const case2ManagerIds = localPayoutsQuery.data?.case2ManagerIds ?? EMPTY_CASE2_IDS
+  const profileNamesById = localPayoutsQuery.data?.profileNamesById ?? EMPTY_PROFILE_NAMES
   const loading = boardQuery.isPending || localPayoutsQuery.isPending
   const loadError = localPayoutsQuery.error instanceof Error ? localPayoutsQuery.error.message : null
 
@@ -153,6 +167,7 @@ export function usePayoutsData() {
     allRows,
     payments,
     paymentsByApp,
+    profileNamesById,
     expectedCards,
     livePriceBySymbol,
     case2ManagerIds,

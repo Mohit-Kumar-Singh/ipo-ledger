@@ -31,7 +31,7 @@ import {
   type UnrealizedProfitLine,
   type buildFunderAllottedCards,
 } from '../../lib/expectedProfit'
-import { settledPaidFlags, SETTLED_EPSILON, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
+import { settledPaidFlags, SETTLED_EPSILON, PAYMENT_KIND_LABELS, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
 import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { useCountUp } from '../../lib/useCountUp'
@@ -970,11 +970,6 @@ function SettlementPartyList({
   )
 }
 
-const PAYMENT_KIND_LABELS: Record<SettlementPaymentKind, string> = {
-  holder_to_admin: 'Holder paid you',
-  admin_to_funder: 'You paid the funder',
-  holder_to_funder: 'Holder paid the funder directly',
-}
 
 // One card per IPO — every sold application under it as a row (see
 // SettlementCardView below), separated by dividers instead of each being
