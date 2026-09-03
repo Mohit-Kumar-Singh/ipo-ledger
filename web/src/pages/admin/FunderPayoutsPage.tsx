@@ -150,14 +150,18 @@ export function FunderPayoutsPage() {
               : `${rupees(remaining)} still to send`}
         </p>
 
-        {/* Admin-only bulk settle — for when the whole outstanding balance was
-            cleared in ONE physical transfer, rather than one payment per sold
-            application. Logs an admin_to_funder settlement_payment against each
-            still-outstanding IPO (most-outstanding first) until the entered
-            amount is used up, all sharing the one note. settlement_payments is
-            admin-only at the RLS level anyway, so a funder viewing their own
-            page never sees this. */}
-        {isAdmin && !isSettled && !isOverpaid && remaining > SETTLED_EPSILON && (
+        {/* Admin-only bulk settle — for when a transfer to this funder was
+            made in ONE payment rather than one-per-sold-application. Shown for
+            every funder that has a settlement statement at all (>=1 sold,
+            funded application), not just those still showing an outstanding
+            balance: an admin may still need to record a physical transfer
+            against a funder the ledger already thinks is square. The entered
+            amount fills each application's outstanding room first, then any
+            leftover lands on the largest card (which just shows up as an
+            overpayment on the statement above). settlement_payments is
+            admin-only at the RLS level, so a funder viewing their own page
+            never sees this. */}
+        {isAdmin && myCards.length > 0 && (
           <BulkSettleControl cards={myCards} remaining={remaining} onDone={invalidatePayoutsData} />
         )}
       </div>
@@ -216,13 +220,17 @@ export function FunderPayoutsPage() {
 
 // Settles this funder's entire outstanding balance in one go — the case
 // where the admin sent the whole amount as a single physical transfer
-// instead of app-by-app. Distributes the entered amount greedily across the
-// funder's still-outstanding IPO cards (largest remaining first), logging
-// one admin_to_funder settlement_payment per card via the same audited
-// log_settlement_payment RPC the per-application form uses (atomic payment +
-// paid-flag write, migration 0087). An amount smaller than the full balance
-// leaves the rest outstanding; an amount larger than the balance never
-// overpays — the excess is simply not logged.
+// instead of app-by-app. Distributes the entered amount across the funder's
+// sold applications — each application's still-outstanding room first
+// (largest first), then any leftover onto the largest card — logging one
+// admin_to_funder settlement_payment per card that gets an allocation, via
+// the same audited log_settlement_payment RPC the per-application form uses
+// (atomic payment + paid-flag write, migration 0087).
+//
+// Available for every funder with a settlement statement, even one already
+// square: an amount over the outstanding balance is still recorded in full
+// and simply shows as an overpayment on the statement, rather than being
+// silently dropped — the admin entered a real transfer that happened.
 function BulkSettleControl({
   cards,
   remaining,
@@ -233,7 +241,10 @@ function BulkSettleControl({
   onDone: () => void
 }) {
   const [open, setOpen] = useState(false)
-  const [amount, setAmount] = useState(String(Math.round(remaining)))
+  // Default to the outstanding balance, or blank when nothing is owed (or
+  // the funder's been overpaid) — the admin types the real figure in that
+  // case rather than starting from a 0 or a negative.
+  const [amount, setAmount] = useState(remaining > SETTLED_EPSILON ? String(Math.round(remaining)) : '')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -243,23 +254,35 @@ function BulkSettleControl({
       showToast('Enter an amount greater than 0.', 'warning')
       return
     }
-    const targets = cards
-      .filter((c) => c.remainingToFunder > SETTLED_EPSILON)
-      .sort((a, b) => b.remainingToFunder - a.remainingToFunder)
-    if (targets.length === 0) {
-      showToast('Nothing outstanding to settle.', 'info')
+    const ordered = [...cards].sort((a, b) => b.remainingToFunder - a.remainingToFunder)
+    if (ordered.length === 0) {
+      showToast('No sold applications for this funder yet.', 'info')
       setOpen(false)
       return
     }
 
-    setSaving(true)
+    // Pass 1: fill each application's outstanding room, largest first.
+    // Pass 2: whatever's still unallocated goes onto the largest card (which
+    // then reads as an overpayment on that application). Keyed by index so a
+    // card can pick up an allocation in both passes.
+    const allocByIdx = new Map<number, number>()
     let left = amt
+    ordered.forEach((c, i) => {
+      const room = c.remainingToFunder > SETTLED_EPSILON ? c.remainingToFunder : 0
+      const take = Math.min(left, room)
+      if (take > 0) {
+        allocByIdx.set(i, take)
+        left -= take
+      }
+    })
+    if (left > SETTLED_EPSILON) allocByIdx.set(0, (allocByIdx.get(0) ?? 0) + left)
+
+    setSaving(true)
     let applied = 0
     const touchedIpoIds = new Set<string>()
     try {
-      for (const c of targets) {
-        if (left <= SETTLED_EPSILON) break
-        const alloc = Math.min(left, c.remainingToFunder)
+      for (const [i, alloc] of allocByIdx) {
+        const c = ordered[i]
         const flags = settledPaidFlags(c, c.remainingFromHolder, c.remainingToFunder - alloc)
         const { error } = await supabase.rpc('log_settlement_payment', {
           p_application_id: c.applicationId,
@@ -275,7 +298,6 @@ function BulkSettleControl({
         // 23505 = this exact key already landed; treat as done, same as the
         // per-application form.
         if (error && error.code !== '23505') throw error
-        left -= alloc
         applied += alloc
         touchedIpoIds.add(c.ipoId)
       }
@@ -309,7 +331,7 @@ function BulkSettleControl({
   return (
     <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
       <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-        Records one physical transfer against every outstanding IPO for this funder.
+        Records one physical transfer to this funder, spread across their sold applications.
       </p>
       <div className="flex gap-2">
         <input
