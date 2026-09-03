@@ -6,6 +6,7 @@ import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { nowIst } from '../../lib/ipoStatus'
@@ -723,6 +724,46 @@ function SoldPayoutsSection({
     sendCustomWhatsapp(row.phone_e164, message)
     setNotifying(null)
   }
+
+  // "You got the allotment" congratulations — the message to send right
+  // after marking a row ALLOTTED, NOT the listing-day sell reminder above
+  // (that one carries login details + a how-to-sell PDF and only makes
+  // sense near listing). Ad-hoc wa.me self-send, same as notifyHolder;
+  // reuses the shared ipo_allotted / ipo_allotted_funder template bodies
+  // (lib/notificationTemplates.ts) so this reads identically to the tracked
+  // ALLOTTED notification the applied-list table can send.
+  const listingLabel = (row: AllotmentBoardRow) =>
+    row.listing_date ? formatShortDate(row.listing_date) : 'to be announced'
+
+  function congratulateHolder(row: AllotmentBoardRow) {
+    const message = renderMessageBody('ipo_allotted', [
+      row.holder_name,
+      row.company_name,
+      `${row.lots} lot(s)`,
+      listingLabel(row),
+    ])
+    sendCustomWhatsapp(row.phone_e164, message)
+  }
+
+  function congratulateFunder(row: AllotmentBoardRow) {
+    if (!row.bank_account_phone) return
+    const message = renderMessageBody('ipo_allotted_funder', [
+      row.bank_account_holder_name ?? 'there',
+      row.company_name,
+      row.holder_name,
+      listingLabel(row),
+    ])
+    sendCustomWhatsapp(row.bank_account_phone, message)
+  }
+
+  // A genuine third-party funder to also congratulate — a separate bank/UPI
+  // holder with a reachable number, not the applicant paying from their own
+  // account (namesMatch, same check the sale-split default uses).
+  const hasDistinctFunder = (row: AllotmentBoardRow) =>
+    !!row.bank_account_holder_name &&
+    !!row.bank_account_phone &&
+    !namesMatch(row.bank_account_holder_name, row.holder_name)
+
   return (
     <div className="space-y-3">
       <button
@@ -813,12 +854,31 @@ function SoldPayoutsSection({
                     )}
                     {row.status === 'ALLOTTED' && canMark(row) && (
                       <button
+                        onClick={() => congratulateHolder(row)}
+                        className="link-accent text-xs font-medium"
+                        title="WhatsApp the account holder the 'IPO allotted 🎉' message"
+                      >
+                        Notify holder
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && canMark(row) && hasDistinctFunder(row) && (
+                      <button
+                        onClick={() => congratulateFunder(row)}
+                        className="link-accent text-xs font-medium"
+                        title={`WhatsApp ${row.bank_account_holder_name} the 'IPO allotted 🎉' message (funder)`}
+                      >
+                        Notify funder
+                      </button>
+                    )}
+                    {row.status === 'ALLOTTED' && canMark(row) && (
+                      <button
                         onClick={() => notifyHolder(row)}
                         disabled={notifying === row.application_id}
-                        className="link-accent text-xs font-medium disabled:opacity-50"
-                        title="WhatsApp the account holder — sell reminder + their login details + how-to-sell PDF"
+                        className="text-xs font-medium hover:underline disabled:opacity-50"
+                        style={{ color: 'var(--ink-muted)' }}
+                        title="WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF"
                       >
-                        {notifying === row.application_id ? 'Preparing…' : 'Notify holder'}
+                        {notifying === row.application_id ? 'Preparing…' : 'Sell reminder'}
                       </button>
                     )}
                     {row.status === 'ALLOTTED' && canMark(row) && (
