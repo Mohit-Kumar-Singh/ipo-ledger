@@ -6,6 +6,7 @@ import { useBankAccounts, useDematAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
+import { normalizeIndianPhoneDigits } from '../../lib/phone'
 import type { BankAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 
@@ -438,9 +439,8 @@ function BankForm({
           <input
             required
             inputMode="numeric"
-            maxLength={10}
             value={phoneDigits}
-            onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(e) => setPhoneDigits(normalizeIndianPhoneDigits(e.target.value))}
             className="input"
             placeholder="9876543210"
           />

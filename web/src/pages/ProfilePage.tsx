@@ -14,6 +14,7 @@ import {
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
+import { normalizeIndianPhoneDigits } from '../lib/phone'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SharePortalButton } from '../components/SharePortalButton'
 import { Logo } from '../components/Logo'
@@ -280,9 +281,8 @@ export function ProfilePage() {
                 <input
                   autoFocus
                   inputMode="numeric"
-                  maxLength={10}
                   value={phoneDigits}
-                  onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+                  onChange={(e) => setPhoneDigits(normalizeIndianPhoneDigits(e.target.value))}
                   className="input"
                   placeholder="9876543210"
                 />

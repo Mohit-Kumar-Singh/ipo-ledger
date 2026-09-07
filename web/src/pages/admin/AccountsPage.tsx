@@ -19,6 +19,7 @@ import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { clearDraft, loadDraft, saveDraft } from '../../lib/formDraft'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
+import { normalizeIndianPhoneDigits } from '../../lib/phone'
 import { CopyButton } from '../../components/CopyButton'
 import { Combobox } from '../../components/Combobox'
 import type { DematAccount, Profile } from '../../types/database'
@@ -936,9 +937,8 @@ function AccountForm({
           <input
             required
             inputMode="numeric"
-            maxLength={10}
             value={phoneDigits}
-            onChange={(e) => setPhoneDigits(e.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(e) => setPhoneDigits(normalizeIndianPhoneDigits(e.target.value))}
             className="input"
             placeholder="9876543210"
           />
