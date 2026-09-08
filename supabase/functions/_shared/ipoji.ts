@@ -328,7 +328,48 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
       const parsed = JSON.parse(rawChartData)
       if (typeof parsed.retail === 'number') retailPct = parsed.retail
     } catch {
-      // not JSON or shape changed — retail_issue_size stays null below
+      // not JSON or shape changed — fall through to the text fallbacks below
+    }
+  }
+
+  // Fallback 1: ipoji moved the retail split off the reservation-chart JSON
+  // and now prints it as a plain "Retail Portion: 35%" data point in the
+  // "IPO Details" list (verified live Sep 2026 — Rentomojo, Manipal, etc. had
+  // no #ipo-reservation-chart-data at all, only this). Scan the same
+  // label/value row shapes the registrar + facts loops above already use for
+  // a label mentioning a retail portion/quota/reservation and pull a % out
+  // of its value.
+  if (retailPct == null) {
+    // deno-lint-ignore no-explicit-any
+    const kvNodes = [
+      ...Array.from(doc.querySelectorAll('.detail-list__row')),
+      ...Array.from(doc.querySelectorAll('.facts-row .fact-item')),
+      ...Array.from(doc.querySelectorAll('li, tr')),
+    ] as any[]
+    for (const node of kvNodes) {
+      const text = node.textContent?.replace(/\s+/g, ' ').trim().toLowerCase() ?? ''
+      if (!text.includes('retail')) continue
+      if (!/portion|reservation|quota|allocation|category/.test(text)) continue
+      const m = text.match(/(\d{1,3}(?:\.\d+)?)\s*%/)
+      if (m) {
+        const pct = Number(m[1])
+        if (pct > 0 && pct <= 100) {
+          retailPct = pct
+          break
+        }
+      }
+    }
+  }
+
+  // Fallback 2: last resort — a "Retail Portion 35%" phrase anywhere in the
+  // page body, tightly scoped so it can't drift onto unrelated prose.
+  if (retailPct == null) {
+    const m = (doc.body?.textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .match(/retail\s+portion[^.%]{0,20}?(\d{1,3}(?:\.\d+)?)\s*%/i)
+    if (m) {
+      const pct = Number(m[1])
+      if (pct > 0 && pct <= 100) retailPct = pct
     }
   }
 
