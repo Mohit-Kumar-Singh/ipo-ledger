@@ -13,6 +13,7 @@ const statusBadgeClass: Record<AllotmentBoardRow['status'], string> = {
   APPLIED: 'badge-info',
   ALLOTTED: 'badge-good',
   NOT_ALLOTTED: 'badge-neutral',
+  PARTIALLY_SOLD: 'badge-warning',
   SOLD: 'badge-violet',
 }
 

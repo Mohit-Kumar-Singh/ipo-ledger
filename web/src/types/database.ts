@@ -1,6 +1,12 @@
 export type UserRole = 'admin' | 'member'
 export type ApplicationCategory = 'RETAIL' | 'SHNI' | 'BHNI' | 'SHAREHOLDER' | 'EMPLOYEE'
-export type ApplicationStatus = 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
+// PARTIALLY_SOLD (migration 0095/0096): some — not all — of an allotment's
+// shares have been sold via application_sells tranches; the rest are still
+// held in the demat account. Sits between ALLOTTED and SOLD. While a row is
+// PARTIALLY_SOLD, applications.sell_price stays null (the tranche table is
+// the source of truth); it's set to the weighted-average price only once the
+// last share is sold and the row flips to SOLD.
+export type ApplicationStatus = 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'PARTIALLY_SOLD' | 'SOLD'
 export type Registrar =
   | 'MUFG_INTIME'
   | 'KFINTECH'
@@ -153,6 +159,22 @@ export interface SettlementPayment {
   // second row for the same real payment. Null for any row logged before
   // this existed.
   idempotency_key: string | null
+}
+
+// One partial-sell tranche against an application — migration 0096. Entered
+// in shares (not lots). Triggers keep the parent application's status /
+// sell_price in sync. Written only via the add/update/delete_application_sell
+// RPCs (admin-only, audited into financial_change_log).
+export interface ApplicationSell {
+  id: string
+  application_id: string
+  shares: number
+  price: number
+  sold_on: string
+  note: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface Notification {

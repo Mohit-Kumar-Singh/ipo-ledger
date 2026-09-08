@@ -8,6 +8,7 @@ import {
   CreditCardIcon,
   FileIcon,
   HomeIcon,
+  PackageIcon,
   LawIcon,
   GraphIcon,
   PeopleIcon,
@@ -47,6 +48,7 @@ const links = [
   // from the nav, so a funder had no way to actually reach their own payout
   // page — the route existed but nothing linked to it for them.
   { to: '/payouts', label: 'Payouts', icon: CreditCardIcon },
+  { to: '/holdings', label: 'Open positions', icon: PackageIcon },
   { to: '/shared-accounts', label: 'Shared accounts', icon: PeopleIcon, adminOnly: true },
   // Admin-only roster of every signed-up user and their funder/account-holder
   // links — replaces the old self-service request-and-approve flow on

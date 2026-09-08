@@ -30,6 +30,7 @@ const NotificationsPage = lazy(() =>
   import('./pages/admin/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 )
 const PayoutsPage = lazy(() => import('./pages/admin/PayoutsPage').then((m) => ({ default: m.PayoutsPage })))
+const HoldingsPage = lazy(() => import('./pages/admin/HoldingsPage').then((m) => ({ default: m.HoldingsPage })))
 const FunderPayoutsPage = lazy(() =>
   import('./pages/admin/FunderPayoutsPage').then((m) => ({ default: m.FunderPayoutsPage })),
 )
@@ -68,6 +69,7 @@ function App() {
                       <Route path="/applications" element={<ApplicationsPage />} />
                       <Route path="/allotment" element={<AllotmentBoardPage />} />
                       <Route path="/payouts" element={<PayoutsPage />} />
+                      <Route path="/holdings" element={<HoldingsPage />} />
                       <Route path="/payouts/funder/:funderName" element={<FunderPayoutsPage />} />
                       <Route path="/shared-accounts" element={<SharedAccountsPage />} />
                       <Route path="/notifications" element={<NotificationsPage />} />

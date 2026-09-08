@@ -945,7 +945,7 @@ export function ApplicationsPage() {
                     )
                   }
 
-                  const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', SOLD: 'violet' }[a.status]
+                  const tone = { APPLIED: 'info', ALLOTTED: 'good', NOT_ALLOTTED: 'neutral', PARTIALLY_SOLD: 'warning', SOLD: 'violet' }[a.status]
                   // Owner = admin, or the member whose linked demat this application is on.
                   const isOwner = isAdmin || a.demat_accounts?.linked_user_id === profile?.id
                   // demat_accounts is null for a funder-only row (RLS withholds the full
@@ -1362,6 +1362,7 @@ function StatusBadge({ status }: { status: Application['status'] }) {
     APPLIED: 'badge-info',
     ALLOTTED: 'badge-good',
     NOT_ALLOTTED: 'badge-neutral',
+    PARTIALLY_SOLD: 'badge-warning',
     SOLD: 'badge-violet',
   }
   return <span className={`badge ${classes[status]}`}>{status.replace('_', ' ')}</span>

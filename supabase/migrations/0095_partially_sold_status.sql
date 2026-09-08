@@ -1,0 +1,13 @@
+-- Partial sells (0096) need a status that sits between ALLOTTED and SOLD:
+-- some — but not all — of an allotment's shares have been sold, the rest are
+-- still sitting in the holder's demat account moving with the market.
+--
+-- Added BEFORE 'SOLD' so the enum's natural order stays meaningful for the
+-- allotment board's status sort: APPLIED, ALLOTTED, NOT_ALLOTTED,
+-- PARTIALLY_SOLD, SOLD.
+--
+-- Kept as its own migration (nothing else here) on purpose: Postgres won't
+-- let a newly added enum value be *used* in the same transaction that adds
+-- it, so 0096's triggers — which reference 'PARTIALLY_SOLD' — must land in a
+-- later migration / transaction than this one.
+alter type application_stat add value if not exists 'PARTIALLY_SOLD' before 'SOLD';

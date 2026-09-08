@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
@@ -9,12 +9,15 @@ import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp 
 import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
+import { confirmDialog } from '../../lib/confirmDialog'
+import { summariseSells, trancheSplit } from '../../lib/partialSells'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
+  ApplicationSell,
   ApplicationStatus,
   Notification,
 } from '../../types/database'
@@ -27,6 +30,7 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
   ALLOTTED: 'badge-good',
   NOT_ALLOTTED: 'badge-neutral',
+  PARTIALLY_SOLD: 'badge-warning',
   SOLD: 'badge-violet',
 }
 
@@ -233,9 +237,10 @@ export function AllotmentBoardPage() {
   // specific person).
   const statusOrder: Record<AllotmentBoardRow['status'], number> = {
     ALLOTTED: 0,
-    SOLD: 1,
-    APPLIED: 2,
-    NOT_ALLOTTED: 3,
+    PARTIALLY_SOLD: 1,
+    SOLD: 2,
+    APPLIED: 3,
+    NOT_ALLOTTED: 4,
   }
   const sortedRows = [...rows].sort(
     (a, b) =>
@@ -428,7 +433,9 @@ export function AllotmentBoardPage() {
           mutation anyway. */}
       {!loading && selectedIpoId && (
         <SoldPayoutsSection
-          rows={rows.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')}
+          rows={rows.filter(
+            (r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD' || r.status === 'SOLD',
+          )}
           soldForms={soldForms}
           onOpenForm={openSoldForm}
           onCloseForm={closeSoldForm}
@@ -917,6 +924,10 @@ function SoldPayoutsSection({
                     canAct={canMark(row)}
                   />
                 )}
+
+                {!isEditing && (row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD') && canMark(row) && (
+                  <PartialSells row={row} profitPersonName={profitPersonName} isAdmin={isAdmin} />
+                )}
               </div>
             )
           })}
@@ -1021,6 +1032,252 @@ function SoldForm({
           Cancel
         </button>
       </div>
+    </div>
+  )
+}
+
+// Partial-sell ledger for one allotment (migration 0096). Sold in shares,
+// not lots. Adding/removing a tranche flips the parent row's status
+// (ALLOTTED -> PARTIALLY_SOLD -> SOLD) and, once fully sold, sets
+// applications.sell_price to the weighted average — all in the DB trigger,
+// so the board just needs to refetch. Legacy full "Mark sold" (SoldForm)
+// stays as-is for the sell-it-all-at-once case.
+function PartialSells({
+  row,
+  profitPersonName,
+  isAdmin,
+}: {
+  row: AllotmentBoardRow
+  profitPersonName: string
+  isAdmin: boolean
+}) {
+  const queryClient = useQueryClient()
+  const sellsQuery = useQuery({
+    queryKey: ['applicationSells', row.application_id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('application_sells')
+        .select('*')
+        .eq('application_id', row.application_id)
+        .order('sold_on', { ascending: true })
+        .order('created_at', { ascending: true })
+      if (error) throw error
+      return (data ?? []) as ApplicationSell[]
+    },
+  })
+  const sells = sellsQuery.data ?? []
+  const summary = summariseSells(row, sells)
+
+  const [showAdd, setShowAdd] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [fShares, setFShares] = useState('')
+  const [fPrice, setFPrice] = useState('')
+  const [fDate, setFDate] = useState(() => new Date().toISOString().slice(0, 10))
+  const [busy, setBusy] = useState(false)
+
+  async function refresh() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['applicationSells', row.application_id] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard }),
+    ])
+  }
+
+  function resetForm() {
+    setShowAdd(false)
+    setEditId(null)
+    setFShares('')
+    setFPrice('')
+    setFDate(new Date().toISOString().slice(0, 10))
+  }
+
+  function startEdit(t: ApplicationSell) {
+    setShowAdd(false)
+    setEditId(t.id)
+    setFShares(String(t.shares))
+    setFPrice(String(t.price))
+    setFDate(t.sold_on.slice(0, 10))
+  }
+
+  async function submit() {
+    const sh = Math.round(Number(fShares))
+    const pr = Number(fPrice)
+    if (!Number.isFinite(sh) || sh <= 0 || !Number.isFinite(pr) || pr <= 0) {
+      showToast('Enter a share count and a price, both greater than zero.', 'critical')
+      return
+    }
+    setBusy(true)
+    const { error } = editId
+      ? await supabase.rpc('update_application_sell', {
+          p_id: editId,
+          p_shares: sh,
+          p_price: pr,
+          p_sold_on: fDate,
+          p_note: null,
+        })
+      : await supabase.rpc('add_application_sell', {
+          p_application_id: row.application_id,
+          p_shares: sh,
+          p_price: pr,
+          p_sold_on: fDate,
+          p_note: null,
+        })
+    setBusy(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    resetForm()
+    await refresh()
+  }
+
+  async function remove(t: ApplicationSell) {
+    const ok = await confirmDialog(
+      `Delete the sell of ${t.shares} shares @ ₹${t.price} on ${t.sold_on}?`,
+      { confirmLabel: 'Delete', tone: 'critical' },
+    )
+    if (!ok) return
+    const { error } = await supabase.rpc('delete_application_sell', { p_id: t.id })
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    await refresh()
+  }
+
+  const inputCls = 'input px-2 py-1 text-xs'
+
+  return (
+    <div className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium" style={{ color: 'var(--ink-secondary)' }}>
+          Partial sells
+        </p>
+        <p className="font-mono-ipo text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+          {summary.soldShares.toLocaleString('en-IN')}/{(row.lot_size * row.lots).toLocaleString('en-IN')} sold ·{' '}
+          {summary.remainingShares.toLocaleString('en-IN')} left · realized{' '}
+          <span style={{ color: 'var(--ink-primary)' }}>
+            ₹{Math.round(summary.realizedProceeds).toLocaleString('en-IN')}
+          </span>
+        </p>
+      </div>
+
+      {sellsQuery.isPending && <InlineSpinner />}
+
+      {sells.length > 0 && (
+        <div className="space-y-1">
+          {sells.map((t) => {
+            const split = trancheSplit(t, row, profitPersonName)
+            if (editId === t.id) {
+              return (
+                <div key={t.id} className="flex flex-wrap items-center gap-1.5">
+                  <input
+                    className={inputCls}
+                    style={{ width: '5rem' }}
+                    inputMode="numeric"
+                    value={fShares}
+                    onChange={(e) => setFShares(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="shares"
+                  />
+                  <input
+                    className={inputCls}
+                    style={{ width: '6rem' }}
+                    inputMode="decimal"
+                    value={fPrice}
+                    onChange={(e) => setFPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+                    placeholder="₹/share"
+                  />
+                  <input
+                    type="date"
+                    className={inputCls}
+                    value={fDate}
+                    onChange={(e) => setFDate(e.target.value)}
+                  />
+                  <button onClick={submit} disabled={busy} className="btn-primary px-2 py-1 text-xs disabled:opacity-50">
+                    {busy ? '…' : 'Save'}
+                  </button>
+                  <button onClick={resetForm} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                    Cancel
+                  </button>
+                </div>
+              )
+            }
+            return (
+              <div
+                key={t.id}
+                className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[11px]"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                <span className="font-mono-ipo">
+                  {formatShortDate(t.sold_on)} · {t.shares.toLocaleString('en-IN')} sh @ ₹
+                  {t.price.toLocaleString('en-IN')} ={' '}
+                  <span style={{ color: 'var(--ink-primary)' }}>
+                    ₹{Math.round(split.proceeds).toLocaleString('en-IN')}
+                  </span>
+                  {isAdmin && (
+                    <>
+                      {' '}
+                      · your share{' '}
+                      <span style={{ color: split.profitPersonShare < 0 ? 'var(--critical)' : 'var(--ink-secondary)' }}>
+                        {split.profitPersonShare < 0 ? '−' : ''}₹
+                        {Math.abs(Math.round(split.profitPersonShare)).toLocaleString('en-IN')}
+                      </span>
+                    </>
+                  )}
+                </span>
+                <span className="flex gap-2">
+                  <button onClick={() => startEdit(t)} className="link-accent">
+                    Edit
+                  </button>
+                  <button onClick={() => remove(t)} className="hover:underline" style={{ color: 'var(--critical)' }}>
+                    Delete
+                  </button>
+                </span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {showAdd ? (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <input
+            className={inputCls}
+            style={{ width: '5rem' }}
+            inputMode="numeric"
+            value={fShares}
+            onChange={(e) => setFShares(e.target.value.replace(/[^0-9]/g, ''))}
+            placeholder="shares"
+            autoFocus
+          />
+          <input
+            className={inputCls}
+            style={{ width: '6rem' }}
+            inputMode="decimal"
+            value={fPrice}
+            onChange={(e) => setFPrice(e.target.value.replace(/[^0-9.]/g, ''))}
+            placeholder="₹/share"
+          />
+          <input type="date" className={inputCls} value={fDate} onChange={(e) => setFDate(e.target.value)} />
+          <button onClick={submit} disabled={busy} className="btn-primary px-2 py-1 text-xs disabled:opacity-50">
+            {busy ? '…' : 'Add'}
+          </button>
+          <button onClick={resetForm} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+            Cancel
+          </button>
+        </div>
+      ) : (
+        summary.remainingShares > 0 && (
+          <button
+            onClick={() => {
+              resetForm()
+              setShowAdd(true)
+            }}
+            className="link-accent text-xs font-medium"
+          >
+            + Record a sell
+          </button>
+        )
+      )}
     </div>
   )
 }
