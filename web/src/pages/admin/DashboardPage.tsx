@@ -485,13 +485,14 @@ export function DashboardPage() {
       supabase
         .from('applications')
         .select(
-          'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+          'demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
             'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
             'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+            'application_sells(shares, price)',
         )
-        .in('status', ['ALLOTTED', 'SOLD'])
+        .in('status', ['ALLOTTED', 'SOLD', 'PARTIALLY_SOLD'])
         .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
       // Live remaining-to-funder figures for pendingPayouts below (same
       // ledger PayoutsPage's settlement cards read) — genuinely
@@ -547,7 +548,7 @@ export function DashboardPage() {
     // "N allotted" badge that deep-links into that IPO's allotment board.
     const allottedCountByIpo = new Map<string, number>()
     for (const r of boardRows) {
-      if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+      if (r.status !== 'ALLOTTED' && r.status !== 'SOLD' && r.status !== 'PARTIALLY_SOLD') continue
       allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
     }
     // An IPO drops out of the progress cards once EVERY row of it this
@@ -727,7 +728,7 @@ export function DashboardPage() {
     )
     const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
     const profitCards = buildFunderAllottedCards(
-      profitRowsBase.filter((r) => r.status === 'ALLOTTED'),
+      profitRowsBase.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD'),
       sameIdentity,
       case2ManagerIds,
     ).filter((c) => c.priceHigh)

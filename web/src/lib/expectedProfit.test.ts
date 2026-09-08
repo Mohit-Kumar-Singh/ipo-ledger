@@ -256,3 +256,75 @@ describe('buildUnrealizedProfitLines (PROJECTED — ignores the idle pre-sale co
     expect(liveLine.profit).not.toBe(gmpLine.profit)
   })
 })
+
+// A PARTIALLY_SOLD row must be counted in BOTH builders — realized on the
+// shares actually sold, unrealized on the shares still held. Before this it
+// fell through both filters and its entire profit vanished from the Payouts
+// page until the row went fully SOLD.
+describe('partial sells feed realized + unrealized profit', () => {
+  // 100 allotted shares, ₹10,000 bid (₹100/share). 40 sold @ ₹150, 60 held.
+  function partialRow(over: Partial<ProfitProjectionRow> = {}): ProfitProjectionRow {
+    return row({
+      status: 'PARTIALLY_SOLD',
+      lots: 1,
+      bid_amount: 10_000,
+      ipos: { ...row().ipos!, price_high: 100, lot_size: 100, gmp_notes: 'GMP: (20%)', symbol: 'PART' },
+      application_sells: [{ shares: 40, price: 150 }],
+      ...over,
+    })
+  }
+
+  it('realized line: profit only on the SOLD tranche, bid prorated onto it', () => {
+    const [line] = buildBookedProfitLines([partialRow()], 'Admin')
+    // proceeds 40*150=6000, prorated bid 10000*40/100=4000, gross 2000
+    expect(line.soldAmount).toBe(6000)
+    expect(line.investedAmount).toBe(4000)
+    // holder 25% cut = 500, split_profit_with_funder false -> funder 0
+    expect(line.funderShare).toBe(0)
+    expect(line.profit).toBe(1500)
+    expect(line.lots).toBeCloseTo(0.4, 6)
+  })
+
+  it('unrealized line: projection only on the 60 shares still held', () => {
+    const [line] = buildUnrealizedProfitLines([partialRow()], 'Admin', {})
+    // GMP price 100*1.2=120, on 60 shares = 7200; prorated bid 6000; gross 1200
+    expect(line.investedAmount).toBe(6000)
+    // holder cut 300, standard 50/50 of the 900 remainder -> funder 450, admin 450
+    expect(line.holderCut).toBe(300)
+    expect(line.funderShare).toBe(450)
+    expect(line.profit).toBe(450)
+    expect(line.lots).toBeCloseTo(0.6, 6)
+  })
+
+  it('realized + unrealized cover the whole allotment, no shares double-counted or dropped', () => {
+    const [realized] = buildBookedProfitLines([partialRow()], 'Admin')
+    const [unrealized] = buildUnrealizedProfitLines([partialRow()], 'Admin', {})
+    expect((realized.investedAmount ?? 0) + unrealized.investedAmount).toBe(10_000)
+    expect((realized.lots ?? 0) + unrealized.lots).toBeCloseTo(1, 6)
+  })
+
+  it('once every tranche is sold the row is SOLD and uses the weighted-avg sell_price path', () => {
+    // trigger-equivalent: fully sold -> status SOLD, sell_price = weighted avg
+    const fully = partialRow({
+      status: 'SOLD',
+      sell_price: 150,
+      application_sells: [{ shares: 100, price: 150 }],
+    })
+    expect(buildUnrealizedProfitLines([fully], 'Admin', {})).toHaveLength(0)
+    const [line] = buildBookedProfitLines([fully], 'Admin')
+    expect(line.soldAmount).toBe(150 * 100)
+    expect(line.investedAmount).toBe(10_000)
+  })
+
+  it('a plain ALLOTTED row is unaffected by the refactor (regression)', () => {
+    const allotted = partialRow({ status: 'ALLOTTED', application_sells: null })
+    const [line] = buildUnrealizedProfitLines([allotted], 'Admin', {})
+    // full 100 shares @ GMP 120 = 12000, bid 10000, gross 2000, cut 500,
+    // remainder 1500 split 50/50 -> 750 each
+    expect(line.investedAmount).toBe(10_000)
+    expect(line.holderCut).toBe(500)
+    expect(line.funderShare).toBe(750)
+    expect(line.profit).toBe(750)
+    expect(line.lots).toBe(1)
+  })
+})

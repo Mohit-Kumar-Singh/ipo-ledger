@@ -58,9 +58,10 @@ export function usePayoutsData() {
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+              'application_sells(shares, price)',
           )
-          .eq('status', 'ALLOTTED')
+          .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
           .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
         supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
         supabase
@@ -70,7 +71,8 @@ export function usePayoutsData() {
               'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+              'application_sells(shares, price)',
           ),
         // Names for settlement_payments.created_by, so the per-funder
         // payments log can say who logged each entry. Admin reads every row
@@ -110,7 +112,10 @@ export function usePayoutsData() {
       const symbols = Array.from(
         new Set([
           ...expectedCards.map((c) => c.symbol).filter((s): s is string => !!s),
-          ...allRows.filter((r) => r.status === 'ALLOTTED').map((r) => r.ipos?.symbol).filter((s): s is string => !!s),
+          ...allRows
+            .filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD')
+            .map((r) => r.ipos?.symbol)
+            .filter((s): s is string => !!s),
         ]),
       )
       let livePriceBySymbol: Record<string, number | null> = {}

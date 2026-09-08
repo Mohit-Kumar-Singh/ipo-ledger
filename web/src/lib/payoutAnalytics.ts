@@ -47,6 +47,7 @@ import {
   type ListingCutoff,
 } from './expectedProfit'
 import { buildSettlementCards } from './settlement'
+import { rowSellSplit } from './partialSells'
 import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
 
 export type DateRangePreset = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all_time' | 'custom'
@@ -176,6 +177,7 @@ export interface ApplicationStatusCounts {
   applied: number
   allotted: number
   notAllotted: number
+  partiallySold: number
   sold: number
 }
 
@@ -305,13 +307,20 @@ export function buildPayoutAnalytics(
   const totalProfit = realizedProfit + unrealizedProfit
   const roi = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
 
-  const allottedOrSold = rowsInRange.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')
+  // PARTIALLY_SOLD counts as "has an allotment" everywhere allotment totals
+  // are tallied — every one of those shares WAS allotted, some are just sold
+  // now. The realized/unrealized profit split for such a row is already
+  // handled inside buildBookedProfitLines / buildUnrealizedProfitLines.
+  const isAllotmentStatus = (s: ProfitProjectionRow['status']) =>
+    s === 'ALLOTTED' || s === 'PARTIALLY_SOLD' || s === 'SOLD'
+  const allottedOrSold = rowsInRange.filter((r) => isAllotmentStatus(r.status))
   const totalSharesAllotted = allottedOrSold.reduce((s, r) => s + r.lots * (r.ipos?.lot_size ?? 0), 0)
 
   const statusBreakdown: ApplicationStatusCounts = {
     applied: rowsInRange.filter((r) => r.status === 'APPLIED').length,
     allotted: rowsInRange.filter((r) => r.status === 'ALLOTTED').length,
     notAllotted: rowsInRange.filter((r) => r.status === 'NOT_ALLOTTED').length,
+    partiallySold: rowsInRange.filter((r) => r.status === 'PARTIALLY_SOLD').length,
     sold: rowsInRange.filter((r) => r.status === 'SOLD').length,
   }
 
@@ -323,7 +332,7 @@ export function buildPayoutAnalytics(
     }
     const row = ipoAccountMap.get(r.ipo_id)!
     row.applied += 1
-    if (r.status === 'ALLOTTED' || r.status === 'SOLD') row.allotted += 1
+    if (isAllotmentStatus(r.status)) row.allotted += 1
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const funderName = effectiveFunder(r)?.account_holder_name ?? null
     if (!row.accounts.some((a) => a.holderName === holderName && a.funderName === funderName)) {
@@ -374,9 +383,13 @@ export function buildPayoutAnalytics(
   // --- IPO-wise breakdown ---
   const exitValueByIpo = new Map<string, number>()
   for (const r of allRows) {
-    if (r.status !== 'SOLD' || r.sell_price == null || !r.ipos) continue
-    if (!inRange(r.status_changed_at, range)) continue
-    exitValueByIpo.set(r.ipo_id, (exitValueByIpo.get(r.ipo_id) ?? 0) + r.sell_price * r.ipos.lot_size * r.lots)
+    if (!r.ipos || !inRange(r.status_changed_at, range)) continue
+    if (r.status === 'SOLD' && r.sell_price != null) {
+      exitValueByIpo.set(r.ipo_id, (exitValueByIpo.get(r.ipo_id) ?? 0) + r.sell_price * r.ipos.lot_size * r.lots)
+    } else if (r.status === 'PARTIALLY_SOLD') {
+      // Real cash already taken out on the sold tranches.
+      exitValueByIpo.set(r.ipo_id, (exitValueByIpo.get(r.ipo_id) ?? 0) + rowSellSplit(r).realizedProceeds)
+    }
   }
   const paidByIpo = new Map<string, number>()
   for (const c of settlementCards) {
@@ -501,10 +514,26 @@ export function buildPayoutAnalytics(
   const payoutStatus: PayoutStatusBreakdown = { paid: totalPayout, pending: pendingPayout }
 
   // --- Capital utilization ---
+  // A PARTIALLY_SOLD row's bid_amount is split: the still-held fraction is
+  // still locked, the sold fraction has been released.
+  let lockedCapital = 0
+  let releasedCapital = 0
+  for (const r of rowsInRange) {
+    const bid = r.bid_amount ?? 0
+    if (r.status === 'ALLOTTED') lockedCapital += bid
+    else if (r.status === 'SOLD') releasedCapital += bid
+    else if (r.status === 'PARTIALLY_SOLD') {
+      const { totalShares, soldShares, remainingShares } = rowSellSplit(r)
+      if (totalShares > 0) {
+        lockedCapital += bid * (remainingShares / totalShares)
+        releasedCapital += bid * (soldShares / totalShares)
+      }
+    }
+  }
   const capital: CapitalUtilization = {
     invested: totalInvested,
-    locked: rowsInRange.filter((r) => r.status === 'ALLOTTED').reduce((s, r) => s + (r.bid_amount ?? 0), 0),
-    released: rowsInRange.filter((r) => r.status === 'SOLD').reduce((s, r) => s + (r.bid_amount ?? 0), 0),
+    locked: lockedCapital,
+    released: releasedCapital,
   }
 
   // --- Best/worst ---

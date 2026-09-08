@@ -40,6 +40,27 @@ export function summariseSells(
   }
 }
 
+// Same numbers as summariseSells, but read straight off a
+// ProfitProjectionRow-shaped object (embedded application_sells + ipos) so
+// the profit-line builders in expectedProfit.ts can split a PARTIALLY_SOLD
+// row into its realized (sold) and unrealized (still-held) halves.
+export function rowSellSplit(r: {
+  lots: number
+  ipos: { lot_size: number } | null
+  application_sells?: readonly Pick<ApplicationSell, 'shares' | 'price'>[] | null
+}): { totalShares: number; soldShares: number; remainingShares: number; realizedProceeds: number } {
+  const totalShares = (r.ipos?.lot_size ?? 0) * r.lots
+  const sells = r.application_sells ?? []
+  const soldShares = sells.reduce((s, t) => s + t.shares, 0)
+  const realizedProceeds = sells.reduce((s, t) => s + t.shares * t.price, 0)
+  return {
+    totalShares,
+    soldShares,
+    remainingShares: Math.max(0, totalShares - soldShares),
+    realizedProceeds,
+  }
+}
+
 export interface TrancheSplit {
   proceeds: number
   grossProfit: number

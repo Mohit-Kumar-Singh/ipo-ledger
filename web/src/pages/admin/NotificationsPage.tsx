@@ -548,7 +548,8 @@ export function NotificationsPage() {
               'demat_accounts(holder_name, profit_share_percent, phone_e164, platform, dp_client_id, ' +
               'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id)',
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+              'application_sells(shares, price)',
           )
           // No .or(bank_account_id/funder_override_id not null) filter —
           // that used to drop genuinely self-funded applications (no

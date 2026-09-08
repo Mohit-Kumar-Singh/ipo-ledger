@@ -5,6 +5,7 @@
 // (ProfitProjectionRow) NotificationsPage's admin query already fetches.
 import { parseGmpPercent } from './ipoGmp'
 import { computeProfitSplit } from './profitSplit'
+import { rowSellSplit } from './partialSells'
 
 export type ProfitProjectionRow = {
   // Optional — only queries that need to key a line back to its own
@@ -24,7 +25,7 @@ export type ProfitProjectionRow = {
   // realization-date proxy for SOLD rows in buildBookedProfitLines (this
   // schema has no dedicated "sold on" column; see payoutAnalytics.ts).
   status_changed_at?: string
-  status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'SOLD'
+  status: 'APPLIED' | 'ALLOTTED' | 'NOT_ALLOTTED' | 'PARTIALLY_SOLD' | 'SOLD'
   mandate_status: 'PENDING' | 'APPROVED' | 'CANCELLED'
   ipoji_status_text: string | null
   // Optional — only the Dashboard's profit query selects these (needed to
@@ -34,6 +35,11 @@ export type ProfitProjectionRow = {
   bid_amount?: number | null
   sell_price?: number | null
   split_profit_with_funder?: boolean | null
+  // Partial-sell tranches (migration 0096) — only the queries that need
+  // realized/unrealized profit for a PARTIALLY_SOLD row embed this; every
+  // other caller leaves it undefined and the row is treated as before
+  // (fully pending while ALLOTTED, fully realized once SOLD).
+  application_sells?: { shares: number; price: number }[] | null
   ipos: {
     company_name: string
     open_date: string
@@ -134,7 +140,15 @@ export function buildFunderAllottedCards(
     const funder = effectiveFunder(r)
     const name = funder?.account_holder_name
     if (!name || !r.ipos) continue
-    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD') continue
+    if (r.status !== 'ALLOTTED' && r.status !== 'SOLD' && r.status !== 'PARTIALLY_SOLD') continue
+    // A partially-sold row contributes only its still-HELD shares to this
+    // projection (as a fractional lot) — the sold portion is already a
+    // realized line, not something to project.
+    const effLots =
+      r.status === 'PARTIALLY_SOLD' && r.ipos.lot_size > 0
+        ? rowSellSplit(r).remainingShares / r.ipos.lot_size
+        : r.lots
+    if (effLots <= 0) continue
     if (!cardsByIpo.has(r.ipo_id)) cardsByIpo.set(r.ipo_id, [])
     const cardsForIpo = cardsByIpo.get(r.ipo_id)!
     let card = cardsForIpo.find((c) => sameIdentity(c.funderName, name))
@@ -166,8 +180,8 @@ export function buildFunderAllottedCards(
     const existingHolder = card.holderNames.find((h) => h.name === holder)
     if (!existingHolder) card.holderNames.push({ name: holder, isOverride })
     else if (isOverride) existingHolder.isOverride = true
-    card.totalLots += r.lots
-    card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * r.lots
+    card.totalLots += effLots
+    card._cutWeightedSum += (r.demat_accounts?.profit_share_percent ?? 25) * effLots
     // Only a CASE_2 shared account (its manager IS the funder, migration
     // 0079) legitimately has no third party to split with here — NOT
     // r.split_profit_with_funder, which defaults to false at the DB level
@@ -322,21 +336,51 @@ export function buildBookedProfitLines(
     // profit even if it filtered nothing itself — confirmed as the actual
     // cause of a sold, fully-paid IPO's profit silently vanishing from
     // Payouts the moment it archived.
-    if (r.status !== 'SOLD' || !r.ipos) continue
-    if (r.sell_price == null || r.bid_amount == null) continue
+    if (!r.ipos || r.bid_amount == null) continue
+    if (r.status !== 'SOLD' && r.status !== 'PARTIALLY_SOLD') continue
+
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
+    const splitWithFunder = isCase2 ? false : (r.split_profit_with_funder ?? false)
+
+    // A PARTIALLY_SOLD row has real, realized profit right now on the shares
+    // it HAS sold — priced off the actual tranches (weighted-average price,
+    // bid_amount prorated onto the sold share count), not sell_price (which
+    // the DB trigger deliberately leaves null until the row is fully SOLD).
+    // The still-held remainder is picked up separately by
+    // buildUnrealizedProfitLines. A fully SOLD row keeps the original
+    // sell_price x full-quantity path — identical whether it got there via
+    // the legacy "Mark sold" or by selling every tranche.
+    let sellPricePerShare: number
+    let effLots: number
+    let effLotSize: number
+    let effBid: number
+    if (r.status === 'PARTIALLY_SOLD') {
+      const { totalShares, soldShares, realizedProceeds } = rowSellSplit(r)
+      if (soldShares <= 0 || totalShares <= 0) continue
+      sellPricePerShare = realizedProceeds / soldShares
+      effLots = soldShares
+      effLotSize = 1
+      effBid = r.bid_amount * (soldShares / totalShares)
+    } else {
+      if (r.sell_price == null) continue
+      sellPricePerShare = r.sell_price
+      effLots = r.lots
+      effLotSize = r.ipos.lot_size
+      effBid = r.bid_amount
+    }
+
     const result = computeProfitSplit({
-      sellPricePerShare: r.sell_price,
-      lotSize: r.ipos.lot_size,
-      lots: r.lots,
-      bidAmount: r.bid_amount,
+      sellPricePerShare,
+      lotSize: effLotSize,
+      lots: effLots,
+      bidAmount: effBid,
       cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
       dematHolderName: holderName,
       funderName: funder?.account_holder_name ?? null,
       profitPersonName,
-      splitWithFunder: isCase2 ? false : (r.split_profit_with_funder ?? false),
+      splitWithFunder,
     })
     lines.push({
       ipoName: r.ipos.company_name,
@@ -347,8 +391,10 @@ export function buildBookedProfitLines(
       funderShare: result.funderShare,
       soldAmount: result.totalSoldAmount,
       applicationId: r.id,
-      investedAmount: r.bid_amount,
-      lots: r.lots,
+      investedAmount: effBid,
+      // Kept in whole-lot units so the Payouts dashboard's per-IPO tallies
+      // stay consistent — a partial sale contributes a fractional lot.
+      lots: r.status === 'PARTIALLY_SOLD' ? effLots / r.ipos.lot_size : r.lots,
       realizedAt: r.status_changed_at,
     })
   }
@@ -415,9 +461,20 @@ export function buildUnrealizedProfitLines(
     // caller decision, not baked in here. Practically near-impossible to hit
     // for an ALLOTTED row anyway (auto-archive requires every row on the
     // IPO already resolved), kept only for consistency with that function.
-    if (r.status !== 'ALLOTTED' || !r.ipos) continue
+    if (!r.ipos) continue
+    if (r.status !== 'ALLOTTED' && r.status !== 'PARTIALLY_SOLD') continue
     if (r.bid_amount == null || !r.ipos.price_high) continue
     if (blockedByListingCutoff(r.ipos.listing_date, listingCutoff)) continue
+
+    // For a PARTIALLY_SOLD row, project only the shares still HELD — the
+    // sold ones are already booked by buildBookedProfitLines. Prorate
+    // bid_amount onto that remainder and run the split in raw-share units
+    // (lotSize 1). An ALLOTTED row is the whole allotment, unchanged.
+    const totalShares = r.ipos.lot_size * r.lots
+    const projShares = r.status === 'PARTIALLY_SOLD' ? rowSellSplit(r).remainingShares : totalShares
+    if (projShares <= 0 || totalShares <= 0) continue
+    const projBid = r.bid_amount * (projShares / totalShares)
+
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
@@ -427,9 +484,9 @@ export function buildUnrealizedProfitLines(
     const sellPricePerShare = livePrice != null ? livePrice : r.ipos.price_high * (1 + gmpPercent / 100)
     const result = computeProfitSplit({
       sellPricePerShare,
-      lotSize: r.ipos.lot_size,
-      lots: r.lots,
-      bidAmount: r.bid_amount,
+      lotSize: 1,
+      lots: projShares,
+      bidAmount: projBid,
       cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
       dematHolderName: holderName,
       funderName: funder?.account_holder_name ?? null,
@@ -458,8 +515,8 @@ export function buildUnrealizedProfitLines(
       profit: result.profitPersonShare,
       holderCut: result.isDematHolderSelf ? 0 : result.dematCutAmount,
       funderShare: result.funderShare,
-      investedAmount: r.bid_amount,
-      lots: r.lots,
+      investedAmount: projBid,
+      lots: projShares / r.ipos.lot_size,
       applicationId: r.id,
       allottedAt: r.applied_at,
       priceSource,
