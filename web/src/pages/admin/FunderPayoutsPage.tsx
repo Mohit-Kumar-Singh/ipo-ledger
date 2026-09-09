@@ -67,7 +67,9 @@ export function FunderPayoutsPage() {
   // settled history. Both of those are wrong; the fix is real numbers, not
   // no numbers.
   const allottedRows = (boardQuery.data ?? []).filter((r) => {
-    if (r.status !== 'ALLOTTED') return false
+    // PARTIALLY_SOLD too — the funder's money is still committed to the
+    // shares this position hasn't sold yet.
+    if (r.status !== 'ALLOTTED' && r.status !== 'PARTIALLY_SOLD') return false
     if (!r.bank_account_holder_name) return false
     if (r.bank_account_holder_name === r.holder_name) return false
     return decodedName

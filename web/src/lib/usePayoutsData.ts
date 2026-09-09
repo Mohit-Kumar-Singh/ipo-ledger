@@ -59,7 +59,7 @@ export function usePayoutsData() {
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-              'application_sells(shares, price)',
+              'application_sells(shares, price, sold_on)',
           )
           .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
           .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
@@ -72,7 +72,7 @@ export function usePayoutsData() {
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-              'application_sells(shares, price)',
+              'application_sells(shares, price, sold_on)',
           ),
         // Names for settlement_payments.created_by, so the per-funder
         // payments log can say who logged each entry. Admin reads every row

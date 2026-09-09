@@ -549,7 +549,7 @@ export function NotificationsPage() {
               'application_name, login_email, login_password, app_password, t_pin, logged_in_notes), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-              'application_sells(shares, price)',
+              'application_sells(shares, price, sold_on)',
           )
           // No .or(bank_account_id/funder_override_id not null) filter —
           // that used to drop genuinely self-funded applications (no

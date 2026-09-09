@@ -490,7 +490,7 @@ export function DashboardPage() {
             'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
             'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
             'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-            'application_sells(shares, price)',
+            'application_sells(shares, price, sold_on)',
         )
         .in('status', ['ALLOTTED', 'SOLD', 'PARTIALLY_SOLD'])
         .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
@@ -826,7 +826,7 @@ export function DashboardPage() {
     // to compare against (boardRows is RLS-scoped to their own accounts).
     const decidedIpoIds = new Set(
       boardRows
-        .filter((r) => r.status === 'ALLOTTED' || r.status === 'NOT_ALLOTTED' || r.status === 'SOLD' || (!!r.listing_date && r.listing_date <= todayStr))
+        .filter((r) => r.status === 'ALLOTTED' || r.status === 'NOT_ALLOTTED' || r.status === 'PARTIALLY_SOLD' || r.status === 'SOLD' || (!!r.listing_date && r.listing_date <= todayStr))
         .map((r) => r.ipo_id),
     )
 
@@ -835,7 +835,7 @@ export function DashboardPage() {
       // network query — same source array as ipoProgress/highGmpAlerts above.
       closingToday: allIposData.filter((i) => i.close_date === todayStr).sort((a, b) => a.company_name.localeCompare(b.company_name)),
       pendingMandate: actionablePendingMandate,
-      allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED'),
+      allottedNotSold: boardRows.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD'),
       attribution: computeIpoAttribution(scopedRows, nameById).sort((a, b) => b.openDate.localeCompare(a.openDate)),
       ipoProgress,
       highGmpAlerts,

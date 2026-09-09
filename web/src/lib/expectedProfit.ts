@@ -38,8 +38,10 @@ export type ProfitProjectionRow = {
   // Partial-sell tranches (migration 0096) — only the queries that need
   // realized/unrealized profit for a PARTIALLY_SOLD row embed this; every
   // other caller leaves it undefined and the row is treated as before
-  // (fully pending while ALLOTTED, fully realized once SOLD).
-  application_sells?: { shares: number; price: number }[] | null
+  // (fully pending while ALLOTTED, fully realized once SOLD). sold_on is
+  // optional so a caller that only needs quantities/prices can select the
+  // lighter shape.
+  application_sells?: { shares: number; price: number; sold_on?: string }[] | null
   ipos: {
     company_name: string
     open_date: string
@@ -343,60 +345,66 @@ export function buildBookedProfitLines(
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
     const splitWithFunder = isCase2 ? false : (r.split_profit_with_funder ?? false)
+    const cutPercent = r.demat_accounts?.profit_share_percent ?? 25
+    const totalShares = r.ipos.lot_size * r.lots
+    if (totalShares <= 0) continue
 
-    // A PARTIALLY_SOLD row has real, realized profit right now on the shares
-    // it HAS sold — priced off the actual tranches (weighted-average price,
-    // bid_amount prorated onto the sold share count), not sell_price (which
-    // the DB trigger deliberately leaves null until the row is fully SOLD).
-    // The still-held remainder is picked up separately by
-    // buildUnrealizedProfitLines. A fully SOLD row keeps the original
-    // sell_price x full-quantity path — identical whether it got there via
-    // the legacy "Mark sold" or by selling every tranche.
-    let sellPricePerShare: number
-    let effLots: number
-    let effLotSize: number
-    let effBid: number
-    if (r.status === 'PARTIALLY_SOLD') {
-      const { totalShares, soldShares, realizedProceeds } = rowSellSplit(r)
-      if (soldShares <= 0 || totalShares <= 0) continue
-      sellPricePerShare = realizedProceeds / soldShares
-      effLots = soldShares
-      effLotSize = 1
-      effBid = r.bid_amount * (soldShares / totalShares)
-    } else {
-      if (r.sell_price == null) continue
-      sellPricePerShare = r.sell_price
-      effLots = r.lots
-      effLotSize = r.ipos.lot_size
-      effBid = r.bid_amount
+    // A realized line for a given price / share-count / cost slice of this
+    // application. lotSize is pinned to 1 so `lots` carries a raw share
+    // count — a partial tranche is a fraction of one lot.
+    const pushRealized = (
+      pricePerShare: number,
+      shares: number,
+      bidSlice: number,
+      realizedAt: string | undefined,
+    ) => {
+      const result = computeProfitSplit({
+        sellPricePerShare: pricePerShare,
+        lotSize: 1,
+        lots: shares,
+        bidAmount: bidSlice,
+        cutPercent,
+        dematHolderName: holderName,
+        funderName: funder?.account_holder_name ?? null,
+        profitPersonName,
+        splitWithFunder,
+      })
+      lines.push({
+        ipoName: r.ipos!.company_name,
+        ipoId: r.ipo_id,
+        funderName: funder?.account_holder_name ?? holderName,
+        holderName,
+        profit: result.profitPersonShare,
+        funderShare: result.funderShare,
+        soldAmount: result.totalSoldAmount,
+        applicationId: r.id,
+        investedAmount: bidSlice,
+        // Whole-lot units, so the Payouts dashboard's per-IPO share/lot
+        // tallies stay consistent — a partial tranche is a fractional lot.
+        lots: shares / r.ipos!.lot_size,
+        realizedAt,
+      })
     }
 
-    const result = computeProfitSplit({
-      sellPricePerShare,
-      lotSize: effLotSize,
-      lots: effLots,
-      bidAmount: effBid,
-      cutPercent: r.demat_accounts?.profit_share_percent ?? 25,
-      dematHolderName: holderName,
-      funderName: funder?.account_holder_name ?? null,
-      profitPersonName,
-      splitWithFunder,
-    })
-    lines.push({
-      ipoName: r.ipos.company_name,
-      ipoId: r.ipo_id,
-      funderName: funder?.account_holder_name ?? holderName,
-      holderName,
-      profit: result.profitPersonShare,
-      funderShare: result.funderShare,
-      soldAmount: result.totalSoldAmount,
-      applicationId: r.id,
-      investedAmount: effBid,
-      // Kept in whole-lot units so the Payouts dashboard's per-IPO tallies
-      // stay consistent — a partial sale contributes a fractional lot.
-      lots: r.status === 'PARTIALLY_SOLD' ? effLots / r.ipos.lot_size : r.lots,
-      realizedAt: r.status_changed_at,
-    })
+    if (r.status === 'PARTIALLY_SOLD') {
+      // One realized line PER TRANCHE — each with its own real sell price,
+      // its own prorated slice of bid_amount, and its own sale date. The
+      // still-held remainder is projected separately by
+      // buildUnrealizedProfitLines. sell_price is deliberately null on these
+      // rows (the DB trigger only sets it on a full exit), so this reads the
+      // tranches directly.
+      const sells = r.application_sells ?? []
+      if (sells.length === 0) continue
+      for (const t of sells) {
+        pushRealized(t.price, t.shares, r.bid_amount * (t.shares / totalShares), t.sold_on ?? r.status_changed_at)
+      }
+    } else {
+      // Fully SOLD — one line off the authoritative sell_price (weighted
+      // average when it got there via tranches, the entered price otherwise)
+      // times the whole position. Unchanged from before partial sells.
+      if (r.sell_price == null) continue
+      pushRealized(r.sell_price, totalShares, r.bid_amount, r.status_changed_at)
+    }
   }
   return lines
 }

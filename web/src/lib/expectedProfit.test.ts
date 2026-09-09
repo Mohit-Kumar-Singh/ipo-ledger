@@ -296,6 +296,25 @@ describe('partial sells feed realized + unrealized profit', () => {
     expect(line.lots).toBeCloseTo(0.6, 6)
   })
 
+  it('multiple partial sells: one realized line per tranche, each with its own price/date, summing correctly', () => {
+    const r = partialRow({
+      application_sells: [
+        { shares: 30, price: 120, sold_on: '2026-09-04' },
+        { shares: 20, price: 130, sold_on: '2026-09-06' },
+      ],
+    })
+    const lines = buildBookedProfitLines([r], 'Admin')
+    expect(lines).toHaveLength(2)
+    expect(lines.map((l) => l.realizedAt)).toEqual(['2026-09-04', '2026-09-06'])
+    // tranche 1: proceeds 30*120=3600, bid 10000*30/100=3000, gross 600, cut 150 -> your 450
+    // tranche 2: proceeds 20*130=2600, bid 10000*20/100=2000, gross 600, cut 150 -> your 450
+    expect(lines[0].soldAmount).toBe(3600)
+    expect(lines[1].soldAmount).toBe(2600)
+    expect(lines.reduce((s, l) => s + l.profit, 0)).toBe(900)
+    expect(lines.reduce((s, l) => s + (l.investedAmount ?? 0), 0)).toBe(5000) // 50 of 100 shares sold
+    expect(lines.reduce((s, l) => s + (l.lots ?? 0), 0)).toBeCloseTo(0.5, 6)
+  })
+
   it('realized + unrealized cover the whole allotment, no shares double-counted or dropped', () => {
     const [realized] = buildBookedProfitLines([partialRow()], 'Admin')
     const [unrealized] = buildUnrealizedProfitLines([partialRow()], 'Admin', {})

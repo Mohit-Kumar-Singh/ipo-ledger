@@ -408,7 +408,10 @@ export function PayoutsPage() {
   // they cover.
   const expectedByHolder = groupExpectedByHolder(
     buildUnrealizedProfitLines(
-      allRows.filter((r) => r.status === 'ALLOTTED'),
+      // PARTIALLY_SOLD included: buildUnrealizedProfitLines projects only the
+      // still-held remainder of such a row (the sold tranches are realized,
+      // not projected), so this stays "expected on shares still held".
+      allRows.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD'),
       profitPersonName,
       livePriceBySymbol,
       case2ManagerIds,
