@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   allottedShares,
   buildHoldings,
+  partialPayoutMessage,
+  partialPositionSplit,
   soldSharesByApplication,
   summariseSells,
   trancheSplit,
@@ -80,7 +82,7 @@ describe('allottedShares', () => {
 })
 
 describe('trancheSplit', () => {
-  it('prorates bid cost onto the tranche and splits the realized profit', () => {
+  it('prorates bid cost onto the tranche and splits the realized profit 3 ways', () => {
     // 333 allotted, bid 30000 -> per-share cost ~90.09. Sell 111 @ 150.
     const t = trancheSplit({ shares: 111, price: 150 }, boardRow(), 'Me')
     expect(t.proceeds).toBe(16650)
@@ -88,7 +90,15 @@ describe('trancheSplit', () => {
     expect(t.grossProfit).toBeCloseTo(6650, 6)
     // holder is not the profit person and not self-funded -> gets 25% cut
     expect(t.holderCut).toBeCloseTo(1662.5, 4)
-    // splitWithFunder false on this row -> funder gets nothing
+    // The partial-sell path has no "split with funder" checkbox, so a real
+    // distinct funder always takes half the remainder — the fixture's idle
+    // split_profit_with_funder=false is deliberately ignored here.
+    expect(t.funderShare).toBeCloseTo(2493.75, 4) // (6650 - 1662.5) / 2
+    expect(t.profitPersonShare).toBeCloseTo(2493.75, 4)
+  })
+
+  it('a CASE_2 shared account still keeps the whole remainder (no third party to split with)', () => {
+    const t = trancheSplit({ shares: 111, price: 150 }, boardRow({ account_manager_case_type: 'CASE_2' }), 'Me')
     expect(t.funderShare).toBe(0)
     expect(t.profitPersonShare).toBeCloseTo(6650 - 1662.5, 4)
   })
@@ -97,6 +107,84 @@ describe('trancheSplit', () => {
     const t = trancheSplit({ shares: 111, price: 50 }, boardRow(), 'Me')
     expect(t.grossProfit).toBeLessThan(0)
     expect(t.holderCut).toBe(0)
+  })
+})
+
+describe('partialPositionSplit — the ESDS / Tejas regression', () => {
+  // 1 lot × 34 = 34 shares, ₹14,586 invested (₹429/share). Tejas holds,
+  // Avinash funds, 25% cut. 24 sold @ ₹853; 10 held; live price ₹1,542.10.
+  const esds = boardRow({
+    company_name: 'ESDS Software Solution',
+    holder_name: 'Tejas',
+    bank_account_holder_name: 'Avinash sir',
+    bank_account_phone: '+919000000002',
+    lots: 1,
+    lot_size: 34,
+    bid_amount: 14586,
+    status: 'PARTIALLY_SOLD',
+    profit_share_percent: 25,
+  })
+  const sells = [{ shares: 24, price: 853 }]
+
+  it('splits BOTH legs with the funder, and the totals come to ₹7,990 each / ₹5,327 holder cut', () => {
+    const s = partialPositionSplit(esds, sells, 1542.1, 'Me')
+
+    // Realized (24 sold): proceeds 20,472 − cost 10,296 = gross 10,176
+    expect(s.realized.proceeds).toBe(20472)
+    expect(s.realized.costBasis).toBeCloseTo(10296, 6)
+    expect(s.realized.grossProfit).toBeCloseTo(10176, 6)
+    expect(s.realized.holderCut).toBeCloseTo(2544, 6) // 25%
+    expect(s.realized.funderShare).toBeCloseTo(3816, 6) // (10176 − 2544) / 2
+    expect(s.realized.yourShare).toBeCloseTo(3816, 6)
+
+    // Held (10 @ 1,542.10): value 15,421 − cost 4,290 = gross 11,131
+    expect(s.held).not.toBeNull()
+    expect(s.held!.proceeds).toBeCloseTo(15421, 6)
+    expect(s.held!.costBasis).toBeCloseTo(4290, 6)
+    expect(s.held!.grossProfit).toBeCloseTo(11131, 6)
+    expect(s.held!.holderCut).toBeCloseTo(2782.75, 6)
+    expect(s.held!.funderShare).toBeCloseTo(4174.125, 4)
+    expect(s.held!.yourShare).toBeCloseTo(4174.125, 4)
+
+    // Totals — the numbers the WhatsApp message quotes.
+    expect(s.holderCutTotal).toBeCloseTo(5326.75, 4)
+    expect(s.funderShareTotal).toBeCloseTo(7990.125, 4)
+    expect(s.yourShareTotal).toBeCloseTo(7990.125, 4)
+    expect(Math.round(s.yourShareTotal)).toBe(7990)
+  })
+
+  it('with no live price, only the realized leg is returned (held is null)', () => {
+    const s = partialPositionSplit(esds, sells, null, 'Me')
+    expect(s.held).toBeNull()
+    expect(s.yourShareTotal).toBeCloseTo(3816, 6) // realized only
+    expect(s.heldShares).toBe(10)
+  })
+
+  it('a CASE_2 shared account keeps the whole remainder on both legs', () => {
+    const s = partialPositionSplit(boardRow({ ...esds, account_manager_case_type: 'CASE_2' }), sells, 1542.1, 'Me')
+    expect(s.realized.funderShare).toBe(0)
+    expect(s.held!.funderShare).toBe(0)
+    expect(s.realized.yourShare).toBeCloseTo(7632, 6) // 10176 − 2544, kept whole
+  })
+
+  it('the holder WhatsApp message shows the booked cut and the estimated rest', () => {
+    const s = partialPositionSplit(esds, sells, 1542.1, 'Me')
+    const msg = partialPayoutMessage(esds, s, 'cut')
+    expect(msg).toContain('24 of 34 shares sold')
+    expect(msg).toContain('Your 25% cut: ₹2,544')
+    expect(msg).toContain('send back ₹10,296 + ₹7,632 = ₹17,928')
+    expect(msg).toContain('~₹2,783') // held-leg cut estimate
+    expect(msg).toContain('~₹5,327 total')
+  })
+
+  it('the funder WhatsApp message shows their booked half and expected half', () => {
+    const s = partialPositionSplit(esds, sells, 1542.1, 'Me')
+    const msg = partialPayoutMessage(esds, s, 'share')
+    expect(msg).toContain('your half = ₹3,816')
+    expect(msg).toContain('₹10,296 principal + ₹3,816 = ₹14,112 to you now')
+    expect(msg).toContain('~₹4,174')
+    expect(msg).toContain('₹3,816 booked')
+    expect(msg).toContain('~₹7,990 total')
   })
 })
 

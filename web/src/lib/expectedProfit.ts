@@ -351,7 +351,22 @@ export function buildBookedProfitLines(
     const funder = effectiveFunder(r)
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const isCase2 = !!r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)
-    const splitWithFunder = isCase2 ? false : (r.split_profit_with_funder ?? false)
+    // Whether this sale's profit remainder is split 50/50 with a genuine
+    // third-party funder.
+    //  • Sold via TRANCHES (application_sells rows) — a PARTIALLY_SOLD row,
+    //    or one that reached SOLD entirely through "Record a sell": that
+    //    path has NO "Split 50/50 with funder" checkbox, so
+    //    r.split_profit_with_funder here is only ever its idle DB default
+    //    (false, migration 0023), never a real choice. Use the same rule
+    //    the unrealized projection already uses — split with a real funder
+    //    unless this is a CASE_2 shared account (whose manager IS the
+    //    funder). Keeps the sold tranches and the still-held remainder of
+    //    one position on the SAME split, instead of the tranches silently
+    //    keeping the funder's half.
+    //  • Sold the old way (the "Mark sold" form, no tranche rows): that
+    //    form does record a real decision — honour the column.
+    const hasTranches = (r.application_sells ?? []).length > 0
+    const splitWithFunder = isCase2 ? false : hasTranches ? true : (r.split_profit_with_funder ?? false)
     const cutPercent = r.demat_accounts?.profit_share_percent ?? 25
     const totalShares = r.ipos.lot_size * r.lots
     if (totalShares <= 0) continue

@@ -274,14 +274,16 @@ describe('partial sells feed realized + unrealized profit', () => {
     })
   }
 
-  it('realized line: profit only on the SOLD tranche, bid prorated onto it', () => {
+  it('realized line: profit only on the SOLD tranche, bid prorated, split with the funder', () => {
     const [line] = buildBookedProfitLines([partialRow()], 'Admin')
     // proceeds 40*150=6000, prorated bid 10000*40/100=4000, gross 2000
     expect(line.soldAmount).toBe(6000)
     expect(line.investedAmount).toBe(4000)
-    // holder 25% cut = 500, split_profit_with_funder false -> funder 0
-    expect(line.funderShare).toBe(0)
-    expect(line.profit).toBe(1500)
+    // holder 25% cut = 500, remainder 1500 → the "Record a sell" path has no
+    // split checkbox, so a real funder always gets their half of a tranche
+    // (the idle split_profit_with_funder=false on the fixture is ignored).
+    expect(line.funderShare).toBe(750)
+    expect(line.profit).toBe(750)
     expect(line.lots).toBeCloseTo(0.4, 6)
   })
 
@@ -306,11 +308,12 @@ describe('partial sells feed realized + unrealized profit', () => {
     const lines = buildBookedProfitLines([r], 'Admin')
     expect(lines).toHaveLength(2)
     expect(lines.map((l) => l.realizedAt)).toEqual(['2026-09-04', '2026-09-06'])
-    // tranche 1: proceeds 30*120=3600, bid 10000*30/100=3000, gross 600, cut 150 -> your 450
-    // tranche 2: proceeds 20*130=2600, bid 10000*20/100=2000, gross 600, cut 150 -> your 450
+    // tranche 1: proceeds 30*120=3600, bid 3000, gross 600, cut 150, rem 450 -> funder 225, you 225
+    // tranche 2: proceeds 20*130=2600, bid 2000, gross 600, cut 150, rem 450 -> funder 225, you 225
     expect(lines[0].soldAmount).toBe(3600)
     expect(lines[1].soldAmount).toBe(2600)
-    expect(lines.reduce((s, l) => s + l.profit, 0)).toBe(900)
+    expect(lines.reduce((s, l) => s + l.profit, 0)).toBe(450)
+    expect(lines.reduce((s, l) => s + l.funderShare, 0)).toBe(450)
     expect(lines.reduce((s, l) => s + (l.investedAmount ?? 0), 0)).toBe(5000) // 50 of 100 shares sold
     expect(lines.reduce((s, l) => s + (l.lots ?? 0), 0)).toBeCloseTo(0.5, 6)
   })

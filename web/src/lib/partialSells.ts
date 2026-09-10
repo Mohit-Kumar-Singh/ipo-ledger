@@ -11,7 +11,7 @@
 //     live market price (and only the live price — no GMP/issue-price
 //     fallback, by product decision: an unpriced holding shows its share
 //     count but no rupee value rather than a guess).
-import { computeProfitSplit, effectiveSplitWithFunder } from './profitSplit'
+import { computeProfitSplit, effectiveSplitWithFunder, namesMatch } from './profitSplit'
 import type { AllotmentBoardRow, ApplicationSell } from '../types/database'
 
 export function allottedShares(row: { lot_size: number; lots: number }): number {
@@ -73,6 +73,14 @@ export interface TrancheSplit {
 // bid_amount is prorated by (tranche shares / total allotted shares); the
 // split itself then runs through computeProfitSplit with lotSize=1 so
 // `lots` carries the raw share count.
+//
+// splitWithFunder is forced ON (unless CASE_2, which effectiveSplitWithFunder
+// still overrides) rather than read off row.split_profit_with_funder: the
+// "Record a sell" flow has no checkbox to set that column, so it is only
+// ever its idle DB default here. A real third-party funder shares every
+// leg of a partial exit — the sold tranches AND the still-held remainder —
+// same rule buildUnrealizedProfitLines uses for the remainder. See the
+// matching comment in expectedProfit.ts's buildBookedProfitLines.
 export function trancheSplit(
   tranche: Pick<ApplicationSell, 'shares' | 'price'>,
   row: AllotmentBoardRow,
@@ -90,7 +98,7 @@ export function trancheSplit(
     dematHolderName: row.holder_name,
     funderName: row.bank_account_holder_name,
     profitPersonName,
-    splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
+    splitWithFunder: effectiveSplitWithFunder(row, true),
   })
   return {
     proceeds: res.totalSoldAmount,
@@ -99,6 +107,184 @@ export function trancheSplit(
     funderShare: res.funderShare,
     profitPersonShare: res.profitPersonShare,
   }
+}
+
+// ── The whole partial position, both legs, one shape ─────────────────────
+// Realized = every recorded tranche (real, owed now). Held = whatever is
+// left, valued at the live market price (an ESTIMATE — no GMP/issue-price
+// fallback, same product rule as buildHoldings). Both legs run the SAME
+// 3-way split (holder cut %, then the remainder 50/50 with a real funder
+// unless CASE_2) so the sold tranches and the still-held shares never
+// disagree — matches buildBookedProfitLines (tranche path) +
+// buildUnrealizedProfitLines exactly, so this card and the Payouts page
+// show the same numbers.
+export interface PartialPositionLeg {
+  shares: number
+  proceeds: number // realized: Σ shares×price; held: shares × livePrice
+  costBasis: number // bid_amount prorated onto these shares
+  grossProfit: number
+  holderCut: number
+  funderShare: number
+  yourShare: number
+}
+export interface PartialPositionSplit {
+  totalShares: number
+  soldShares: number
+  heldShares: number
+  perShareBid: number
+  livePricePerShare: number | null
+  realized: PartialPositionLeg
+  // null when nothing is still held, or no live price is available for it.
+  held: PartialPositionLeg | null
+  holderCutTotal: number
+  funderShareTotal: number
+  yourShareTotal: number
+  holderName: string
+  funderName: string | null
+  hasRealFunder: boolean
+}
+
+const emptyLeg = (shares = 0): PartialPositionLeg => ({
+  shares,
+  proceeds: 0,
+  costBasis: 0,
+  grossProfit: 0,
+  holderCut: 0,
+  funderShare: 0,
+  yourShare: 0,
+})
+
+export function partialPositionSplit(
+  row: AllotmentBoardRow,
+  sells: readonly Pick<ApplicationSell, 'shares' | 'price'>[],
+  livePricePerShare: number | null,
+  profitPersonName: string,
+): PartialPositionSplit {
+  const totalShares = allottedShares(row)
+  const soldShares = sells.reduce((s, t) => s + t.shares, 0)
+  const heldShares = Math.max(0, totalShares - soldShares)
+  const perShareBid = row.bid_amount != null && totalShares > 0 ? row.bid_amount / totalShares : 0
+  const hasRealFunder =
+    !!row.bank_account_holder_name && !namesMatch(row.bank_account_holder_name, row.holder_name)
+
+  // Realized leg — summed per tranche, so a tranche that individually sold
+  // at a loss is handled by computeProfitSplit's own loss rule rather than
+  // being averaged away.
+  const realized = emptyLeg(soldShares)
+  for (const t of sells) {
+    const ts = trancheSplit(t, row, profitPersonName)
+    realized.proceeds += ts.proceeds
+    realized.costBasis += perShareBid * t.shares
+    realized.grossProfit += ts.grossProfit
+    realized.holderCut += ts.holderCut
+    realized.funderShare += ts.funderShare
+    realized.yourShare += ts.profitPersonShare
+  }
+
+  let held: PartialPositionLeg | null = null
+  if (heldShares > 0 && livePricePerShare != null && row.bid_amount != null) {
+    const res = computeProfitSplit({
+      sellPricePerShare: livePricePerShare,
+      lotSize: 1,
+      lots: heldShares,
+      bidAmount: perShareBid * heldShares,
+      cutPercent: row.profit_share_percent ?? 25,
+      dematHolderName: row.holder_name,
+      funderName: row.bank_account_holder_name,
+      profitPersonName,
+      splitWithFunder: effectiveSplitWithFunder(row, true),
+    })
+    held = {
+      shares: heldShares,
+      proceeds: res.totalSoldAmount,
+      costBasis: perShareBid * heldShares,
+      grossProfit: res.grossProfit,
+      holderCut: res.isDematHolderSelf ? 0 : res.dematCutAmount,
+      funderShare: res.funderShare,
+      yourShare: res.profitPersonShare,
+    }
+  }
+
+  return {
+    totalShares,
+    soldShares,
+    heldShares,
+    perShareBid,
+    livePricePerShare,
+    realized,
+    held,
+    holderCutTotal: realized.holderCut + (held?.holderCut ?? 0),
+    funderShareTotal: realized.funderShare + (held?.funderShare ?? 0),
+    yourShareTotal: realized.yourShare + (held?.yourShare ?? 0),
+    holderName: row.holder_name,
+    funderName: row.bank_account_holder_name,
+    hasRealFunder,
+  }
+}
+
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
+const inrApprox = (n: number) => `~₹${Math.round(n).toLocaleString('en-IN')}`
+
+// The WhatsApp text for a PARTIALLY_SOLD position. 'cut' goes to the demat
+// holder (what they keep, what they send back on the sold shares); 'share'
+// goes to the funder (their share of the sold shares now, plus the estimate
+// on what's still held). The held leg is always labelled an estimate — it
+// moves with the market and only settles on sale.
+export function partialPayoutMessage(
+  row: AllotmentBoardRow,
+  split: PartialPositionSplit,
+  kind: 'cut' | 'share',
+): string {
+  const { realized: R, held: H, soldShares, heldShares, totalShares } = split
+  const cutPct = row.profit_share_percent ?? 25
+  const head =
+    `*${row.company_name}* — ${soldShares.toLocaleString('en-IN')} of ${totalShares.toLocaleString('en-IN')} shares sold` +
+    (heldShares > 0 ? `, ${heldShares.toLocaleString('en-IN')} still held.` : '.')
+
+  if (kind === 'cut') {
+    // Holder keeps their cut; sends back principal + both other parties' shares.
+    const sendBack = R.costBasis + R.grossProfit - R.holderCut
+    const lines = [
+      head,
+      '',
+      `*Sold (${soldShares.toLocaleString('en-IN')} sh):*`,
+      `• Sold for ${inr(R.proceeds)}  ·  funded ${inr(R.costBasis)}  ·  profit ${inr(R.grossProfit)}`,
+      `• Your ${cutPct}% cut: ${inr(R.holderCut)}  (keep this)`,
+      `→ send back ${inr(R.costBasis)} + ${inr(R.grossProfit - R.holderCut)} = ${inr(sendBack)}`,
+    ]
+    if (H) {
+      lines.push(
+        '',
+        `*Still held (${heldShares.toLocaleString('en-IN')} sh, at ${inrApprox(split.livePricePerShare ?? 0)}/sh — estimate, settles on sale):*`,
+        `• Value ${inrApprox(H.proceeds)}  ·  funded ${inr(H.costBasis)}  ·  profit ${inrApprox(H.grossProfit)}`,
+        `• Your ${cutPct}% cut: ${inrApprox(H.holderCut)}`,
+        '',
+        `Your cut: ${inr(R.holderCut)} booked, ${inrApprox(H.holderCut)} more once the rest sells (${inrApprox(split.holderCutTotal)} total).`,
+      )
+    }
+    return lines.join('\n')
+  }
+
+  // kind === 'share' — to the funder.
+  const nowToFunder = R.costBasis + R.funderShare
+  const lines = [
+    head,
+    '',
+    `*Sold (${soldShares.toLocaleString('en-IN')} sh):*`,
+    `• After ${split.holderName}'s ${cutPct}% (${inr(R.grossProfit)} − ${inr(R.holderCut)} = ${inr(R.grossProfit - R.holderCut)}), your half = ${inr(R.funderShare)}`,
+    `→ ${inr(R.costBasis)} principal + ${inr(R.funderShare)} = ${inr(nowToFunder)} to you now`,
+  ]
+  if (H) {
+    lines.push(
+      '',
+      `*Still held (${heldShares.toLocaleString('en-IN')} sh, at ${inrApprox(split.livePricePerShare ?? 0)}/sh — estimate):*`,
+      `• After ${split.holderName}'s ${cutPct}% (${inrApprox(H.grossProfit)} − ${inrApprox(H.holderCut)} = ${inrApprox(H.grossProfit - H.holderCut)}), your half ${inrApprox(H.funderShare)}`,
+      `→ settles when sold`,
+      '',
+      `Your share: ${inr(R.funderShare)} booked, ${inrApprox(H.funderShare)} expected (${inrApprox(split.funderShareTotal)} total).`,
+    )
+  }
+  return lines.join('\n')
 }
 
 // Sum of a set of tranches' realized shares by application id — the shape

@@ -10,7 +10,7 @@ import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { confirmDialog } from '../../lib/confirmDialog'
-import { summariseSells, trancheSplit } from '../../lib/partialSells'
+import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessage } from '../../lib/partialSells'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
@@ -1068,6 +1068,28 @@ function PartialSells({
   const sells = sellsQuery.data ?? []
   const summary = summariseSells(row, sells)
 
+  // Live price for the still-held shares — only needed once something has
+  // actually been sold (a PARTIALLY_SOLD row). Resolves the IPO's ticker
+  // then hits the same fetch-stock-price function every other live-valued
+  // view uses; its own 15-min cache absorbs repeat loads.
+  const livePriceQuery = useQuery({
+    queryKey: ['partialLivePrice', row.ipo_id],
+    enabled: row.status === 'PARTIALLY_SOLD' && summary.remainingShares > 0,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async () => {
+      const { data: ipo } = await supabase.from('ipos').select('symbol').eq('id', row.ipo_id).single()
+      const symbol = ipo?.symbol
+      if (!symbol) return null
+      const { data } = await supabase.functions.invoke<{
+        prices?: Record<string, { price: number | null; stale: boolean }>
+      }>('fetch-stock-price', { body: { symbols: [symbol] } })
+      return data?.prices?.[symbol]?.price ?? null
+    },
+  })
+  const livePrice = livePriceQuery.data ?? null
+  const positionSplit =
+    sells.length > 0 ? partialPositionSplit(row, sells, livePrice, profitPersonName) : null
+
   const [showAdd, setShowAdd] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [fShares, setFShares] = useState('')
@@ -1238,6 +1260,10 @@ function PartialSells({
         </div>
       )}
 
+      {positionSplit && isAdmin && (
+        <PartialPositionBreakdown row={row} split={positionSplit} livePending={livePriceQuery.isFetching} />
+      )}
+
       {showAdd ? (
         <div className="flex flex-wrap items-center gap-1.5">
           <input
@@ -1278,6 +1304,88 @@ function PartialSells({
           </button>
         )
       )}
+    </div>
+  )
+}
+
+// The whole partial position at a glance — what's booked on the sold
+// tranches, what's estimated on the still-held shares at the live price,
+// and the per-person totals — plus the two WhatsApp buttons. The held leg
+// is only shown once a price has resolved; until then just the realized
+// (real, owed-now) half is shown.
+function PartialPositionBreakdown({
+  row,
+  split,
+  livePending,
+}: {
+  row: AllotmentBoardRow
+  split: ReturnType<typeof partialPositionSplit>
+  livePending: boolean
+}) {
+  const { realized: R, held: H } = split
+  const cutPct = row.profit_share_percent ?? 25
+  const money = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
+  const approx = (n: number) => `~₹${Math.round(n).toLocaleString('en-IN')}`
+  const cutContact = payoutCutContact(row)
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg border p-2.5 text-[11px]" style={{ borderColor: 'var(--border)' }}>
+      <div className="grid grid-cols-[auto_1fr_1fr_1fr] gap-x-3 gap-y-1" style={{ color: 'var(--ink-muted)' }}>
+        <span />
+        <span className="text-right font-medium">{split.holderName} ({cutPct}%)</span>
+        <span className="text-right font-medium">
+          {split.hasRealFunder ? split.funderName : '—'}
+        </span>
+        <span className="text-right font-medium">You</span>
+
+        <span>Sold {R.shares.toLocaleString('en-IN')} sh</span>
+        <span className="text-right font-mono-ipo" style={{ color: 'var(--ink-secondary)' }}>{money(R.holderCut)}</span>
+        <span className="text-right font-mono-ipo" style={{ color: 'var(--ink-secondary)' }}>{money(R.funderShare)}</span>
+        <span className="text-right font-mono-ipo" style={{ color: R.yourShare < 0 ? 'var(--critical)' : 'var(--ink-primary)' }}>{money(R.yourShare)}</span>
+
+        {H ? (
+          <>
+            <span>Held {H.shares.toLocaleString('en-IN')} sh · est.</span>
+            <span className="text-right font-mono-ipo">{approx(H.holderCut)}</span>
+            <span className="text-right font-mono-ipo">{approx(H.funderShare)}</span>
+            <span className="text-right font-mono-ipo">{approx(H.yourShare)}</span>
+          </>
+        ) : split.heldShares > 0 ? (
+          <span className="col-span-4" style={{ color: 'var(--ink-muted)' }}>
+            {livePending ? 'Fetching live price for the held shares…' : `${split.heldShares.toLocaleString('en-IN')} sh still held — no live price, settles on sale.`}
+          </span>
+        ) : null}
+
+        {H && (
+          <>
+            <span className="pt-1 font-medium" style={{ color: 'var(--ink-secondary)' }}>Total</span>
+            <span className="pt-1 text-right font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)' }}>
+              {money(R.holderCut)} + {approx(H.holderCut)} = {approx(split.holderCutTotal)}
+            </span>
+            <span className="pt-1 text-right font-mono-ipo font-medium" style={{ color: 'var(--ink-secondary)' }}>{approx(split.funderShareTotal)}</span>
+            <span className="pt-1 text-right font-mono-ipo font-medium" style={{ color: 'var(--ink-primary)' }}>{approx(split.yourShareTotal)}</span>
+          </>
+        )}
+      </div>
+
+      <div className="flex flex-wrap gap-3 border-t pt-1.5" style={{ borderColor: 'var(--border)' }}>
+        {cutContact.phone && (
+          <button
+            onClick={() => sendCustomWhatsapp(cutContact.phone!, partialPayoutMessage(row, split, 'cut'))}
+            className="link-accent inline-flex items-center gap-1 font-medium"
+          >
+            <CommentDiscussionIcon size={13} /> {cutContact.name} (cut)
+          </button>
+        )}
+        {split.hasRealFunder && row.bank_account_phone && (
+          <button
+            onClick={() => sendCustomWhatsapp(row.bank_account_phone!, partialPayoutMessage(row, split, 'share'))}
+            className="link-accent inline-flex items-center gap-1 font-medium"
+          >
+            <CommentDiscussionIcon size={13} /> {split.funderName} (share)
+          </button>
+        )}
+      </div>
     </div>
   )
 }
