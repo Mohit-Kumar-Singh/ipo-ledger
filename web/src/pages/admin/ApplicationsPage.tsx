@@ -13,6 +13,7 @@ import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
+import { withRetry } from '../../lib/networkRetry'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
@@ -385,7 +386,7 @@ export function ApplicationsPage() {
     // archives itself immediately instead of waiting for the nightly sweep.
     const affectedIpoIds = Array.from(new Set(applications.filter((a) => ids.includes(a.id)).map((a) => a.ipo_id)))
     const results = await Promise.all(
-      ids.map((id) => supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).eq('id', id))
+      ids.map((id) => withRetry(() => supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).eq('id', id)))
     )
     setBulkMarking(false)
     const failed = results.filter((r) => r.error).length
@@ -1539,16 +1540,18 @@ function NewApplicationForm({
 
     const results = await Promise.all(
       dematIds.map(async (id) => {
-        const { error } = await supabase.from('applications').insert({
-          ipo_id: ipoId,
-          demat_id: id,
-          bank_account_id: bankAccountId || null,
-          funder_override_id: funderOverrideId || null,
-          category,
-          lots: Number(lots),
-          bid_amount: bidAmount || null,
-          is_backdated: autoBackdated,
-        })
+        const { error } = await withRetry(() =>
+          supabase.from('applications').insert({
+            ipo_id: ipoId,
+            demat_id: id,
+            bank_account_id: bankAccountId || null,
+            funder_override_id: funderOverrideId || null,
+            category,
+            lots: Number(lots),
+            bid_amount: bidAmount || null,
+            is_backdated: autoBackdated,
+          }),
+        )
         return { id, error }
       }),
     )

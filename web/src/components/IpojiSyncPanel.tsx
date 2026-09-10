@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { InfoTooltip } from './HoverCard'
 import { supabase } from '../lib/supabase'
+import { withRetry, isTransientNetworkError } from '../lib/networkRetry'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Fully automatic across every page — confirmed live (5-page real run).
@@ -825,15 +826,22 @@ function matchCandidateName(ipojiName: string, candidates: ImportCandidate[]): I
 // upsert-by-name pattern IposPage's own "Import from ipoji.com" flow uses,
 // so a sync-created IPO is indistinguishable from one added the normal way.
 async function fetchAndCreateMissingIpo(ipojiName: string): Promise<Ipo | null> {
-  const { data: listData } = await supabase.functions.invoke<{ candidates?: ImportCandidate[] }>('import-ipos', {
-    body: { mode: 'list', source: 'current' },
-  })
+  // withRetry: on a phone (weak signal / Low Power Mode) these Edge Function
+  // calls can transiently fail with "TypeError: Load failed" — one retry
+  // pass keeps a whole Preview from collapsing on a single dropped request.
+  const { data: listData } = await withRetry(() =>
+    supabase.functions.invoke<{ candidates?: ImportCandidate[] }>('import-ipos', {
+      body: { mode: 'list', source: 'current' },
+    }),
+  )
   const candidate = matchCandidateName(ipojiName, listData?.candidates ?? [])
   if (!candidate || !candidate.open_date || !candidate.close_date || !candidate.lot_size) return null
 
-  const { data: detail } = await supabase.functions.invoke<ImportDetail>('import-ipos', {
-    body: { mode: 'detail', detail_url: candidate.source_url },
-  })
+  const { data: detail } = await withRetry(() =>
+    supabase.functions.invoke<ImportDetail>('import-ipos', {
+      body: { mode: 'detail', detail_url: candidate.source_url },
+    }),
+  )
 
   const payload = {
     company_name: candidate.company_name.trim().replace(/\s+/g, ' '),
@@ -1117,10 +1125,14 @@ export function IpojiSyncPanel({
   async function handleImport() {
     setSubmitting(true)
     setErrorDetails([])
-    const [createOutcomes, mandateOutcomes, syncExistingOutcomes] = await Promise.all([
-      Promise.all(
+    // The three groups run one after another, not all at once — a phone on a
+    // weak connection drops fewer requests when it isn't juggling a dozen
+    // sockets at the same instant. Each individual write is also wrapped in
+    // withRetry (transient "Load failed" only — never a real DB error).
+    const createOutcomes = await Promise.all(
         toCreate.map(async (r) => {
-          const { data: inserted, error } = await supabase
+          const { data: inserted, error } = await withRetry(() =>
+            supabase
             .from('applications')
             .insert({
               ipo_id: r.matchedIpo!.id,
@@ -1155,18 +1167,21 @@ export function IpojiSyncPanel({
               ipoji_status_text: r.status,
             })
             .select('id')
-            .single()
+            .single(),
+          )
           // A guessed non-PENDING mandate on a brand-new row goes through
           // the same ipoji-sourced RPC as an update — best-effort, doesn't
           // fail the whole row if this second call errors (the application
           // itself was still created fine; worst case its mandate just
           // stays PENDING for a manual look).
           if (!error && inserted && r.guessedMandate !== 'PENDING') {
-            const { error: mandateErr } = await supabase.rpc('set_mandate_status_from_ipoji', {
-              p_application_id: inserted.id,
-              p_status: r.guessedMandate,
-              p_status_text: r.status,
-            })
+            const { error: mandateErr } = await withRetry(() =>
+              supabase.rpc('set_mandate_status_from_ipoji', {
+                p_application_id: inserted.id,
+                p_status: r.guessedMandate,
+                p_status_text: r.status,
+              }),
+            )
             if (mandateErr) {
               console.error('ipoji sync — initial mandate set failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, mandateErr)
             }
@@ -1188,22 +1203,24 @@ export function IpojiSyncPanel({
             error: alreadyExists ? null : error,
           }
         }),
-      ),
-      Promise.all(
+    )
+    const mandateOutcomes = await Promise.all(
         toUpdateMandate.map(async (r) => {
           // Not set_mandate_status — this is a guess derived from ipoji's
           // status text, not a reviewed human decision, so it shouldn't
           // show up as "marked by <the admin running the sync>" in the UI.
-          const { error } = await supabase.rpc('set_mandate_status_from_ipoji', {
-            p_application_id: r.existingId,
-            p_status: r.guessedMandate,
-            p_status_text: r.status,
-          })
+          const { error } = await withRetry(() =>
+            supabase.rpc('set_mandate_status_from_ipoji', {
+              p_application_id: r.existingId,
+              p_status: r.guessedMandate,
+              p_status_text: r.status,
+            }),
+          )
           if (error) console.error('ipoji sync — mandate update failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (mandate)`, error }
         }),
-      ),
-      Promise.all(
+    )
+    const syncExistingOutcomes = await Promise.all(
         toSyncExisting.map(async (r) => {
           const patch: Record<string, unknown> = { imported_from_ipoji: true }
           if (!r.existingAppNumber && r.appNumber) patch.ipoji_app_number = r.appNumber
@@ -1212,25 +1229,34 @@ export function IpojiSyncPanel({
           // UPI-derived bank_account_id, which is exactly what a re-sync
           // is supposed to be able to correct.
           if (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId) patch.bank_account_id = r.matchedBank.id
-          const { error } = await supabase.from('applications').update(patch).eq('id', r.existingId)
+          const { error } = await withRetry(() => supabase.from('applications').update(patch).eq('id', r.existingId))
           if (error) console.error('ipoji sync — existing-row sync failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (synced)`, error }
         }),
-      ),
-    ])
+    )
     setSubmitting(false)
     const created = createOutcomes.filter((o) => o.ok && !o.skipped).length
     const alreadyExisted = createOutcomes.filter((o) => o.skipped).length
     const mandateUpdated = mandateOutcomes.filter((o) => o.ok).length
     const appNumbersBackfilled = syncExistingOutcomes.filter((o) => o.ok).length
-    const failed =
-      createOutcomes.filter((o) => !o.ok).length +
-      mandateOutcomes.filter((o) => !o.ok).length +
-      syncExistingOutcomes.filter((o) => !o.ok).length
+    const allFailures = [...createOutcomes, ...mandateOutcomes, ...syncExistingOutcomes].filter((o) => !o.ok)
+    const failed = allFailures.length
+    // Every failure was a dropped connection, not a server rejection —
+    // nothing was written for these rows, and simply importing again once
+    // back on a stable connection will pick them up (an insert that did
+    // land but lost its response is caught as 23505 → "already existed").
+    const allTransient = failed > 0 && allFailures.every((o) => isTransientNetworkError(o.error))
     setErrorDetails(
-      [...createOutcomes, ...mandateOutcomes, ...syncExistingOutcomes]
-        .filter((o) => !o.ok)
-        .map((o) => `${o.label}: ${o.error?.message ?? 'unknown error'}`),
+      (allTransient
+        ? [
+            'Network error — the connection dropped mid-request (common on a phone with weak signal or Low Power Mode). Nothing was saved for the rows below. Reconnect and import the same paste again — already-saved rows are skipped automatically.',
+          ]
+        : []
+      ).concat(
+        allFailures.map((o) =>
+          `${o.label}: ${isTransientNetworkError(o.error) ? 'connection dropped — not saved, safe to retry' : (o.error?.message ?? 'unknown error')}`,
+        ),
+      ),
     )
     setResult({ created, alreadyExisted, mandateUpdated, appNumbersBackfilled, failed })
     setRows(null)
