@@ -42,6 +42,22 @@ export function nowIst(): { dateStr: string; hour: number; minute: number } {
   return { dateStr: ist.toISOString().slice(0, 10), hour: ist.getUTCHours(), minute: ist.getUTCMinutes() }
 }
 
+// The IST calendar date (yyyy-mm-dd) an absolute instant falls on. A value
+// that is ALREADY a bare yyyy-mm-dd (e.g. a Postgres `date` like
+// application_sells.sold_on) is returned unchanged — it has no time-of-day
+// to shift. A full ISO timestamp (a `timestamptz` such as applied_at /
+// status_changed_at / settlement_payments.created_at, serialized as UTC by
+// PostgREST) is shifted into IST before its date is read, so an event at
+// 01:00 IST on the 1st is classified as the 1st, not still the previous
+// UTC day. Same +5:30 fixed-offset trick as nowIst(). Anything that buckets
+// money events by month (see lib/payoutDate.ts) must go through this so the
+// bucket boundaries — themselves built from an IST "today" — line up.
+export function istDateOf(iso: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS)
+  return shifted.toISOString().slice(0, 10)
+}
+
 // The exact instant (epoch ms) a given IST wall-clock time lands on a given
 // calendar date — e.g. istTimeMs('2026-08-14', 16, 50) is 4:50pm IST on the
 // 14th, in UTC epoch ms. Exported so anything rendering a continuous/

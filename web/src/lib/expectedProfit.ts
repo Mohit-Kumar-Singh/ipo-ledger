@@ -6,6 +6,7 @@
 import { parseGmpPercent } from './ipoGmp'
 import { computeProfitSplit } from './profitSplit'
 import { rowSellSplit } from './partialSells'
+import { latestSoldOn } from './payoutDate'
 
 export type ProfitProjectionRow = {
   // Optional — only queries that need to key a line back to its own
@@ -46,6 +47,12 @@ export type ProfitProjectionRow = {
     company_name: string
     open_date: string
     close_date: string
+    // The IPO's real allotment day — the canonical month-classification
+    // date for an ALLOTTED / PARTIALLY_SOLD row (see lib/payoutDate.ts).
+    // Optional: only queries that feed the Payouts analytics dashboard
+    // select it; every other caller of this shape leaves it undefined and
+    // the classification falls back to status_changed_at / applied_at.
+    allotment_date?: string | null
     listing_date: string | null
     price_high: number | null
     lot_size: number
@@ -401,9 +408,13 @@ export function buildBookedProfitLines(
     } else {
       // Fully SOLD — one line off the authoritative sell_price (weighted
       // average when it got there via tranches, the entered price otherwise)
-      // times the whole position. Unchanged from before partial sells.
+      // times the whole position. Dated by the actual last sale
+      // (application_sells.sold_on) when tranches exist, so a row sold via
+      // partials then a final exit lands in the month it really sold rather
+      // than whenever its status column was last touched; status_changed_at
+      // is the fallback for older rows with no tranche history.
       if (r.sell_price == null) continue
-      pushRealized(r.sell_price, totalShares, r.bid_amount, r.status_changed_at)
+      pushRealized(r.sell_price, totalShares, r.bid_amount, latestSoldOn(r) ?? r.status_changed_at)
     }
   }
   return lines
@@ -526,7 +537,14 @@ export function buildUnrealizedProfitLines(
       investedAmount: projBid,
       lots: projShares / r.ipos.lot_size,
       applicationId: r.id,
-      allottedAt: r.applied_at,
+      // The allotment BUSINESS date, not applied_at — an open position
+      // belongs to the month it was allotted, which for an IPO whose
+      // application window straddled a month boundary is a different month
+      // from when the bid was submitted. ipos.allotment_date is the real,
+      // per-IPO allotment day; status_changed_at (when the admin marked the
+      // row) then applied_at are fallbacks. Consumed only by the Payouts
+      // dashboard's month filter (lib/payoutAnalytics.ts).
+      allottedAt: r.ipos.allotment_date ?? r.status_changed_at ?? r.applied_at,
       priceSource,
     })
   }

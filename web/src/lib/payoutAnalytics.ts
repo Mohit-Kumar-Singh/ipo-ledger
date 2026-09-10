@@ -6,11 +6,21 @@
 // range, and fold the existing per-application lines into the shapes a
 // dashboard needs (KPIs, a trend series, IPO/account breakdowns).
 //
+// WHICH MONTH a row belongs to is decided in ONE place — payoutClassificationDate
+// (lib/payoutDate.ts): the allotment date for an open position, the sale
+// date for a realized one, never applied_at (an IPO's application window
+// routinely straddles a month boundary). Every payout figure below —
+// profit, the invested amount behind it, the per-IPO/per-account/capital
+// breakdown, allotment & sale counts — is bucketed by that and only that,
+// so one application is attributed to exactly one month. applied_at is used
+// for one thing only: the "applications submitted" activity count.
+//
 // Authoritative sources, so every figure here is traceable:
-//   Investment       = applications.bid_amount (auto-computed at apply time
-//                       from lots x ipos.lot_size x ipos.price_high — never
-//                       hand-entered, see NewApplicationForm)
-//   Allotted shares   = applications.lots x ipos.lot_size, for ALLOTTED/SOLD rows
+//   Investment       = the investedAmount of the realized + unrealized
+//                       profit lines in range (each derived from
+//                       applications.bid_amount; prorated per tranche for a
+//                       partial sell) — so ROI is always profit / this
+//   Allotted shares   = applications.lots x ipos.lot_size, for ALLOTTED/PARTIALLY_SOLD/SOLD rows
 //   Realized profit   = buildBookedProfitLines (SOLD rows, applications.sell_price)
 //   Unrealized profit = buildUnrealizedProfitLines (ALLOTTED rows, live price
 //                       if the IPO's listed and its symbol is on file,
@@ -48,6 +58,8 @@ import {
 } from './expectedProfit'
 import { buildSettlementCards } from './settlement'
 import { rowSellSplit } from './partialSells'
+import { payoutClassificationDate, isAllotmentStatus } from './payoutDate'
+import { istDateOf } from './ipoStatus'
 import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
 
 export type DateRangePreset = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all_time' | 'custom'
@@ -98,9 +110,16 @@ export function resolveDateRange(preset: DateRangePreset, todayIstStr: string, c
   }
 }
 
+// range.start / range.end are IST calendar dates (resolveDateRange builds
+// them off an IST "today"), so the value being tested is normalised to its
+// IST calendar date too — a bare yyyy-mm-dd passes straight through, a
+// timestamptz is shifted +5:30 before its date is read. Without this an
+// event just after IST midnight (e.g. a sale logged at 01:00 IST on the 1st,
+// stored as 19:30Z on the last of the previous month) fell into the wrong
+// month.
 function inRange(dateIso: string | null | undefined, range: DateRange): boolean {
   if (!dateIso) return false
-  const d = dateIso.slice(0, 10)
+  const d = istDateOf(dateIso)
   return d >= range.start && d <= range.end
 }
 
@@ -169,10 +188,10 @@ export interface BestWorstIpo {
 }
 
 // Application counts by status within range — backs the "Applications" KPI
-// tile's hover panel. Counted straight off rowsInRange (same set
-// totalApplications sums), not re-derived from ipoBreakdown, since
-// ipoBreakdown only covers rows that produced a realized/unrealized profit
-// line (i.e. ALLOTTED/SOLD) and would silently drop APPLIED/NOT_ALLOTTED.
+// tile's hover panel. applied / notAllotted are counted by submission date
+// (applicationsInRange); allotted / partiallySold / sold by the money-event
+// date (payoutRowsInRange) — see buildPayoutAnalytics. Not re-derived from
+// ipoBreakdown, which only covers rows that produced a profit line.
 export interface ApplicationStatusCounts {
   applied: number
   allotted: number
@@ -216,9 +235,12 @@ export interface PayoutAnalytics {
   ipoAccountBreakdown: IpoAccountRow[]
 }
 
-// Compact "which account, funded by whom" view per IPO in range — applied
-// vs allotted counts plus the distinct (holder, funder) pairs, for a
-// simpler summary than the full IpoBreakdownRow table.
+// Compact "which account, funded by whom" view, one row per IPO that had an
+// allotment or sale in the selected month. `allotted` is how many of that
+// IPO's applications got a money event in the month; `applied` is the IPO's
+// total non-cancelled application count (whole cycle — a short IPO belongs
+// entirely to its allotment month). `accounts` is the distinct (holder,
+// funder) pairs behind the allotted rows.
 export interface IpoAccountRow {
   ipoId: string
   ipoName: string
@@ -241,12 +263,31 @@ export function buildPayoutAnalytics(
   // pre-open indicative price, not a real one.
   listingCutoff?: ListingCutoff,
 ): PayoutAnalytics {
-  // "Applications during the period" is anchored to applied_at throughout —
-  // the one date every application unambiguously has, present from the
-  // moment it's created (see the module comment: this schema has no
-  // separate "sold on" column, only status_changed_at, which only exists
-  // once a status change has actually happened).
-  const rowsInRange = allRows.filter((r) => inRange(r.applied_at, range) && r.mandate_status !== 'CANCELLED')
+  // TWO scopes, one date rule (lib/payoutDate.ts):
+  //
+  //  • applicationsInRange — every non-cancelled application whose bid was
+  //    SUBMITTED in the period (applied_at). This is an activity figure:
+  //    "how many applications did I put in, how much did I commit" — it is
+  //    NOT a payout figure and never drives profit, capital, or the
+  //    per-IPO/per-account breakdown. Kept only for the "applications
+  //    submitted" count.
+  //
+  //  • payoutRowsInRange — rows with a real money event (allotment or sale)
+  //    whose payoutClassificationDate falls in the period. THIS is what
+  //    every payout figure below is built from. An application's whole
+  //    lifecycle is attributed to exactly one month — the month of its most
+  //    recent money event — so an IPO whose application window straddled a
+  //    month boundary (ESDS opened 28 Aug, allotted 2 Sep) can never show up
+  //    in both This month and Last month.
+  const applicationsInRange = allRows.filter(
+    (r) => inRange(r.applied_at, range) && r.mandate_status !== 'CANCELLED',
+  )
+  const payoutRowsInRange = allRows.filter(
+    (r) =>
+      isAllotmentStatus(r.status) &&
+      r.mandate_status !== 'CANCELLED' &&
+      inRange(payoutClassificationDate(r), range),
+  )
 
   const realizedLines = buildBookedProfitLines(allRows, profitPersonName, case2ManagerIds).filter((l) =>
     inRange(l.realizedAt, range),
@@ -261,7 +302,15 @@ export function buildPayoutAnalytics(
 
   const realizedProfit = realizedLines.reduce((s, l) => s + l.profit, 0)
   const unrealizedProfit = unrealizedLines.reduce((s, l) => s + l.profit, 0)
-  const totalInvested = rowsInRange.reduce((s, r) => s + (r.bid_amount ?? 0), 0)
+  // The capital actually behind the profit in this period — summed from the
+  // very same realized + unrealized lines, so ROI (totalProfit / this) is
+  // always self-consistent and a PARTIALLY_SOLD row contributes only its
+  // prorated slice on each side rather than its whole bid twice. (The old
+  // definition summed bid_amount over applied_at-in-range rows, a different
+  // set of applications from the ones the profit came from.)
+  const totalInvested =
+    realizedLines.reduce((s, l) => s + (l.investedAmount ?? 0), 0) +
+    unrealizedLines.reduce((s, l) => s + l.investedAmount, 0)
 
   const paymentsInRange = payments.filter((p) => inRange(p.created_at, range))
   const totalPayout = paymentsInRange.reduce((s, p) => s + p.amount, 0)
@@ -307,32 +356,49 @@ export function buildPayoutAnalytics(
   const totalProfit = realizedProfit + unrealizedProfit
   const roi = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0
 
-  // PARTIALLY_SOLD counts as "has an allotment" everywhere allotment totals
-  // are tallied — every one of those shares WAS allotted, some are just sold
-  // now. The realized/unrealized profit split for such a row is already
-  // handled inside buildBookedProfitLines / buildUnrealizedProfitLines.
-  const isAllotmentStatus = (s: ProfitProjectionRow['status']) =>
-    s === 'ALLOTTED' || s === 'PARTIALLY_SOLD' || s === 'SOLD'
-  const allottedOrSold = rowsInRange.filter((r) => isAllotmentStatus(r.status))
+  // Every allotment-status row attributed to this period (isAllotmentStatus
+  // + payoutClassificationDate in range — see payoutRowsInRange). Drives
+  // every "shares allotted" / capital / per-IPO figure below.
+  const allottedOrSold = payoutRowsInRange
   const totalSharesAllotted = allottedOrSold.reduce((s, r) => s + r.lots * (r.ipos?.lot_size ?? 0), 0)
 
+  // applied / notAllotted are activity counts (applicationsInRange, by
+  // applied_at). allotted / partiallySold / sold are payout counts
+  // (payoutRowsInRange, by the money-event date) — an application applied
+  // for last month but allotted this month is counted as an allotment THIS
+  // month and nowhere last month.
   const statusBreakdown: ApplicationStatusCounts = {
-    applied: rowsInRange.filter((r) => r.status === 'APPLIED').length,
-    allotted: rowsInRange.filter((r) => r.status === 'ALLOTTED').length,
-    notAllotted: rowsInRange.filter((r) => r.status === 'NOT_ALLOTTED').length,
-    partiallySold: rowsInRange.filter((r) => r.status === 'PARTIALLY_SOLD').length,
-    sold: rowsInRange.filter((r) => r.status === 'SOLD').length,
+    applied: applicationsInRange.filter((r) => r.status === 'APPLIED').length,
+    allotted: payoutRowsInRange.filter((r) => r.status === 'ALLOTTED').length,
+    notAllotted: applicationsInRange.filter((r) => r.status === 'NOT_ALLOTTED').length,
+    partiallySold: payoutRowsInRange.filter((r) => r.status === 'PARTIALLY_SOLD').length,
+    sold: payoutRowsInRange.filter((r) => r.status === 'SOLD').length,
   }
 
+  // Total non-cancelled applications per IPO across the whole data set — the
+  // "/ N" denominator on each IPO card. Once an IPO is attributed to a month
+  // (it had >=1 allotment/sale that month) its full applied count is shown,
+  // not a range-sliced one, since the whole short IPO cycle now belongs to
+  // that one month.
+  const appliedCountByIpo = new Map<string, number>()
+  for (const r of allRows) {
+    if (r.mandate_status === 'CANCELLED') continue
+    appliedCountByIpo.set(r.ipo_id, (appliedCountByIpo.get(r.ipo_id) ?? 0) + 1)
+  }
   const ipoAccountMap = new Map<string, IpoAccountRow>()
-  for (const r of rowsInRange) {
+  for (const r of payoutRowsInRange) {
     if (!r.ipos) continue
     if (!ipoAccountMap.has(r.ipo_id)) {
-      ipoAccountMap.set(r.ipo_id, { ipoId: r.ipo_id, ipoName: r.ipos.company_name, applied: 0, allotted: 0, accounts: [] })
+      ipoAccountMap.set(r.ipo_id, {
+        ipoId: r.ipo_id,
+        ipoName: r.ipos.company_name,
+        applied: appliedCountByIpo.get(r.ipo_id) ?? 0,
+        allotted: 0,
+        accounts: [],
+      })
     }
     const row = ipoAccountMap.get(r.ipo_id)!
-    row.applied += 1
-    if (isAllotmentStatus(r.status)) row.allotted += 1
+    row.allotted += 1
     const holderName = r.demat_accounts?.holder_name ?? 'Unknown'
     const funderName = effectiveFunder(r)?.account_holder_name ?? null
     if (!row.accounts.some((a) => a.holderName === holderName && a.funderName === funderName)) {
@@ -376,14 +442,17 @@ export function buildPayoutAnalytics(
     pendingPayout,
     roi,
     successfulIpoCount,
-    totalApplications: rowsInRange.length,
+    totalApplications: applicationsInRange.length,
     totalSharesAllotted,
   }
 
   // --- IPO-wise breakdown ---
+  // Keyed by the same money-event date as everything else (was
+  // status_changed_at, which drifts from the real sale date once a row is
+  // sold via tranches then a final exit).
   const exitValueByIpo = new Map<string, number>()
   for (const r of allRows) {
-    if (!r.ipos || !inRange(r.status_changed_at, range)) continue
+    if (!r.ipos || !inRange(payoutClassificationDate(r), range)) continue
     if (r.status === 'SOLD' && r.sell_price != null) {
       exitValueByIpo.set(r.ipo_id, (exitValueByIpo.get(r.ipo_id) ?? 0) + r.sell_price * r.ipos.lot_size * r.lots)
     } else if (r.status === 'PARTIALLY_SOLD') {
@@ -475,17 +544,24 @@ export function buildPayoutAnalytics(
   }
   const profitByDay = new Map<string, number>()
   for (const l of realizedLines) {
-    const d = (l.realizedAt ?? '').slice(0, 10)
+    const d = istDateOf(l.realizedAt ?? '2000-01-01')
     profitByDay.set(d, (profitByDay.get(d) ?? 0) + l.profit)
   }
+  // Investment placed on the money-event day, from the same realized +
+  // unrealized lines totalInvested sums — so the cumulative investment line
+  // ends exactly at totalInvested and matches the profit it sits under.
   const investmentByDay = new Map<string, number>()
-  for (const r of rowsInRange) {
-    const d = r.applied_at.slice(0, 10)
-    investmentByDay.set(d, (investmentByDay.get(d) ?? 0) + (r.bid_amount ?? 0))
+  for (const l of realizedLines) {
+    const d = istDateOf(l.realizedAt ?? '2000-01-01')
+    investmentByDay.set(d, (investmentByDay.get(d) ?? 0) + (l.investedAmount ?? 0))
+  }
+  for (const l of unrealizedLines) {
+    const d = istDateOf(l.allottedAt ?? '2000-01-01')
+    investmentByDay.set(d, (investmentByDay.get(d) ?? 0) + l.investedAmount)
   }
   const payoutByDay = new Map<string, number>()
   for (const p of paymentsInRange) {
-    const d = p.created_at.slice(0, 10)
+    const d = istDateOf(p.created_at)
     payoutByDay.set(d, (payoutByDay.get(d) ?? 0) + p.amount)
   }
   let cumProfit = 0
@@ -518,7 +594,7 @@ export function buildPayoutAnalytics(
   // still locked, the sold fraction has been released.
   let lockedCapital = 0
   let releasedCapital = 0
-  for (const r of rowsInRange) {
+  for (const r of payoutRowsInRange) {
     const bid = r.bid_amount ?? 0
     if (r.status === 'ALLOTTED') lockedCapital += bid
     else if (r.status === 'SOLD') releasedCapital += bid

@@ -55,7 +55,7 @@ export function usePayoutsData() {
           .from('applications')
           .select(
             'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
@@ -68,7 +68,7 @@ export function usePayoutsData() {
           .from('applications')
           .select(
             'id, demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
               'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
               'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
               'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
