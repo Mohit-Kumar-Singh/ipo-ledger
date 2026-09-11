@@ -5,6 +5,7 @@ import { AttributionChart, AttributionLegend } from './AttributionChart'
 import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
+import { estimateLotProfit } from '../lib/lotProfitEstimate'
 
 // One self-contained card per IPO — company name/GMP/subscription/dates up
 // top, the attribution donut and the progress ring side by side below.
@@ -20,6 +21,8 @@ export function IpoDashboardCard({
   allotmentDate,
   listingDate,
   gmpNotes,
+  priceHigh,
+  lotSize,
   subscriptionRate,
   applied,
   totalActive,
@@ -30,6 +33,7 @@ export function IpoDashboardCard({
   allottedCount,
   ipoId,
   shareholderIssueSize,
+  retailIssueSize,
   parentCompanyName,
   parentPrice,
 }: {
@@ -39,6 +43,12 @@ export function IpoDashboardCard({
   allotmentDate: string | null
   listingDate: string | null
   gmpNotes: string | null
+  // Feed estimateLotProfit alongside gmpNotes — both null-able, since a
+  // brand-new IPO can have a price band before ipoji ever reports a GMP
+  // number, or vice versa. The estimate line below only renders once both
+  // are actually available.
+  priceHigh: number | null
+  lotSize: number
   subscriptionRate: string | null
   applied: number
   totalActive: number
@@ -56,12 +66,22 @@ export function IpoDashboardCard({
   // the admin-side equivalent. parentPrice is looked up by the page (one
   // batched fetch-stock-price call per load), not fetched per card.
   shareholderIssueSize?: string | null
+  // The IPO's own retail issue size (e.g. "₹120 Cr") — shown inside the
+  // progress gauge, under the applied/left ratio. See IpoProgressGauge.
+  retailIssueSize?: string | null
   parentCompanyName?: string | null
   parentPrice?: { price: number | null; stale: boolean }
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const canExpand = accountsLeft > 0
   const cardRef = useRef<HTMLDivElement>(null)
+  // Indicative only — not tied to any real application/account, just "if you
+  // fund one lot of this and it gets allotted, at today's GMP." Real per-
+  // application numbers (once something's actually allotted) live in the
+  // "Expected profit" stat tile instead, which uses each account's own
+  // profit_share_percent and an actual bid_amount rather than this generic
+  // default cut and a single hypothetical lot.
+  const lotEstimate = estimateLotProfit(priceHigh, lotSize, gmpNotes)
 
   // Fires a 5s confetti shower, anchored at this card's own position (not
   // full-viewport-centered), every time this card mounts (page load/reload)
@@ -113,6 +133,15 @@ export function IpoDashboardCard({
       <div className="flex items-center gap-2">
         <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
           {companyName}
+          {/* Est. profit for 1 lot if it gets allotted (see
+              estimateLotProfit) — inline right after the name rather than
+              its own row, and no explanatory tooltip; the full breakdown
+              this used to show on hover was more than this card needed. */}
+          {lotEstimate && (
+            <span className="ml-1 text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
+              (₹{Math.round(lotEstimate.yourShare).toLocaleString('en-IN')})
+            </span>
+          )}
         </h3>
         {shareholderIssueSize && <span className="badge badge-info shrink-0 text-xs">Shareholder quota</span>}
         {allottedCount > 0 && (
@@ -183,7 +212,7 @@ export function IpoDashboardCard({
           {attribution && <AttributionLegend attribution={attribution} firstNameOnly />}
         </div>
         <div className="flex min-w-0 items-center">
-          <IpoProgressGauge applied={applied} total={totalActive} />
+          <IpoProgressGauge applied={applied} total={totalActive} retailIssueSize={retailIssueSize} />
         </div>
         <div className="min-w-0">
           {canExpand ? (
@@ -218,6 +247,7 @@ export function IpoDashboardCard({
           total={totalActive}
           expanded={canExpand ? expanded : undefined}
           onToggleExpanded={canExpand ? onToggleExpanded : undefined}
+          retailIssueSize={retailIssueSize}
         />
 
         {/* max-width only, not conditional mounting — animates open/closed

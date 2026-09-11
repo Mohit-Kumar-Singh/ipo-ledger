@@ -65,10 +65,17 @@ interface IpoProgress {
   applied: number
   totalActive: number
   gmpNotes: string | null
+  // Feed the card's own "est. profit per lot if allotted" line (see
+  // estimateLotProfit) — both null-able independently of gmpNotes (a price
+  // band and a GMP number don't necessarily show up on the same day).
+  priceHigh: number | null
+  lotSize: number
   subscriptionRate: string | null
   remainingHolderNames: string[]
   allottedCount: number
   shareholderIssueSize: string | null
+  // Shown inside the progress gauge, under the applied/left ratio.
+  retailIssueSize: string | null
   parentCompanyName: string | null
   parentCompanySymbol: string | null
 }
@@ -599,10 +606,13 @@ export function DashboardPage() {
           applied: appliedIds.size,
           totalActive,
           gmpNotes: ipo.gmp_notes,
+          priceHigh: ipo.price_high,
+          lotSize: ipo.lot_size,
           subscriptionRate: ipo.retail_subscription_rate,
           remainingHolderNames,
           allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
           shareholderIssueSize: ipo.shareholder_issue_size,
+          retailIssueSize: ipo.retail_issue_size,
           parentCompanyName: ipo.parent_company_name,
           parentCompanySymbol: ipo.parent_company_symbol,
         }
@@ -1122,6 +1132,8 @@ export function DashboardPage() {
                 allotmentDate={p.allotmentDate}
                 listingDate={p.listingDate}
                 gmpNotes={p.gmpNotes}
+                priceHigh={p.priceHigh}
+                lotSize={p.lotSize}
                 subscriptionRate={p.subscriptionRate}
                 applied={p.applied}
                 totalActive={p.totalActive}
@@ -1132,6 +1144,7 @@ export function DashboardPage() {
                 allottedCount={p.allottedCount}
                 ipoId={p.ipoId}
                 shareholderIssueSize={p.shareholderIssueSize}
+                retailIssueSize={p.retailIssueSize}
                 parentCompanyName={p.parentCompanyName}
                 parentPrice={p.parentCompanySymbol ? parentPrices[p.parentCompanySymbol] : undefined}
               />

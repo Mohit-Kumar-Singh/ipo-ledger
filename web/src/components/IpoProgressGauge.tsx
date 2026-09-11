@@ -18,6 +18,7 @@ export function IpoProgressGauge({
   total,
   expanded,
   onToggleExpanded,
+  retailIssueSize,
 }: {
   applied: number
   total: number
@@ -27,6 +28,10 @@ export function IpoProgressGauge({
   // near the donut/legend/dates to read something also toggle it).
   expanded?: boolean
   onToggleExpanded?: () => void
+  // The IPO's own retail issue size (e.g. "₹120 Cr") — shown as a second
+  // line under the ratio, inside the arc. Optional/null-able since not
+  // every IPO has this on file yet.
+  retailIssueSize?: string | null
 }) {
   const [grown, setGrown] = useState(false)
   useEffect(() => {
@@ -36,7 +41,12 @@ export function IpoProgressGauge({
 
   const pct = total > 0 ? Math.min(applied / total, 1) : 0
   const drawnPct = grown ? pct : 0
-  const animatedApplied = useCountUp(applied)
+  // Headline number is now how many are LEFT to apply, not how many already
+  // have — "24/44" reads as "24 left out of 44," matching the "N left"
+  // button just below it instead of duplicating the applied count from a
+  // different angle.
+  const left = Math.max(total - applied, 0)
+  const animatedLeft = useCountUp(left)
 
   const size = 148
   const r = 62
@@ -83,35 +93,51 @@ export function IpoProgressGauge({
             style={{ transition: 'cx 0.7s cubic-bezier(0.16, 1, 0.3, 1), cy 0.7s cubic-bezier(0.16, 1, 0.3, 1)' }}
           />
         )}
+        {/* Ratio + label (+ retail size), INSIDE the svg's own coordinate
+            space via foreignObject rather than an HTML div overlaid on top
+            of it — this arc scales down via the wrapper's `max-width:100%`
+            whenever its container is narrower than `size` (the phone-width
+            2-column card layout puts two of these side by side, well under
+            148px each), and a sibling HTML overlay positioned with plain
+            Tailwind px classes does NOT shrink along with it, so the fixed-
+            size text kept overlapping the now-smaller ring (real bug, not
+            just a tight fit). Text laid out inside the svg scales in lockstep
+            with the arc at any container width instead. */}
+        <foreignObject x={cx - 46} y={cy - r + 6} width={92} height={r - 12}>
+          {/* No xmlns needed — React creates elements inside a
+              <foreignObject> in the HTML namespace by default (it only
+              uses the SVG namespace for actual SVG tag names), so a plain
+              <div> here already renders correctly as HTML. */}
+          <div className="pointer-events-none flex h-full w-full flex-col items-center justify-start text-center">
+            <p className="font-mono-ipo text-xl leading-none font-bold" style={{ color: 'var(--ink-primary)' }}>
+              {animatedLeft}/{total}
+            </p>
+            <p className="mt-1 text-[9px] leading-tight whitespace-nowrap" style={{ color: 'var(--ink-muted)' }}>
+              left / active accounts
+            </p>
+            {retailIssueSize && (
+              <p className="text-[9px] leading-tight whitespace-nowrap" style={{ color: 'var(--ink-muted)' }}>
+                Retail size: {retailIssueSize}
+              </p>
+            )}
+          </div>
+        </foreignObject>
       </svg>
-      {/* "N left" sits beside the ratio/label only on phone-width screens
-          (default, no breakpoint prefix) — on desktop (sm: and up) it goes
-          back to stacked below, the original layout. Mobile-only because
-          that's specifically what was asked for ("in side show account
-          left in mobile site desktop site is good") — not a change to the
-          desktop card at all. */}
-      <div className="-mt-1 flex flex-row items-center justify-center gap-2 sm:flex-col sm:gap-0">
-        <div className="text-center">
-          <p className="font-mono-ipo text-xl font-bold" style={{ color: 'var(--ink-primary)' }}>
-            {animatedApplied}/{total}
-          </p>
-          <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-            applied / active accounts
-          </p>
-        </div>
-        {/* The only click target for the "accounts yet to apply" panel —
-            see IpoDashboardCard/IpoProgressGauge prop comments. */}
-        {total - applied > 0 && onToggleExpanded && (
+      {/* The only click target for the "accounts yet to apply" panel —
+          see IpoDashboardCard/IpoProgressGauge prop comments. Sits below
+          the arc now that the ratio/label text above moved up inside it. */}
+      {total - applied > 0 && onToggleExpanded && (
+        <div className="-mt-1 flex justify-center">
           <button
             type="button"
             onClick={onToggleExpanded}
             aria-expanded={expanded}
-            className="badge badge-neutral mt-0 shrink-0 cursor-pointer text-xs sm:mt-1.5"
+            className="badge badge-neutral shrink-0 cursor-pointer text-xs"
           >
             {total - applied} left
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
