@@ -988,8 +988,24 @@ export function ApplicationsPage() {
                           content being wrong. Top-aligning every column
                           fixes that regardless of which column ends up
                           tallest on a given row. */}
-                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:flex-row sm:flex-wrap sm:items-start sm:gap-4">
-                      <div className="flex items-start justify-between gap-3">
+                      {/* Desktop switches to a real CSS grid (one explicit
+                          row of 5 fixed/flexible tracks) instead of a
+                          flex-wrap row — flex-wrap let the trailing
+                          actions block (state text + edit/delete) either
+                          sit on the same line as everything else or drop
+                          onto its own line below, DEPENDING on how much
+                          horizontal room the preceding columns' content
+                          happened to consume on that particular row (e.g. a
+                          longer holder/UPI string). That's exactly what
+                          read as "spread randomly" — some rows' edit/delete
+                          icons flush right on line 1, others flush left on
+                          an orphan line 2. Grid tracks are fixed per column
+                          (only the identity column and the trailing actions
+                          column flex), so every row's IPO/status/mandate
+                          columns start at the same X and the actions block
+                          never gets pushed to a new line. */}
+                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:grid sm:items-start sm:gap-4 sm:[grid-template-columns:minmax(10rem,1fr)_minmax(9rem,12rem)_minmax(5rem,7rem)_minmax(11rem,14rem)_auto]">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                       {eligibleForNotAllotted && (
                         <input
@@ -1153,32 +1169,36 @@ export function ApplicationsPage() {
                           nested inside it) — same idea as the mandate/status
                           columns beside it, so every row's columns land in
                           the same place regardless of content length. */}
-                      <div className="hidden shrink-0 text-xs sm:block sm:w-48" style={{ color: 'var(--ink-muted)' }}>
+                      <div className="hidden min-w-0 text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
                         {a.ipos?.company_name && <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>{a.ipos.company_name}</p>}
                         {a.ipoji_app_number && <p className="truncate">#{a.ipoji_app_number}</p>}
                       </div>
 
-                      {/* Phone: this now shows inline on the mandate row
-                          itself (see the mandate block below) instead of
-                          its own separate row — hidden here, desktop-only
-                          column unchanged. */}
-                      {a.sell_price != null && (
-                        <div className="hidden shrink-0 text-xs sm:block sm:w-24" style={{ color: 'var(--good)' }}>
-                          Sold ₹{a.sell_price.toLocaleString('en-IN')}
-                        </div>
-                      )}
-
-                      {/* APPLIED is the default/starting state of literally every
-                          row here — showing it as a badge on every single
-                          application was just noise, not information. Only the
-                          states that actually mean something (allotted/not
-                          allotted/sold) get a badge now. Desktop position —
-                          see the phone-only copy of this same badge above. */}
-                      {a.status !== 'APPLIED' && (
-                        <div className="hidden sm:block">
-                          <StatusBadge status={a.status} />
-                        </div>
-                      )}
+                      {/* Phone: sold price / status badge show inline on the
+                          mandate row itself (see the mandate block below)
+                          instead of their own separate row.
+                          Desktop: one grid column for both, always rendered
+                          (even empty, on the common APPLIED-with-nothing-to-
+                          show row) — sold price and the status badge used to
+                          be two independently-conditional flex siblings, so
+                          whichever ones a given row skipped shifted every
+                          column after it sideways relative to a row that
+                          rendered them. A fixed grid column keeps the
+                          mandate/actions columns after it lined up on every
+                          row regardless of what's shown here. APPLIED is the
+                          default/starting state of literally every row —
+                          showing it as a badge on every single application
+                          was just noise, not information; only the states
+                          that actually mean something (allotted/not
+                          allotted/sold) get one. */}
+                      <div className="hidden min-w-0 text-xs sm:block" style={{ color: 'var(--good)' }}>
+                        {a.sell_price != null && <div>Sold ₹{a.sell_price.toLocaleString('en-IN')}</div>}
+                        {a.status !== 'APPLIED' && (
+                          <div className={a.sell_price != null ? 'mt-1' : ''}>
+                            <StatusBadge status={a.status} />
+                          </div>
+                        )}
+                      </div>
 
                       {/* border-t + pt on phone only — a real divider between
                           the identity block above and this one, instead of
@@ -1211,7 +1231,7 @@ export function ApplicationsPage() {
                         )
                         return (
                           <div
-                            className="w-full border-t pt-2.5 text-xs sm:w-56 sm:shrink-0 sm:border-t-0 sm:pt-0"
+                            className="w-full min-w-0 border-t pt-2.5 text-xs sm:border-t-0 sm:pt-0"
                             style={{ borderColor: 'var(--border)' }}
                             id={`mandate-${a.id}`}
                           >
@@ -1260,7 +1280,7 @@ export function ApplicationsPage() {
                       })()}
 
                       <div
-                        className="flex w-full items-center justify-between gap-2 border-t pt-2.5 sm:w-auto sm:shrink-0 sm:flex-wrap sm:border-t-0 sm:pt-0"
+                        className="flex w-full items-center justify-between gap-2 border-t pt-2.5 sm:w-auto sm:flex-wrap sm:justify-self-end sm:border-t-0 sm:pt-0"
                         style={{ borderColor: 'var(--border)' }}
                       >
                         <div className="flex flex-wrap items-center gap-2">
