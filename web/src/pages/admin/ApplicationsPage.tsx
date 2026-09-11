@@ -1093,10 +1093,23 @@ export function ApplicationsPage() {
                             gets no embed at all (migration 0057), so the ID
                             silently stays hidden from them. */}
                         {funderDiffersFromHolder && (
-                          <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+                          // Not truncate — the identity column is now a
+                          // fixed-ish grid track (see the row's grid-
+                          // template-columns above) rather than a flex-1
+                          // item free to eat whatever space the other
+                          // columns didn't need, so on anything narrower
+                          // than a wide desktop it can genuinely be too
+                          // narrow for a full UPI ID. Truncating that ID
+                          // silently hid real, load-bearing data (which
+                          // account actually paid) instead of just
+                          // shortening a display name. break-all on the ID
+                          // itself lets it wrap mid-string when the column
+                          // is tight — the row gets taller, but the full ID
+                          // is always readable instead of ending in "...".
+                          <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                             via {funderName}
                             {effectiveFunderAccount(a)?.upi_id && (
-                              <span className="font-mono"> · {effectiveFunderAccount(a)!.upi_id}</span>
+                              <span className="font-mono break-all"> · {effectiveFunderAccount(a)!.upi_id}</span>
                             )}
                           </p>
                         )}
