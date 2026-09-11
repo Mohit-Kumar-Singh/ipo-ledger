@@ -69,7 +69,10 @@ export function IpoProgressGauge({
         className="pointer-events-none absolute inset-0"
         style={{ background: 'radial-gradient(circle at 50% 60%, var(--glow-good) 0%, transparent 68%)', filter: 'blur(8px)' }}
       />
-      <svg viewBox={`0 0 ${size} ${size / 2 + 16}`} className="relative w-full">
+      {/* Extra 18 units of blank canvas below the arc's own diameter (was
+          +16, now +34) — that's where the text box's room to move further
+          down actually comes from, not by cramming it closer to the arc. */}
+      <svg viewBox={`0 0 ${size} ${size / 2 + 34}`} className="relative w-full">
         <path d={arcPath} fill="none" stroke="var(--border)" strokeWidth={strokeWidth} strokeLinecap="round" opacity={0.5} />
         <path
           d={arcPath}
@@ -103,15 +106,16 @@ export function IpoProgressGauge({
             size text kept overlapping the now-smaller ring (real bug, not
             just a tight fit). Text laid out inside the svg scales in lockstep
             with the arc at any container width instead.
-            y starts further from the arc's peak than a first pass did (+12
-            here, was +6) — the peak is a single point with zero safe width
-            either side of it, so starting right there left the top line
-            with no real margin; starting lower means the dome has already
-            widened out by the time the ratio's own ink begins. The box's
-            bottom edge (y=78, the diameter) has nothing drawn on it at
-            all — only the curved part of the ring is stroked — so there's
-            no matching reason to hold back from extending down that far. */}
-        <foreignObject x={cx - 46} y={cy - r + 12} width={92} height={r}>
+            y starts well clear of the arc's peak (+22 past cy-r) — the peak
+            is a single point with zero safe width either side of it, so
+            starting right there left the top line with no real margin;
+            starting this much lower means the dome has already widened out
+            substantially by the time the ratio's own ink begins. Below the
+            diameter (y=78) nothing is drawn at all — only the curved part
+            of the ring is stroked — and the svg's own viewBox was grown
+            (above) specifically to give this box genuine room down there
+            instead of stretching to the old canvas's exact edge. */}
+        <foreignObject x={cx - 46} y={cy - r + 22} width={92} height={60}>
           {/* No xmlns needed — React creates elements inside a
               <foreignObject> in the HTML namespace by default (it only
               uses the SVG namespace for actual SVG tag names), so a plain
