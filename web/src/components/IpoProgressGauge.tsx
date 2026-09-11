@@ -102,8 +102,16 @@ export function IpoProgressGauge({
             Tailwind px classes does NOT shrink along with it, so the fixed-
             size text kept overlapping the now-smaller ring (real bug, not
             just a tight fit). Text laid out inside the svg scales in lockstep
-            with the arc at any container width instead. */}
-        <foreignObject x={cx - 46} y={cy - r + 6} width={92} height={r - 12}>
+            with the arc at any container width instead.
+            y starts further from the arc's peak than a first pass did (+12
+            here, was +6) — the peak is a single point with zero safe width
+            either side of it, so starting right there left the top line
+            with no real margin; starting lower means the dome has already
+            widened out by the time the ratio's own ink begins. The box's
+            bottom edge (y=78, the diameter) has nothing drawn on it at
+            all — only the curved part of the ring is stroked — so there's
+            no matching reason to hold back from extending down that far. */}
+        <foreignObject x={cx - 46} y={cy - r + 12} width={92} height={r}>
           {/* No xmlns needed — React creates elements inside a
               <foreignObject> in the HTML namespace by default (it only
               uses the SVG namespace for actual SVG tag names), so a plain
@@ -112,11 +120,22 @@ export function IpoProgressGauge({
             <p className="font-mono-ipo text-xl leading-none font-bold" style={{ color: 'var(--ink-primary)' }}>
               {animatedLeft}/{total}
             </p>
-            <p className="mt-1 text-[9px] leading-tight whitespace-nowrap" style={{ color: 'var(--ink-muted)' }}>
+            {/* w-full + truncate (not just whitespace-nowrap) — a real
+                retail_issue_size can run considerably longer than a short
+                test value ("₹369.51 Cr (35.7%)" vs "₹120 Cr"). Centered text
+                wider than its box with no width/overflow handling doesn't
+                just overflow to one side where you'd at least read the
+                start — it overflows evenly on BOTH sides, and foreignObject
+                clips at ITS OWN edge, so the visible remainder was a
+                mangled slice out of the middle of the string ("ail size:
+                ₹369.51 Cr (35" — missing the "Ret" and the closing text).
+                An explicit width plus real truncation (ellipsis, one end
+                only) degrades to something legible instead. */}
+            <p className="mt-1 w-full truncate text-[9px] leading-tight" style={{ color: 'var(--ink-muted)' }}>
               left / active accounts
             </p>
             {retailIssueSize && (
-              <p className="text-[9px] leading-tight whitespace-nowrap" style={{ color: 'var(--ink-muted)' }}>
+              <p className="w-full truncate text-[9px] leading-tight" style={{ color: 'var(--ink-muted)' }}>
                 Retail size: {retailIssueSize}
               </p>
             )}
