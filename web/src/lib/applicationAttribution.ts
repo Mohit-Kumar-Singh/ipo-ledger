@@ -34,7 +34,8 @@ export interface IpoAttribution {
 // real funders on record) — matching on first token only would have
 // silently merged those two distinct people into one slice. Subsequence
 // matching still refuses that: "Gandhi" is not a subsequence of ["Verma"].
-export function sameIdentity(a: string, b: string): boolean {
+export function sameIdentity(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false
   const ta = a.trim().toLowerCase().split(/\s+/)
   const tb = b.trim().toLowerCase().split(/\s+/)
   if (ta[0] !== tb[0]) return false

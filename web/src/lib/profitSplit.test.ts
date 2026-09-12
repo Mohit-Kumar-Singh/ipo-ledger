@@ -164,6 +164,37 @@ describe('computeProfitSplit — self-funded / self-held', () => {
     const r = computeProfitSplit({ ...BASE, funderName: '' })
     expect(r.hasFunder).toBe(false)
   })
+
+  // Real bug, found while explaining a live figure to the user: a bank/UPI
+  // account's own holder_name is routinely a shortened, casual form
+  // ("Mohit") of the admin's actual registered profile.full_name ("Mohit
+  // Kumar Singh") — isFunderSelf/isDematHolderSelf used to compare these
+  // with an EXACT match (namesMatch), which never recognized them as the
+  // same real person. The projection side of this (buildFunderAllottedCards)
+  // was fixed first; this is the same root cause inside computeProfitSplit
+  // itself, which drives REALIZED (already-sold) profit and the real
+  // settlement ledger — a strictly higher-stakes place for this to be wrong.
+  it('regression: a shortened funder name ("Mohit") still matches the admin\'s full registered name ("Mohit Kumar Singh")', () => {
+    const r = computeProfitSplit({ ...BASE, funderName: 'Mohit', profitPersonName: 'Mohit Kumar Singh' })
+    expect(r.isFunderSelf).toBe(true)
+    expect(r.funderShare).toBe(0)
+    expect(r.profitPersonShare).toBe(r.remainingAfterCut)
+  })
+
+  it('regression: same fix applies to the demat holder side too', () => {
+    const r = computeProfitSplit({ ...BASE, dematHolderName: 'Mohit', profitPersonName: 'Mohit Kumar Singh' })
+    expect(r.isDematHolderSelf).toBe(true)
+  })
+
+  it('a genuinely different funder who merely shares a first token with the admin is NOT treated as self — no false positive', () => {
+    // sameIdentity requires every token of the shorter name to appear, in
+    // order, in the longer one — "Mohit Verma" is not a match for "Mohit
+    // Kumar Singh" (their second token disagrees), so a real, distinct
+    // "Mohit Verma" still gets counted as a genuine third-party funder.
+    const r = computeProfitSplit({ ...BASE, funderName: 'Mohit Verma', profitPersonName: 'Mohit Kumar Singh' })
+    expect(r.isFunderSelf).toBe(false)
+    expect(r.funderShare).toBe(r.remainingAfterCut / 2)
+  })
 })
 
 describe('computeProfitSplit — historical bug regressions', () => {

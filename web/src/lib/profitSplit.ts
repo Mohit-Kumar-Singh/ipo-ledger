@@ -1,4 +1,5 @@
 import type { AllotmentBoardRow } from '../types/database'
+import { sameIdentity } from './applicationAttribution'
 
 export function namesMatch(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false
@@ -32,9 +33,23 @@ export interface ProfitSplitResult {
 export function computeProfitSplit(input: ProfitSplitInput): ProfitSplitResult {
   const totalSoldAmount = input.sellPricePerShare * input.lotSize * input.lots
   const grossProfit = totalSoldAmount - input.bidAmount
-  const isDematHolderSelf = namesMatch(input.dematHolderName, input.profitPersonName)
+  // sameIdentity, not namesMatch, for these two specifically — both compare
+  // an arbitrary holder/funder against profitPersonName, which is always
+  // ONE fixed identity: the app's own profit-taking admin, as recorded on
+  // their profile (profile.full_name). That's a formal name a bank/UPI
+  // account holder_name routinely shortens ("Mohit" vs "Mohit Kumar
+  // Singh") — namesMatch's exact comparison missed that real case,
+  // silently splitting the admin's own self-funded profit 50/50 with
+  // "themselves" as if a genuine third party existed. namesMatch itself is
+  // unchanged and still correct everywhere ELSE it's used (comparing two
+  // arbitrary third parties against each other, e.g. "is this funder the
+  // same person as this specific holder") — sameIdentity's looser
+  // first-token match is only safe here because one side is always the
+  // one known, fixed admin identity, not another arbitrary person it could
+  // collide with.
+  const isDematHolderSelf = sameIdentity(input.dematHolderName, input.profitPersonName)
   const hasFunder = input.funderName != null && input.funderName.trim() !== ''
-  const isFunderSelf = hasFunder ? namesMatch(input.funderName, input.profitPersonName) : true
+  const isFunderSelf = hasFunder ? sameIdentity(input.funderName, input.profitPersonName) : true
 
   // A LOSS is never the account holder's to share — their "cut" is
   // compensation for lending their demat account to hold someone else's

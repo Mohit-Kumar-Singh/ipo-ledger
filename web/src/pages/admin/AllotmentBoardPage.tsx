@@ -14,6 +14,7 @@ import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessag
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
+import { sameIdentity } from '../../lib/applicationAttribution'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
 import type {
@@ -313,9 +314,15 @@ export function AllotmentBoardPage() {
 
   function openSoldForm(row: AllotmentBoardRow) {
     // Default the split checkbox to "on" when the funder isn't the person
-    // doing the accounting — admin can still flip it either way.
+    // doing the accounting — admin can still flip it either way. sameIdentity
+    // (fuzzy — first-token prefix), not namesMatch (exact) — this compares
+    // against profile.full_name specifically, a formal registered name a
+    // bank/UPI account's own holder_name routinely shortens ("Mohit" vs
+    // "Mohit Kumar Singh"); the exact comparison missed that real case and
+    // defaulted this ON for a genuinely self-funded sale, same root cause as
+    // computeProfitSplit's own isFunderSelf fix (lib/profitSplit.ts).
     const autoSplit =
-      !!row.bank_account_holder_name && !namesMatch(row.bank_account_holder_name, profile?.full_name ?? '')
+      !!row.bank_account_holder_name && !sameIdentity(row.bank_account_holder_name, profile?.full_name ?? '')
     const shares = row.lot_size * row.lots
     setSoldForms((f) => ({
       ...f,
