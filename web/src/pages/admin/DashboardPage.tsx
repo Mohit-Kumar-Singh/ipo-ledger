@@ -35,6 +35,7 @@ import {
 import { useCountUp } from '../../lib/useCountUp'
 import { hydrateDematAccounts } from '../../lib/hydrateDemat'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
+import { loadPersistedState, savePersistedState } from '../../lib/persistedState'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
@@ -82,6 +83,14 @@ interface IpoProgress {
 }
 
 const HIGH_GMP_THRESHOLD = 15
+
+// Which IPO cards' "accounts yet to apply" panel is expanded — persisted so
+// navigating to another page and back (which unmounts this whole component,
+// resetting any plain useState) doesn't collapse everything you had open.
+// A stale id for an IPO that's since dropped off the progress list (settled,
+// archived) just never matches anything on the next render — harmless, no
+// pruning needed.
+const EXPANDED_IPO_IDS_KEY = 'dashboard-expanded-ipo-ids'
 
 interface HighGmpAlert {
   ipoId: string
@@ -346,8 +355,17 @@ export function DashboardPage() {
   // A Set, not a single "currently expanded" id — each IpoDashboardCard
   // owns its own expand state and several can be open across the grid at
   // once, independent of each other, not a single shared panel that only
-  // one card at a time can claim.
-  const [expandedIpoIds, setExpandedIpoIds] = useState<Set<string>>(new Set())
+  // one card at a time can claim. Seeded from localStorage (see
+  // EXPANDED_IPO_IDS_KEY) rather than always starting empty, so leaving this
+  // page and coming back restores whatever was open — the lazy initializer
+  // form (a function, not a bare value) means loadPersistedState only ever
+  // runs once, on mount, not on every render.
+  const [expandedIpoIds, setExpandedIpoIds] = useState<Set<string>>(
+    () => new Set(loadPersistedState<string[]>(EXPANDED_IPO_IDS_KEY, [])),
+  )
+  useEffect(() => {
+    savePersistedState(EXPANDED_IPO_IDS_KEY, Array.from(expandedIpoIds))
+  }, [expandedIpoIds])
   const [parentPrices, setParentPrices] = useState<Record<string, { price: number | null; stale: boolean }>>({})
   function toggleExpanded(ipoId: string) {
     setExpandedIpoIds((s) => {
