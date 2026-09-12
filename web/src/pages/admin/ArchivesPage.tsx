@@ -6,6 +6,7 @@ import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit, effectiveSplitWithFunder } from '../../lib/profitSplit'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo } from '../../types/database'
 
@@ -300,7 +301,7 @@ export function ArchivesPage() {
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                        {ipo.company_name}
+                        {firstIpoWord(ipo.company_name)}
                       </p>
                       <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                         {ipo.listing_date

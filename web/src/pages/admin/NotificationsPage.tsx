@@ -10,6 +10,7 @@ import { isLiveIpo, nowIst } from '../../lib/ipoStatus'
 import { hydrateDematAccounts } from '../../lib/hydrateDemat'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { buildSellReminderText, resolveSellPdfUrl, type SellAccountDetails } from '../../lib/sellReminder'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import {
   buildFunderAllottedCards,
   buildSoldFunderCards,
@@ -683,7 +684,7 @@ export function NotificationsPage() {
                           total lots), not the per-share figure — "sold at
                           ₹X/share" made someone do that multiplication
                           themselves to know what actually changed hands. */}
-                      {c.ipoName} · sold for {rupees(c.sellPricePerShare * c.lotSize * c.totalLots)}
+                      {firstIpoWord(c.ipoName)} · sold for {rupees(c.sellPricePerShare * c.lotSize * c.totalLots)}
                     </p>
                   </div>
                   <button
@@ -778,10 +779,10 @@ export function NotificationsPage() {
                 <div key={c.key} className="allotted-card stagger-item flex items-center justify-between gap-2 p-3">
                   <div className="min-w-0">
                     <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {isAdmin ? c.funderName : c.ipoName}
+                      {isAdmin ? c.funderName : firstIpoWord(c.ipoName)}
                     </p>
                     <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {isAdmin ? `${c.ipoName} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
+                      {isAdmin ? `${firstIpoWord(c.ipoName)} · ${c.holderNames.length} allotted` : `${c.holderNames.length} account(s) allotted`}
                     </p>
                   </div>
                   {isAdmin ? (
@@ -833,7 +834,7 @@ export function NotificationsPage() {
                       )}
                     </p>
                     <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {c.ipoName} · {c.totalLots} lot(s)
+                      {firstIpoWord(c.ipoName)} · {c.totalLots} lot(s)
                     </p>
                   </div>
                   <button
@@ -910,7 +911,7 @@ export function NotificationsPage() {
                       className="flex w-full items-center justify-between gap-2 p-3"
                     >
                       <span className="truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                        {group.ipoName}
+                        {firstIpoWord(group.ipoName)}
                       </span>
                       <span style={{ display: 'inline-flex', transform: open ? 'rotate(180deg)' : undefined }}>
                         <ChevronDownIcon size={16} fill="var(--ink-muted)" />
@@ -1029,7 +1030,7 @@ function SellReminderSection({
                 {c.holderName}
               </p>
               <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
-                {c.ipoName} · {c.totalLots} lot(s) · lists {when}
+                {firstIpoWord(c.ipoName)} · {c.totalLots} lot(s) · lists {when}
               </p>
             </div>
             <button

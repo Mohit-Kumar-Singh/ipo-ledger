@@ -36,6 +36,8 @@ import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/datab
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { useCountUp } from '../../lib/useCountUp'
 import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
+import { formatShortDate } from '../../lib/formatDate'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 
 interface PayoutLine {
   applicationId: string
@@ -555,7 +557,7 @@ export function PayoutsPage() {
           {overpayments.map((o) => (
             <div key={o.key} className="flex items-center justify-between gap-3">
               <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
-                {o.name} - {o.ipoName ? o.ipoName.split(' ')[0] : 'net'}
+                {o.name} - {o.ipoName ? firstIpoWord(o.ipoName) : 'net'}
               </span>
               <span className="shrink-0 font-mono-ipo font-semibold" style={{ color: 'var(--warning-text)' }}>
                 −{rupees(o.amount)}
@@ -675,7 +677,12 @@ export function PayoutsPage() {
         {/* Applied/allotted per IPO, with which account and funder — a
             compact substitute for the old full IPO-wise/account-wise
             tables. Allotted IPOs get a highlighted card (money's actually
-            moved); names sit behind a dropdown instead of always shown. */}
+            moved); names sit behind a dropdown instead of always shown.
+            Ordered by allotment date (ipoAccountBreakdown's own sort, see
+            payoutAnalytics.ts) rather than alphabetically — this list is a
+            record of what happened this period, so it reads in the order
+            it happened, with the date itself shown once opened rather than
+            left implicit in the ordering alone. */}
         {analytics.ipoAccountBreakdown.length > 0 && (
           <div className="space-y-2">
             {analytics.ipoAccountBreakdown.map((r) => {
@@ -694,7 +701,7 @@ export function PayoutsPage() {
                     className="flex w-full items-center justify-between gap-2"
                   >
                     <span className="min-w-0 truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {r.ipoName.split(' ')[0]}
+                      {firstIpoWord(r.ipoName)}
                     </span>
                     <span className="flex shrink-0 items-center gap-2 text-xs">
                       <span style={{ color: 'var(--ink-muted)' }}>
@@ -712,6 +719,9 @@ export function PayoutsPage() {
                   </button>
                   {open && (
                     <div className="mt-2 space-y-0.5 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+                      <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        Allotted: {formatShortDate(r.allotmentDate)}
+                      </p>
                       {r.accounts.map((a, i) => (
                         <p key={i} className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                           {a.holderName}
@@ -731,7 +741,7 @@ export function PayoutsPage() {
             {analytics.best && (
               <div className="py-2 sm:py-0 sm:pr-4">
                 <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>🏆 Best performing</p>
-                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{analytics.best.ipoName}</p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{firstIpoWord(analytics.best.ipoName)}</p>
                 {/* Signed — "best" just means least-bad when every IPO in
                     range lost money; still red in that case, not green. */}
                 <p
@@ -745,7 +755,7 @@ export function PayoutsPage() {
             {analytics.worst && (
               <div className="py-2 sm:py-0 sm:pl-4">
                 <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>Lowest performing</p>
-                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{analytics.worst.ipoName}</p>
+                <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>{firstIpoWord(analytics.worst.ipoName)}</p>
                 <p className="font-mono-ipo text-sm" style={{ color: analytics.worst.profit >= 0 ? 'var(--warning-text)' : 'var(--critical)' }}>
                   {rupees(analytics.worst.profit)} · {analytics.worst.roi.toFixed(1)}% ROI
                 </p>
@@ -961,7 +971,7 @@ function SettlementPartyList({
               <div className="mt-1 space-y-0.5 pl-9">
                 {g.ipos.map((i, idx) => (
                   <p key={idx} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    {i.ipoName} · {rupees(i.amount)}
+                    {firstIpoWord(i.ipoName)} · {rupees(i.amount)}
                   </p>
                 ))}
               </div>
@@ -998,8 +1008,11 @@ export function IpoSettlementCard({
   return (
     <div className="card stagger-item p-4">
       <div className="mb-1 flex flex-wrap items-center gap-2">
+        {/* First word only — full company names are the IPOs page's own
+            job; every other screen in the portal (this one included) uses
+            the short form, same as the breakdown card above. */}
         <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
-          {group.ipoName}
+          {firstIpoWord(group.ipoName)}
         </p>
         {group.allSettled && <span className="badge badge-good shrink-0">Settled ✓</span>}
       </div>
@@ -1405,7 +1418,7 @@ function PayoutSection({
                           page (Settlement — by IPO), this line is meant to
                           be scannable, not a second full listing. */}
                       <span style={{ color: 'var(--ink-muted)' }}>
-                        {l.ipoName.split(' ')[0]} · {l.kind === 'cut' ? 'cut' : 'share'} · ₹
+                        {firstIpoWord(l.ipoName)} · {l.kind === 'cut' ? 'cut' : 'share'} · ₹
                         {Math.round(l.amount).toLocaleString('en-IN')}
                       </span>
                       <span className="flex shrink-0 items-center gap-2.5">

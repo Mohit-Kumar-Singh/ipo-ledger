@@ -14,6 +14,7 @@ import { confirmDialog } from '../../lib/confirmDialog'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { withRetry } from '../../lib/networkRetry'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
@@ -862,7 +863,7 @@ export function ApplicationsPage() {
                   style={{ color: 'var(--ink-secondary)' }}
                 >
                   <span className="shrink-0">{isCollapsed ? '▸' : '▾'}</span>
-                  <span className="truncate">{ipoName}</span>
+                  <span className="truncate">{firstIpoWord(ipoName)}</span>
                   <span className="shrink-0 font-normal" style={{ color: 'var(--ink-muted)' }}>
                     ({items.length})
                   </span>
@@ -1161,7 +1162,7 @@ export function ApplicationsPage() {
                         {a.ipos?.company_name && (
                           <div className="text-right leading-tight">
                             <p className="truncate text-xs font-semibold" style={{ color: 'var(--ink-primary)' }}>
-                              {a.ipos.company_name.split(' ')[0]}
+                              {firstIpoWord(a.ipos.company_name)}
                             </p>
                             {a.ipoji_app_number && (
                               <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -1183,7 +1184,7 @@ export function ApplicationsPage() {
                           columns beside it, so every row's columns land in
                           the same place regardless of content length. */}
                       <div className="hidden min-w-0 text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
-                        {a.ipos?.company_name && <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>{a.ipos.company_name}</p>}
+                        {a.ipos?.company_name && <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>{firstIpoWord(a.ipos.company_name)}</p>}
                         {a.ipoji_app_number && <p className="truncate">#{a.ipoji_app_number}</p>}
                       </div>
 

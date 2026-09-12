@@ -247,6 +247,13 @@ export interface IpoAccountRow {
   applied: number
   allotted: number
   accounts: { holderName: string; funderName: string | null }[]
+  // Drives ipoAccountBreakdown's own order (see below) — allotment date,
+  // not alphabetical, is the order this list is meant to read in: it's a
+  // record of what happened this period, in the order it happened. Null
+  // for the rare row whose IPO has no allotment_date on file yet; sorts
+  // those to the end rather than letting a missing date silently jump the
+  // queue to the front.
+  allotmentDate: string | null
 }
 
 export function buildPayoutAnalytics(
@@ -395,6 +402,7 @@ export function buildPayoutAnalytics(
         applied: appliedCountByIpo.get(r.ipo_id) ?? 0,
         allotted: 0,
         accounts: [],
+        allotmentDate: r.ipos.allotment_date ?? null,
       })
     }
     const row = ipoAccountMap.get(r.ipo_id)!
@@ -405,7 +413,15 @@ export function buildPayoutAnalytics(
       row.accounts.push({ holderName, funderName })
     }
   }
-  const ipoAccountBreakdown = Array.from(ipoAccountMap.values()).sort((a, b) => a.ipoName.localeCompare(b.ipoName))
+  // Allotment-date order, not alphabetical — a null date (no allotment_date
+  // on file) sorts after every dated row rather than jumping the queue at
+  // the alphabetically-earliest company name.
+  const ipoAccountBreakdown = Array.from(ipoAccountMap.values()).sort((a, b) => {
+    if (a.allotmentDate && b.allotmentDate) return a.allotmentDate.localeCompare(b.allotmentDate)
+    if (a.allotmentDate) return -1
+    if (b.allotmentDate) return 1
+    return a.ipoName.localeCompare(b.ipoName)
+  })
 
   const sharesByIpoMap = new Map<string, number>()
   for (const r of allottedOrSold) {

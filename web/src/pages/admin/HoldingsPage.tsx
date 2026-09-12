@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { buildHoldings, soldSharesByApplication, type HoldingSourceRow } from '../../lib/partialSells'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import type { ApplicationSell } from '../../types/database'
 
 function rupees(n: number): string {
@@ -145,7 +146,7 @@ export function HoldingsPage() {
                     style={{ borderColor: 'var(--border)' }}
                   >
                     <span style={{ color: 'var(--ink-primary)' }}>
-                      {p.ipoName}
+                      {firstIpoWord(p.ipoName)}
                       {p.symbol && (
                         <span className="ml-1 font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
                           {p.symbol}

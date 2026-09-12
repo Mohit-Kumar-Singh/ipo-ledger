@@ -148,6 +148,25 @@ describe('month classification — one row, one month (ESDS / Lumino regression)
     expect(sep.filter((id) => aug.includes(id))).toHaveLength(0)
   })
 
+  it('ipoAccountBreakdown orders by allotment date, not alphabetically — Lumino (1 Sep) before ESDS (2 Sep), despite E < L', () => {
+    const a = build([esdsTejas, luminoHarsh], THIS_MONTH)
+    expect(a.ipoAccountBreakdown.map((r) => r.ipoName)).toEqual(['Lumino Industries', 'ESDS Software Solution'])
+    expect(a.ipoAccountBreakdown.map((r) => r.allotmentDate)).toEqual(['2026-09-01', '2026-09-02'])
+  })
+
+  it('a row with no allotment_date on file sorts after every dated row, not alphabetically first', () => {
+    const undated = pr({
+      ipo_id: 'ipo-undated',
+      ipos: { ...esdsTejas.ipos!, company_name: 'Aaa Undated Co', allotment_date: null },
+    })
+    const a = build([esdsTejas, luminoHarsh, undated], THIS_MONTH)
+    expect(a.ipoAccountBreakdown.map((r) => r.ipoName)).toEqual([
+      'Lumino Industries',
+      'ESDS Software Solution',
+      'Aaa Undated Co',
+    ])
+  })
+
   it('a pile of still-APPLIED rows on those IPOs never shows in either month', () => {
     const appliedOnly = [pr({ status: 'APPLIED' }), pr({ status: 'APPLIED' }), lumino({ status: 'APPLIED' })]
     expect(build(appliedOnly, THIS_MONTH).ipoAccountBreakdown).toHaveLength(0)

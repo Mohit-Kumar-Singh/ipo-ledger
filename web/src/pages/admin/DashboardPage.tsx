@@ -34,6 +34,7 @@ import {
 } from '../../lib/expectedProfit'
 import { useCountUp } from '../../lib/useCountUp'
 import { hydrateDematAccounts } from '../../lib/hydrateDemat'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
@@ -1168,7 +1169,7 @@ export function DashboardPage() {
               <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
                 {r.holder_name}
               </span>
-              <span style={{ color: 'var(--ink-muted)' }}>{r.company_name}</span>
+              <span style={{ color: 'var(--ink-muted)' }}>{firstIpoWord(r.company_name)}</span>
             </Row>
           ))}
         </Section>
@@ -1180,7 +1181,7 @@ export function DashboardPage() {
                 {r.holder_name}
               </span>
               <span style={{ color: 'var(--ink-muted)' }}>
-                {r.company_name} · listing {r.listing_date ? formatOrdinalDate(r.listing_date) : '—'}
+                {firstIpoWord(r.company_name)} · listing {r.listing_date ? formatOrdinalDate(r.listing_date) : '—'}
               </span>
             </Row>
           ))}
@@ -1341,7 +1342,7 @@ function ClosingTodayPanel({ ipos }: { ipos: Ipo[] }) {
       {ipos.map((ipo) => (
         <div key={ipo.id} className="flex items-center justify-between gap-3">
           <span className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
-            {ipo.company_name}
+            {firstIpoWord(ipo.company_name)}
           </span>
           {/* Bidding cuts off at 4:50 PM on the close date, not midnight —
               worth saying explicitly so "closing today" reads as "still
@@ -1440,7 +1441,7 @@ function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
             {r.holder_name}
           </span>
           <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-            {r.company_name} · {r.listing_date ? formatOrdinalDate(r.listing_date) : 'no listing date yet'}
+            {firstIpoWord(r.company_name)} · {r.listing_date ? formatOrdinalDate(r.listing_date) : 'no listing date yet'}
           </span>
         </div>
       ))}

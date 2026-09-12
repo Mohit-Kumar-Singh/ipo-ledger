@@ -22,6 +22,7 @@ import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { rupees } from '../../lib/expectedProfit'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import {
   groupCardsByIpo,
   settledPaidFlags,
@@ -202,7 +203,7 @@ export function FunderPayoutsPage() {
             {allottedRows.map((r) => (
               <div key={r.application_id} className="flex items-center justify-between gap-3">
                 <span className="min-w-0 truncate" style={{ color: 'var(--ink-primary)' }}>
-                  {r.company_name.split(' ')[0]}
+                  {firstIpoWord(r.company_name)}
                   <span style={{ color: 'var(--ink-muted)' }}> · {r.holder_name}</span>
                 </span>
                 <span className="shrink-0 font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
@@ -514,7 +515,7 @@ function PaymentLogRow({
           <span style={{ color: 'var(--ink-primary)' }}>{PAYMENT_KIND_LABELS[payment.kind]}</span>
           <span style={{ color: 'var(--ink-muted)' }}>
             {' · '}
-            {card.ipoName} · {card.holderName}
+            {firstIpoWord(card.ipoName)} · {card.holderName}
           </span>
         </div>
         <span className="font-mono-ipo shrink-0" style={{ color: 'var(--ink-primary)' }}>

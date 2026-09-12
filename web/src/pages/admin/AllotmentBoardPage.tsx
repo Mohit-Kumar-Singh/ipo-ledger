@@ -13,6 +13,7 @@ import { confirmDialog } from '../../lib/confirmDialog'
 import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessage } from '../../lib/partialSells'
 import { nowIst } from '../../lib/ipoStatus'
 import { parseGmpPercent } from '../../lib/ipoGmp'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
 import type {
@@ -828,7 +829,7 @@ function SoldPayoutsSection({
                         for one line, especially on phone) rather than
                         trying to fit the full facts and truncating them. */}
                     <p className="mt-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                      {row.company_name.split(' ')[0]}
+                      {firstIpoWord(row.company_name)}
                       {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
                       {row.listing_date && ` · ${formatShortDate(row.listing_date)}`}
                       {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}

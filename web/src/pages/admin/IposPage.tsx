@@ -58,14 +58,17 @@ interface ImportDetail {
   allotment_out: boolean | null
 }
 
-// 7% floor — an IPO ipoji already shows running below this isn't worth
-// tracking, so it's excluded at the same choke point every import path goes
-// through (quick-sync's auto-eligible filter, the manual "Select all
-// eligible" button, and saveOne's own skip check for a manually-checked
-// low-GMP candidate). Unparseable/missing GMP text is left eligible — this
-// only excludes a GMP that's actually known to be low, not one ipoji hasn't
-// published yet.
-const MIN_SYNC_GMP_PERCENT = 7
+// 10% floor (raised from 7%, matching LOW_GMP_THRESHOLD's own cutoff below)
+// — an IPO ipoji already shows running below this isn't worth tracking, so
+// it's excluded at the same choke point every import path goes through
+// (quick-sync's auto-eligible filter, the manual "Select all eligible"
+// button, and saveOne's own skip check for a manually-checked low-GMP
+// candidate). Unparseable/missing GMP text is left eligible — this only
+// excludes a GMP that's actually known to be low, not one ipoji hasn't
+// published yet. Kept as its own constant rather than merged into
+// LOW_GMP_THRESHOLD — same number today, but a different rule (sync
+// eligibility vs. a save-time warning) that could reasonably diverge again.
+const MIN_SYNC_GMP_PERCENT = 10
 
 function isEligible(c: ImportCandidate): boolean {
   if (c.open_date == null || c.close_date == null || c.lot_size == null) return false

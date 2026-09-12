@@ -6,6 +6,7 @@ import { IpoProgressGauge } from './IpoProgressGauge'
 import { IpoTimeline } from './IpoTimeline'
 import type { IpoAttribution } from '../lib/applicationAttribution'
 import { estimateLotProfit } from '../lib/lotProfitEstimate'
+import { firstIpoWord } from '../lib/ipoDisplayName'
 
 // One self-contained card per IPO — company name/GMP/subscription/dates up
 // top, the attribution donut and the progress ring side by side below.
@@ -131,8 +132,11 @@ export function IpoDashboardCard({
           it's derived from, since it's a reading of the ring, not a
           separate header-level fact. */}
       <div className="flex items-center gap-2">
-        <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
-          {companyName}
+        {/* First word only — full company names are the IPOs page's own
+            job (see lib/ipoDisplayName.ts); every other screen, this
+            Dashboard card included, uses the short form. */}
+        <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }} title={companyName}>
+          {firstIpoWord(companyName)}
           {/* Est. profit for 1 lot if it gets allotted (see
               estimateLotProfit) — inline right after the name rather than
               its own row, and no explanatory tooltip; the full breakdown

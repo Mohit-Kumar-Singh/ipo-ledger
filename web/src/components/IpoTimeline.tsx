@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { istTimeMs } from '../lib/ipoStatus'
+import { formatShortDate } from '../lib/formatDate'
 
 export interface IpoTimelineMilestone {
   date: string | null
@@ -18,27 +19,6 @@ interface IpoTimelineProps {
   milestones: IpoTimelineMilestone[]
 }
 
-function ordinal(n: number): string {
-  if (n >= 11 && n <= 13) return `${n}th`
-  switch (n % 10) {
-    case 1:
-      return `${n}st`
-    case 2:
-      return `${n}nd`
-    case 3:
-      return `${n}rd`
-    default:
-      return `${n}th`
-  }
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return 'TBA'
-  const [y, m, d] = iso.split('-').map(Number)
-  const date = new Date(Date.UTC(y, m - 1, d))
-  const month = date.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })
-  return `${ordinal(d)} ${month}`
-}
 
 // Each milestone lands at its own real IST time of day, not a blanket
 // midnight — matches how these actually happen in practice: bidding opens
@@ -149,7 +129,7 @@ export function IpoTimeline({ milestones }: IpoTimelineProps) {
                 className="font-mono-ipo tabular-nums"
                 style={{ fontWeight: isCurrent ? 700 : 400, color: isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
               >
-                {formatDate(m.date)}
+                {formatShortDate(m.date)}
               </p>
               <p style={{ color: 'var(--ink-muted)' }}>
                 {m.label}

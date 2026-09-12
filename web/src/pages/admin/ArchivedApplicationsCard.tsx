@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArchiveIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { InfoTooltip } from '../../components/HoverCard'
 import type { ApplicationStatus } from '../../types/database'
 
@@ -90,7 +91,7 @@ export function ArchivedApplicationsCard() {
           {byIpo.map(([ipoName, items]) => (
             <div key={ipoName}>
               <p className="mb-1 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
-                {ipoName} <span style={{ color: 'var(--ink-muted)' }}>({items.length})</span>
+                {firstIpoWord(ipoName)} <span style={{ color: 'var(--ink-muted)' }}>({items.length})</span>
               </p>
               <div className="card divide-y" style={{ borderColor: 'var(--border)' }}>
                 {items.map((a) => (
