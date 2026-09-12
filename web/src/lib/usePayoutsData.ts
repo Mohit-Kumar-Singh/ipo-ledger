@@ -108,7 +108,15 @@ export function usePayoutsData() {
         (r) => !(r.ipos?.listing_date === todayIstStrLocal && nowIstHourLocal < 10),
       )
       const case2ManagerIds = new Set((case2ManagersRes.data ?? []).map((m) => m.id as string))
-      const expectedCards = buildFunderAllottedCards(expectedRowsBase, sameIdentity, case2ManagerIds).filter((c) => c.priceHigh)
+      const expectedCards = buildFunderAllottedCards(
+        expectedRowsBase,
+        sameIdentity,
+        case2ManagerIds,
+        // Only when the current viewer genuinely IS the admin — see
+        // buildFunderAllottedCards' own comment on why a funder-only
+        // viewer's own name must never be passed here.
+        isAdmin ? (profile?.full_name ?? null) : null,
+      ).filter((c) => c.priceHigh)
       const symbols = Array.from(
         new Set([
           ...expectedCards.map((c) => c.symbol).filter((s): s is string => !!s),

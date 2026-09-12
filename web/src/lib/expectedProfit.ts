@@ -137,12 +137,30 @@ export interface FunderAllottedCard {
   // a third party that doesn't exist for this card. True (the historical
   // default) for every normal funder and CASE_1 manager.
   splitWithFunder: boolean
+  // True when this card's funder is the SAME PERSON as the admin passed in
+  // as `adminName` below — the projection's own version of
+  // computeProfitSplit's isFunderSelf (the real, post-sale calculation
+  // already handles this correctly; this was the one place that didn't).
+  // A caller building a "who do I still owe" list should skip these cards
+  // the same way buildSettlementCards' SOLD-row equivalent already does
+  // (see PayoutsPage's groupAllFundersCompact) — there's no third party to
+  // pay when the funder funded their own tracked application.
+  isFunderSelf: boolean
 }
 
 export function buildFunderAllottedCards(
   rows: ProfitProjectionRow[],
   sameIdentity: (a: string, b: string) => boolean,
   case2ManagerIds: Set<string> = new Set(),
+  // The real admin's own name — NOT "whoever is currently logged in" (a
+  // funder-only viewer's own RLS-scoped rows always have their own name as
+  // the funder, so passing their name here would wrongly zero out their own
+  // funderShareTotal). Pass this ONLY when the caller knows the current
+  // viewer genuinely IS the admin; every existing call site already has
+  // `isAdmin` for exactly this purpose. Omitted (undefined/null) preserves
+  // the pre-existing always-split behavior, which is what a funder-only
+  // viewer's own cards need.
+  adminName?: string | null,
 ): FunderAllottedCard[] {
   const cardsByIpo = new Map<string, FunderAllottedCard[]>()
   for (const r of rows) {
@@ -178,6 +196,7 @@ export function buildFunderAllottedCards(
         cutPercent: 25,
         _cutWeightedSum: 0,
         splitWithFunder: true,
+        isFunderSelf: false,
       }
       cardsForIpo.push(card)
     } else if (name.length > card.funderName.length) {
@@ -201,6 +220,21 @@ export function buildFunderAllottedCards(
     // see the matching, more detailed comment on buildUnrealizedProfitLines.
     if (r.demat_accounts?.account_manager_id && case2ManagerIds.has(r.demat_accounts.account_manager_id)) {
       card.splitWithFunder = false
+    }
+    // The admin funded their own tracked application (a different holder's
+    // demat, their own money) — same "no genuine third party" reasoning as
+    // the CASE_2 branch above, and the same rule computeProfitSplit's real,
+    // post-sale isFunderSelf already enforces once this actually sells. Real
+    // bug this fixes: this projection previously ALWAYS split the remainder
+    // 50/50 regardless of who the funder was, so the admin's own "Expected
+    // profit" showed exactly half of what they'd actually keep the moment
+    // it sold — confirmed against a real allotted-not-yet-sold row (Kanohar
+    // Electricals, ₹632 price, 23-share lot, 37% GMP, 25% holder cut):
+    // projected ₹2,017 here vs. the correct ₹4,034 computeProfitSplit would
+    // give the same row once sold at the same price.
+    if (adminName && sameIdentity(name, adminName)) {
+      card.splitWithFunder = false
+      card.isFunderSelf = true
     }
   }
   const cards = Array.from(cardsByIpo.values()).flat()
@@ -580,8 +614,9 @@ export interface SoldFunderCard extends FunderAllottedCard {
 export function buildSoldFunderCards(
   soldTodayRows: ProfitProjectionRow[],
   sameIdentity: (a: string, b: string) => boolean,
+  adminName?: string | null,
 ): SoldFunderCard[] {
-  const cards = buildFunderAllottedCards(soldTodayRows, sameIdentity) as SoldFunderCard[]
+  const cards = buildFunderAllottedCards(soldTodayRows, sameIdentity, undefined, adminName) as SoldFunderCard[]
   for (const c of cards) {
     const cardRows = soldTodayRows.filter((r) => {
       const funder = effectiveFunder(r)

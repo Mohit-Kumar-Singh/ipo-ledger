@@ -760,6 +760,11 @@ export function DashboardPage() {
       profitRowsBase.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD'),
       sameIdentity,
       case2ManagerIds,
+      // Only when the current viewer genuinely IS the admin — a funder-only
+      // viewer's own RLS-scoped rows always have their own name as the
+      // funder, so passing it unconditionally would wrongly zero out their
+      // own funderShareTotal (see buildFunderAllottedCards' own comment).
+      isAdmin ? (profile?.full_name ?? null) : null,
     ).filter((c) => c.priceHigh)
     const bookedProfitLines = buildBookedProfitLines(profitRowsBase, profile?.full_name ?? '', case2ManagerIds)
 

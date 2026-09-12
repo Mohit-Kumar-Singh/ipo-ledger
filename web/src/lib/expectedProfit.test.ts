@@ -8,6 +8,7 @@ import {
   type ProfitProjectionRow,
   type FunderAllottedCard,
 } from './expectedProfit'
+import { sameIdentity as realSameIdentity } from './applicationAttribution'
 
 const sameIdentity = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase()
 
@@ -91,6 +92,71 @@ describe('buildFunderAllottedCards — grouping and weighted cut%', () => {
     const cards = buildFunderAllottedCards([row()], sameIdentity)
     expect(cards[0].splitWithFunder).toBe(true)
   })
+
+  // Real bug, found while explaining a live figure to the user: Kanohar
+  // Electricals, allotted to Knnu Harit, funded by Mohit (the app's one
+  // admin). ₹632 price_high, 23-share lot, 37% GMP, 25% holder cut — the
+  // Dashboard's "Expected profit" showed ₹2,017 (exactly half of the
+  // correct ₹4,034) because this function always split the remainder 50/50
+  // regardless of who the funder was, even when the funder IS the admin
+  // with no genuine third party to split with.
+  describe('adminName — the funder-is-the-admin regression (Kanohar / Mohit)', () => {
+    const kanohar = row({
+      bid_amount: 14_536, // 632 * 23
+      ipos: {
+        company_name: 'Kanohar Electricals',
+        open_date: '2026-09-08',
+        close_date: '2026-09-10',
+        listing_date: '2026-09-16',
+        price_high: 632,
+        lot_size: 23,
+        gmp_notes: 'GMP: ₹235 (37%)',
+        is_archived: false,
+        symbol: null,
+      },
+      demat_accounts: { holder_name: 'Knnu Harit', profit_share_percent: 25, phone_e164: null, account_manager_id: null },
+      bank_accounts: { account_holder_name: 'Mohit', phone_e164: null, upi_id: null },
+    })
+
+    it('with no adminName (funder-only viewer path): unchanged, still splits 50/50', () => {
+      const cards = buildFunderAllottedCards([kanohar], sameIdentity)
+      expect(cards[0].isFunderSelf).toBe(false)
+      expect(cards[0].splitWithFunder).toBe(true)
+      const b = expectedProfitBreakdown(cards[0], null)
+      // lotAmount 14,536 * 1.37 = 19,914.32 -> soldPrice 19,914 -> profit 5,378
+      // -> netProfitPerLot (75%) 4,034 -> half each -> 2,017. The bug.
+      expect(b.netYourProfit).toBe(2017)
+      expect(b.funderShareTotal).toBe(2017)
+    })
+
+    it('with adminName matching the funder: no split, admin keeps the whole remainder', () => {
+      const cards = buildFunderAllottedCards([kanohar], sameIdentity, undefined, 'Mohit')
+      expect(cards[0].isFunderSelf).toBe(true)
+      expect(cards[0].splitWithFunder).toBe(false)
+      const b = expectedProfitBreakdown(cards[0], null)
+      expect(b.netYourProfit).toBe(4034)
+      expect(b.funderShareTotal).toBe(0)
+    })
+
+    it('adminName is matched with the real (fuzzy) sameIdentity, not exact string equality — "Mohit Kumar Singh" (the real profile.full_name) still matches the funder name "Mohit"', () => {
+      // Using the REAL applicationAttribution.sameIdentity here, not this
+      // file's simplified exact-match stand-in — the whole point of this
+      // test is that the real fuzzy matcher (first-token prefix match) is
+      // what the app actually passes at every call site, and it's what
+      // makes this fix work for the real admin profile name on file
+      // ("Mohit Kumar Singh") against the shorter funder name ("Mohit")
+      // recorded on the application itself.
+      const cards = buildFunderAllottedCards([kanohar], realSameIdentity, undefined, 'Mohit Kumar Singh')
+      expect(cards[0].isFunderSelf).toBe(true)
+    })
+
+    it('a DIFFERENT funder is never affected by adminName — Avinash funding his own row still splits normally', () => {
+      const avinashRow = row({ ...kanohar, bank_accounts: { account_holder_name: 'Avinash sir', phone_e164: null, upi_id: null } })
+      const cards = buildFunderAllottedCards([avinashRow], sameIdentity, undefined, 'Mohit Kumar Singh')
+      expect(cards[0].isFunderSelf).toBe(false)
+      expect(cards[0].splitWithFunder).toBe(true)
+    })
+  })
 })
 
 describe('expectedProfitBreakdown', () => {
@@ -110,6 +176,7 @@ describe('expectedProfitBreakdown', () => {
     cutPercent: 25,
     _cutWeightedSum: 25,
     splitWithFunder: true,
+    isFunderSelf: false,
   }
 
   it('GMP-based estimate: lotAmount, profit, and the 3-way split all derive from the same numbers', () => {

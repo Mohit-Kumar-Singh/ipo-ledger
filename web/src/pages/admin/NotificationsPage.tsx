@@ -600,11 +600,20 @@ export function NotificationsPage() {
       const isSold = (r: ApplicationForFunderRow) => r.status === 'SOLD'
       return {
         funderCards: buildFunderIpoCards(funderRows),
-        allottedCards: buildFunderAllottedCards(funderRows.filter((r) => !isSold(r)), sameIdentity),
+        allottedCards: buildFunderAllottedCards(
+          funderRows.filter((r) => !isSold(r)),
+          sameIdentity,
+          undefined,
+          isAdmin ? (profile?.full_name ?? null) : null,
+        ),
         holderAllottedCards: buildHolderAllottedCards(funderRows),
         sellTodayCards: buildSellReminderCards(funderRows, todayStr),
         sellTomorrowCards: buildSellReminderCards(funderRows, tomorrowIstDateStr()),
-        soldCards: buildSoldFunderCards(funderRows.filter((r) => isSold(r) && r.sell_price != null), sameIdentity),
+        soldCards: buildSoldFunderCards(
+          funderRows.filter((r) => isSold(r) && r.sell_price != null),
+          sameIdentity,
+          isAdmin ? (profile?.full_name ?? null) : null,
+        ),
         myNotifications: (myNotifsRes.data ?? []) as Notification[],
       }
     },

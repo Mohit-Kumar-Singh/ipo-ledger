@@ -226,6 +226,10 @@ function groupExpectedByFunder(
 ): SettlementPartyGroup[] {
   const byName = new Map<string, SettlementPartyGroup>()
   for (const c of cards) {
+    // Same skip groupAllFundersCompact already applies to the real, sold
+    // side of this same ledger — no third party to send anything to when
+    // the admin funded their own tracked application.
+    if (c.isFunderSelf) continue
     const livePrice = c.symbol ? (livePriceBySymbol[c.symbol] ?? null) : null
     const amount = expectedProfitBreakdown(c, livePrice).amountToReturn
     if (amount <= 0) continue
