@@ -27,13 +27,16 @@ function rupees(n: number): string {
 // a date-only string (no time component, same convention every other
 // date-only field in this app already follows — see AllotmentBoardPage's
 // own day+month formatter) doesn't shift a day depending on the viewer's
-// timezone.
-function formatArchiveDate(dateStr: string): string {
+// timezone. Weekday appended when asked — every existing call site that
+// doesn't pass it keeps the exact same bare date as before.
+function formatArchiveDate(dateStr: string, opts?: { weekday?: 'long' | 'short' }): string {
   const d = new Date(dateStr)
   const day = d.toLocaleDateString('en-IN', { day: '2-digit', timeZone: 'UTC' })
   const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
   const year = d.toLocaleDateString('en-IN', { year: '2-digit', timeZone: 'UTC' })
-  return `${day}/${month}/${year}`
+  const base = `${day}/${month}/${year}`
+  if (!opts?.weekday) return base
+  return `${base} · ${d.toLocaleDateString('en-IN', { weekday: opts.weekday, timeZone: 'UTC' })}`
 }
 
 // Everything settled and moved out of the way — an IPO ends up here once
@@ -305,9 +308,9 @@ export function ArchivesPage() {
                       </p>
                       <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
                         {ipo.listing_date
-                          ? `Listed ${formatArchiveDate(ipo.listing_date)}`
+                          ? `Listed ${formatArchiveDate(ipo.listing_date, { weekday: 'short' })}`
                           : ipo.allotment_date
-                            ? `Allotment ${formatArchiveDate(ipo.allotment_date)}`
+                            ? `Allotment ${formatArchiveDate(ipo.allotment_date, { weekday: 'short' })}`
                             : 'No dates'}
                         {` · ${items.length} application${items.length === 1 ? '' : 's'}`}
                       </p>

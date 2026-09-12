@@ -129,7 +129,14 @@ export function IpoTimeline({ milestones }: IpoTimelineProps) {
                 className="font-mono-ipo tabular-nums"
                 style={{ fontWeight: isCurrent ? 700 : 400, color: isCurrent ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
               >
-                {formatShortDate(m.date)}
+                {/* Weekday only on Listing, not all four — tried on every
+                    milestone first and it wrapped a narrow phone's 4th
+                    column onto an ugly extra line ("16th Sep" / "Wed" split
+                    across two lines while every other column stayed one).
+                    Listing is also the one date people actually plan around
+                    (when can I sell), so it's the one worth the extra
+                    width here; Open/Close/Allotment stay bare. */}
+                {formatShortDate(m.date, m.label === 'Listing' ? { weekday: 'short' } : undefined)}
               </p>
               <p style={{ color: 'var(--ink-muted)' }}>
                 {m.label}

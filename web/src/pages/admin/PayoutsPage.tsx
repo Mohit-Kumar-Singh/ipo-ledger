@@ -724,7 +724,7 @@ export function PayoutsPage() {
                   {open && (
                     <div className="mt-2 space-y-0.5 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
                       <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                        Allotted: {formatShortDate(r.allotmentDate)}
+                        Allotted: {formatShortDate(r.allotmentDate, { weekday: 'long' })}
                       </p>
                       {r.accounts.map((a, i) => (
                         <p key={i} className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>

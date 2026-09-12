@@ -36,6 +36,7 @@ import { useCountUp } from '../../lib/useCountUp'
 import { hydrateDematAccounts } from '../../lib/hydrateDemat'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { loadPersistedState, savePersistedState } from '../../lib/persistedState'
+import { formatShortDate as formatOrdinalDate } from '../../lib/formatDate'
 import type {
   AllotmentBoardRow,
   ApplicationAttributionRow,
@@ -1204,7 +1205,8 @@ export function DashboardPage() {
                 {r.holder_name}
               </span>
               <span style={{ color: 'var(--ink-muted)' }}>
-                {firstIpoWord(r.company_name)} · listing {r.listing_date ? formatOrdinalDate(r.listing_date) : '—'}
+                {firstIpoWord(r.company_name)} · listing{' '}
+                {r.listing_date ? formatOrdinalDate(r.listing_date, { weekday: 'long' }) : '—'}
               </span>
             </Row>
           ))}
@@ -1385,21 +1387,17 @@ function ClosingTodayPanel({ ipos }: { ipos: Ipo[] }) {
 // "20 Aug" — day + short month, no ordinal suffix. Same shape as
 // AllotmentBoardPage's own formatShortDate (kept as a separate local copy
 // rather than a cross-page import for one three-line function) — used
-// where a compact panel needs a date without formatOrdinalDate's extra
-// "th"/"nd"/"rd" width.
-function formatShortDate(dateStr: string): string {
+// where a compact panel needs a date without the ordinal suffix's extra
+// "th"/"nd"/"rd" width. Weekday appended when asked (see lib/formatDate.ts's
+// own formatShortDate, which this mirrors) — every existing call site below
+// that doesn't pass it gets the exact same bare date as before.
+function formatShortDate(dateStr: string, opts?: { weekday?: 'long' | 'short' }): string {
   const d = new Date(`${dateStr}T00:00:00Z`)
   const day = d.getUTCDate()
   const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
-  return `${day} ${month}`
-}
-
-function formatOrdinalDate(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`)
-  const day = d.getUTCDate()
-  const suffix = day % 10 === 1 && day !== 11 ? 'st' : day % 10 === 2 && day !== 12 ? 'nd' : day % 10 === 3 && day !== 13 ? 'rd' : 'th'
-  const month = d.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })
-  return `${day}${suffix} ${month}`
+  const base = `${day} ${month}`
+  if (!opts?.weekday) return base
+  return `${base} · ${d.toLocaleDateString('en-IN', { weekday: opts.weekday, timeZone: 'UTC' })}`
 }
 
 // Compact by request — this used to show the FULL company name plus
@@ -1437,7 +1435,7 @@ function PendingMandatePanel({ rows }: { rows: AllotmentBoardRow[] }) {
                 mandate-cutoff toast, isOpenForBidding, etc.), just not
                 repeated on every row of this specific panel. */}
             <span className="min-w-0 shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-              {r.company_name.split(' ')[0]} · {formatShortDate(r.close_date)}
+              {firstIpoWord(r.company_name)} · {formatShortDate(r.close_date, { weekday: 'short' })}
             </span>
           </div>
         )
@@ -1464,7 +1462,8 @@ function AllottedNotSoldPanel({ rows }: { rows: AllotmentBoardRow[] }) {
             {r.holder_name}
           </span>
           <span className="shrink-0 truncate text-right" style={{ color: 'var(--ink-muted)' }}>
-            {firstIpoWord(r.company_name)} · {r.listing_date ? formatOrdinalDate(r.listing_date) : 'no listing date yet'}
+            {firstIpoWord(r.company_name)} ·{' '}
+            {r.listing_date ? formatOrdinalDate(r.listing_date, { weekday: 'short' }) : 'no listing date yet'}
           </span>
         </div>
       ))}

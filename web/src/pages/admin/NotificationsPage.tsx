@@ -134,7 +134,7 @@ function buildHolderAllottedCards(rows: ApplicationForFunderRow[]): HolderAllott
 function buildHolderAllottedMessage(card: HolderAllottedCard): string {
   const PARTY = '\u{1F389}'
   const listingLine = card.listingDate
-    ? `Listing date is \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
+    ? `Listing date is \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'long' })}\``
     : `Listing date isn't out yet.`
   return (
     `Hi ${card.holderName}, Good news ${PARTY} — your *${card.ipoName}* IPO application has been *allotted* to ` +
@@ -222,7 +222,7 @@ function buildFunderAllottedMessage(card: FunderAllottedCard): string {
     ? `\n\n_🏷️ = funded via a transfer to a different UPI, not that your own UPI_`
     : ''
   const listingLine = card.listingDate
-    ? `Listing date of ${card.ipoName} IPO is  \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}\``
+    ? `Listing date of ${card.ipoName} IPO is  \`${new Date(card.listingDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', weekday: 'long' })}\``
     : `Listing date isn't out yet.`
 
   // Unicode escapes, not literal characters — a literal 🎉 pasted straight

@@ -83,10 +83,14 @@ function sellPricePerShareFrom(form: SoldFormState, row: AllotmentBoardRow): num
 
 // "18 Aug" — day + short month, no ordinal suffix (unlike formatOrdinalDate
 // elsewhere in this app) — this is a compact card summary line, not prose.
-function formatShortDate(iso: string): string {
+// Weekday appended when asked, e.g. "18 Aug · Wednesday" — every existing
+// call site that doesn't pass it keeps the exact same bare date as before.
+function formatShortDate(iso: string, opts?: { weekday?: 'long' | 'short' }): string {
   const [y, m, d] = iso.split('-').map(Number)
   const date = new Date(Date.UTC(y, m - 1, d))
-  return `${d} ${date.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })}`
+  const base = `${d} ${date.toLocaleDateString('en-IN', { month: 'short', timeZone: 'UTC' })}`
+  if (!opts?.weekday) return base
+  return `${base} · ${date.toLocaleDateString('en-IN', { weekday: opts.weekday, timeZone: 'UTC' })}`
 }
 
 export function AllotmentBoardPage() {
@@ -727,7 +731,9 @@ function SoldPayoutsSection({
       .eq('id', row.demat_id)
       .maybeSingle()
     const pdfUrl = await resolveSellPdfUrl(demat?.platform ?? row.platform)
-    const listingPhrase = row.listing_date ? `lists on ${formatShortDate(row.listing_date)}` : 'is listing soon'
+    const listingPhrase = row.listing_date
+      ? `lists on ${formatShortDate(row.listing_date, { weekday: 'long' })}`
+      : 'is listing soon'
     const message = buildSellReminderText({
       holderName: row.holder_name,
       ipoName: row.company_name,
@@ -748,7 +754,7 @@ function SoldPayoutsSection({
   // (lib/notificationTemplates.ts) so this reads identically to the tracked
   // ALLOTTED notification the applied-list table can send.
   const listingLabel = (row: AllotmentBoardRow) =>
-    row.listing_date ? formatShortDate(row.listing_date) : 'to be announced'
+    row.listing_date ? formatShortDate(row.listing_date, { weekday: 'long' }) : 'to be announced'
 
   function congratulateHolder(row: AllotmentBoardRow) {
     const message = renderMessageBody('ipo_allotted', [
