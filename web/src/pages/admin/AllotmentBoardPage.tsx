@@ -840,11 +840,17 @@ function SoldPayoutsSection({
                         listing date, GMP% — deliberately terse (a full
                         company name/funder name/raw GMP string was too much
                         for one line, especially on phone) rather than
-                        trying to fit the full facts and truncating them. */}
+                        trying to fit the full facts and truncating them.
+                        Weekday on the listing date (short form) — this is
+                        the one visible listing-date mention on this page
+                        the earlier pass missed; truncate already handles
+                        the rare case a long combination doesn't fit (GMP%
+                        clips first, ellipsis shows there's more) rather
+                        than an ugly hard wrap. */}
                     <p className="mt-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
                       {firstIpoWord(row.company_name)}
                       {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
-                      {row.listing_date && ` · ${formatShortDate(row.listing_date)}`}
+                      {row.listing_date && ` · ${formatShortDate(row.listing_date, { weekday: 'short' })}`}
                       {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
                     </p>
                     {/* UPI on its own line, not appended to the terse summary
