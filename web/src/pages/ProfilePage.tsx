@@ -11,6 +11,7 @@ import {
   PeopleIcon,
   ShieldCheckIcon,
   PersonIcon,
+  GraphIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -382,6 +383,7 @@ export function ProfilePage() {
         <div className="space-y-2">
           <NavCard to="/accounts" icon={PeopleIcon} iconColor="var(--accent)" label="Accounts" />
           {isAdmin && <NavCard to="/pan-access-log" icon={ShieldCheckIcon} iconColor="var(--violet)" label="PAN access log" />}
+          {isAdmin && <NavCard to="/shareholder-quota" icon={GraphIcon} iconColor="var(--good)" label="Shareholder Quota" />}
           {/* Sell-instruction PDFs + archived applications sit last — rarely-
               touched references, collapsed by default. Archived is self-fetching
               and renders nothing when there's no archived history. */}

@@ -42,6 +42,9 @@ const UsersPage = lazy(() => import('./pages/admin/UsersPage').then((m) => ({ de
 const PanAccessLogPage = lazy(() =>
   import('./pages/admin/PanAccessLogPage').then((m) => ({ default: m.PanAccessLogPage })),
 )
+const ShareholderQuotaPage = lazy(() =>
+  import('./pages/admin/ShareholderQuotaPage').then((m) => ({ default: m.ShareholderQuotaPage })),
+)
 const LinkedAccountsPage = lazy(() =>
   import('./pages/LinkedAccountsPage').then((m) => ({ default: m.LinkedAccountsPage })),
 )
@@ -76,6 +79,7 @@ function App() {
                       <Route path="/archives" element={<ArchivesPage />} />
                       <Route path="/users" element={<UsersPage />} />
                       <Route path="/pan-access-log" element={<PanAccessLogPage />} />
+                      <Route path="/shareholder-quota" element={<ShareholderQuotaPage />} />
                       <Route path="/linked-accounts" element={<LinkedAccountsPage />} />
                       <Route path="/profile" element={<ProfilePage />} />
                     </Route>

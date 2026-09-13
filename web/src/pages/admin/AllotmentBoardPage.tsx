@@ -531,6 +531,16 @@ export function AllotmentBoardPage() {
                           {'\u{1F3F7}\u{FE0F}'}
                         </span>
                       )}
+                      {/* RETAIL is the overwhelming default and stays
+                          unbadged — only a non-default category (chiefly
+                          SHAREHOLDER, migration 0097) needs the tag, so a
+                          second bid via the shareholder quota next to an
+                          existing retail one is never mistaken for a
+                          duplicate. This table row has room for it; the
+                          separate narrow mobile summary line doesn't. */}
+                      {row.category !== 'RETAIL' && (
+                        <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
+                      )}
                     </span>
                   </td>
                   {/* Funder name + the UPI the money actually moved through.
@@ -830,6 +840,9 @@ function SoldPayoutsSection({
                         >
                           {'\u{1F3F7}\u{FE0F}'}
                         </span>
+                      )}
+                      {row.category !== 'RETAIL' && (
+                        <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
                       )}
                     </p>
                     <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>

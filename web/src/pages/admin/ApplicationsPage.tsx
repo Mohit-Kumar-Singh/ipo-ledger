@@ -1081,6 +1081,14 @@ export function ApplicationsPage() {
                               duplicate
                             </span>
                           )}
+                          {/* RETAIL is the overwhelming default and stays
+                              unbadged — only a non-default category (chiefly
+                              SHAREHOLDER, migration 0097) needs the tag, so a
+                              second bid via the shareholder quota is never
+                              mistaken for a duplicate retail application. */}
+                          {a.category !== 'RETAIL' && (
+                            <span className="badge badge-neutral shrink-0 text-[10px]">{a.category}</span>
+                          )}
                         </div>
                         {/* UPI ID alongside the funder name — one funder can
                             pay from several UPI accounts, so the name alone
@@ -1481,6 +1489,30 @@ function NewApplicationForm({
   }, [bankAccountId, funderOverrideId, banks])
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
+  // Which accounts already hold shares of this IPO's shareholder-quota
+  // parent company (parent_company_holdings, migration 0097) — surfaced as
+  // a hint once SHAREHOLDER is picked, not a hard filter, since an admin
+  // may still know of an eligible holding not yet entered on the
+  // Shareholder Quota page.
+  const [eligibleDematIds, setEligibleDematIds] = useState<Set<string>>(new Set())
+  useEffect(() => {
+    const parentCompanyId = ipos.find((i) => i.id === ipoId)?.parent_company_id
+    if (!parentCompanyId) {
+      setEligibleDematIds(new Set())
+      return
+    }
+    let cancelled = false
+    supabase
+      .from('parent_company_holdings')
+      .select('demat_id')
+      .eq('parent_company_id', parentCompanyId)
+      .then(({ data }) => {
+        if (!cancelled) setEligibleDematIds(new Set((data ?? []).map((r) => r.demat_id as string)))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [ipoId, ipos])
   // Mandate is only settable while editing an existing application — a
   // brand-new row starts PENDING by default (migration 0047) and there's
   // nothing to approve yet at creation time.
@@ -1707,6 +1739,16 @@ function NewApplicationForm({
             </option>
           ))}
         </select>
+        {category === 'SHAREHOLDER' && (
+          <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
+            {eligibleDematIds.size === 0
+              ? "No accounts are recorded holding this IPO's parent-company shares yet — add on the Shareholder Quota page."
+              : `Eligible via shareholder quota: ${accounts
+                  .filter((a) => eligibleDematIds.has(a.id))
+                  .map((a) => a.holder_name)
+                  .join(', ')}`}
+          </p>
+        )}
       </Field>
       <Field label="Lots">
         <input required type="number" min={1} value={lots} onChange={(e) => setLots(e.target.value)} className="input" />

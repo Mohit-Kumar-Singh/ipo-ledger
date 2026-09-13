@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { CheckIcon } from '@primer/octicons-react'
 import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { describeFunctionError, supabase } from '../../lib/supabase'
-import { useIpos, queryKeys } from '../../lib/queries'
+import { useIpos, useParentCompanies, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
@@ -13,6 +13,7 @@ import { confirmDialog } from '../../lib/confirmDialog'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { Combobox } from '../../components/Combobox'
 
 const LOW_GMP_THRESHOLD = 10
 
@@ -1006,6 +1007,13 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
   const [shareholderIssueSize, setShareholderIssueSize] = useState(existing?.shareholder_issue_size ?? '')
   const [parentCompanyName, setParentCompanyName] = useState(existing?.parent_company_name ?? '')
   const [parentCompanySymbol, setParentCompanySymbol] = useState(existing?.parent_company_symbol ?? '')
+  // Independent of parentCompanyName/Symbol above (free-text, cosmetic) —
+  // this links to a reusable parent_companies row (Shareholder Quota page,
+  // migration 0097) so the app can look up which accounts already hold
+  // that company's shares and are eligible to apply here.
+  const [parentCompanyId, setParentCompanyId] = useState(existing?.parent_company_id ?? '')
+  const parentCompaniesQuery = useParentCompanies()
+  const parentCompanies = parentCompaniesQuery.data ?? []
   const [retailSubscriptionRate, setRetailSubscriptionRate] = useState(existing?.retail_subscription_rate ?? '')
   const [registrar, setRegistrar] = useState<Registrar>(existing?.registrar ?? 'OTHER')
   const [registrarUrl, setRegistrarUrl] = useState(existing?.registrar_url ?? '')
@@ -1041,6 +1049,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
       shareholder_issue_size: shareholderIssueSize || null,
       parent_company_name: parentCompanyName || null,
       parent_company_symbol: parentCompanySymbol || null,
+      parent_company_id: parentCompanyId || null,
       retail_subscription_rate: retailSubscriptionRate || null,
       allotment_out: allotmentOut === 'unknown' ? null : allotmentOut === 'out',
     }
@@ -1158,6 +1167,21 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
           onChange={(e) => setParentCompanySymbol(e.target.value.toUpperCase())}
           placeholder="e.g. COALINDIA"
           className="input"
+        />
+      </Field>
+      <Field label="Shareholder-quota eligibility via (optional — add companies on the Shareholder Quota page)">
+        <Combobox
+          aria-label="Parent company for shareholder-quota eligibility"
+          placeholder="None"
+          searchPlaceholder="Search parent companies…"
+          value={parentCompanyId}
+          onChange={setParentCompanyId}
+          options={[
+            { value: '', label: 'None' },
+            ...[...parentCompanies]
+              .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+              .map((c) => ({ value: c.id, label: c.name })),
+          ]}
         />
       </Field>
       <Field label="Retail subscription rate">

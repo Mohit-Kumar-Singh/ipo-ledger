@@ -28,13 +28,18 @@
 // for the full list of what's still page-local.
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { supabase } from './supabase'
-import type { Ipo, DematAccount, BankAccount, AllotmentBoardRow } from '../types/database'
+import type { Ipo, DematAccount, BankAccount, AllotmentBoardRow, ParentCompany } from '../types/database'
 
 export const queryKeys = {
   ipos: ['ipos'] as const,
   dematAccounts: ['demat_accounts'] as const,
   bankAccounts: ['bank_accounts'] as const,
   allotmentBoard: ['v_allotment_board'] as const,
+  // Read by the Shareholder Quota page (its own management surface),
+  // IposPage (picking which company an IPO's quota is via) and
+  // ApplicationsPage (eligibility hint) — three consumers, same
+  // shared-cache reasoning as ipos/demat_accounts/bank_accounts above.
+  parentCompanies: ['parent_companies'] as const,
   // settlement_payments is genuinely page-local (only Payouts reads it) so
   // it isn't one of the shared multi-page caches above — but it IS now in
   // the supabase_realtime publication (migration 0085), and RealtimeCacheSync
@@ -76,6 +81,12 @@ export async function fetchAllotmentBoardAll(): Promise<AllotmentBoardRow[]> {
   return (data ?? []) as AllotmentBoardRow[]
 }
 
+export async function fetchParentCompanies(): Promise<ParentCompany[]> {
+  const { data, error } = await supabase.from('parent_companies').select('*')
+  if (error) throw error
+  return (data ?? []) as ParentCompany[]
+}
+
 // Every IPO, unfiltered — the shared source every page's own filtered view
 // (closing today, archived, allotment-out-and-not-archived, ...) derives
 // from client-side. Small table (a personal/family IPO tracker's full
@@ -106,4 +117,8 @@ export function useBankAccounts(enabled = true): UseQueryResult<BankAccount[]> {
 // for every page currently reading it, not just the one that made the change.
 export function useAllotmentBoardAll(): UseQueryResult<AllotmentBoardRow[]> {
   return useQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 })
+}
+
+export function useParentCompanies(enabled = true): UseQueryResult<ParentCompany[]> {
+  return useQuery({ queryKey: queryKeys.parentCompanies, queryFn: fetchParentCompanies, enabled })
 }

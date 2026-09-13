@@ -103,6 +103,41 @@ export interface Ipo {
   // null = unknown (neither "Allotment Out" nor "Allotment Awaited" seen on
   // ipoji, or never imported from there) — see deriveStatus in IposPage.tsx.
   allotment_out: boolean | null
+  // Reusable parent company (parent_companies table, migration 0097) this
+  // IPO's shareholder quota is via — independent of the free-text
+  // parent_company_name/symbol above, which stay purely cosmetic. Null =
+  // no shareholder-quota eligibility lookup configured for this IPO.
+  parent_company_id: string | null
+}
+
+// A listed parent/associate company whose existing shareholders get a
+// quota in IPOs of its group companies — reusable across every such IPO,
+// unlike ipos.parent_company_name/symbol which are re-typed per IPO. See
+// migration 0097 and lib/parentCompanyPnl.ts.
+export interface ParentCompany {
+  id: string
+  name: string
+  symbol: string | null
+  notes: string | null
+  created_at: string
+}
+
+export type HoldingStatus = 'HELD' | 'SOLD'
+
+// One purchase lot of a parent company's shares, bought to qualify for its
+// shareholder quota. See migration 0097 for the funder_id/loss_bearer_id
+// reasoning.
+export interface ParentCompanyHolding {
+  id: string
+  parent_company_id: string
+  demat_id: string
+  quantity: number
+  buy_price: number
+  funder_id: string | null
+  loss_bearer_id: string | null
+  status: HoldingStatus
+  sell_price: number | null
+  created_at: string
 }
 
 export interface Application {
@@ -268,6 +303,11 @@ export interface AllotmentBoardRow {
   account_manager_name: string | null
   account_manager_phone: string | null
   account_manager_case_type: AccountManagerCaseType | null
+  // Appended at the end of the view's select list, same convention as every
+  // other addition here (0090) — RETAIL is the overwhelming default and
+  // deliberately left unbadged wherever this is displayed; only a
+  // non-RETAIL category (chiefly SHAREHOLDER, migration 0097) gets a tag.
+  category: ApplicationCategory
 }
 
 // "Shared accounts" — a demat account sourced by someone else (Person X/Y),

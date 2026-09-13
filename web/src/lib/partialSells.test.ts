@@ -48,6 +48,7 @@ function boardRow(over: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow {
     account_manager_name: null,
     account_manager_phone: null,
     account_manager_case_type: null,
+    category: 'RETAIL',
     ...over,
   }
 }
