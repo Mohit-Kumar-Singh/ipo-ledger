@@ -1,12 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from '@primer/octicons-react'
+import { Plus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useParentCompanies, useDematAccounts, useBankAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { Combobox } from '../../components/Combobox'
+import { InfoTooltip } from '../../components/HoverCard'
 import { rupees } from '../../lib/expectedProfit'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { computeHoldingPnl, summarizeCompanyHoldings } from '../../lib/parentCompanyPnl'
@@ -173,16 +175,21 @@ export function ShareholderQuotaPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
-            Shareholder Quota
-          </h1>
-          <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>
-            Parent companies your accounts already hold shares in — pick one on an IPO's edit page to unlock its shareholder-quota eligibility.
-          </p>
-        </div>
-        <button onClick={() => setShowAddCompany((s) => !s)} className="btn-primary">
-          {showAddCompany ? 'Cancel' : '+ Add company'}
+        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          Shareholder Quota
+          <InfoTooltip text="Parent companies your accounts already hold shares in — pick one on an IPO's edit page to unlock its shareholder-quota eligibility." />
+        </h1>
+        {/* Small icon-only toggle, same size/style as Applications' own
+            "New application" button — a full text button here was more
+            visual weight than a single add action needs. */}
+        <button
+          onClick={() => setShowAddCompany((s) => !s)}
+          aria-label={showAddCompany ? 'Cancel' : 'Add company'}
+          title={showAddCompany ? 'Cancel' : 'Add company'}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+          style={{ color: 'var(--ink-secondary)' }}
+        >
+          {showAddCompany ? <X size={16} /> : <Plus size={16} />}
         </button>
       </div>
 
