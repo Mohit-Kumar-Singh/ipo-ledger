@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from '@primer/octicons-react'
 import { Plus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
-import { useParentCompanies, useDematAccounts, useBankAccounts, queryKeys } from '../../lib/queries'
+import { useParentCompanies, useDematAccounts, useBankAccounts, useIpos, queryKeys } from '../../lib/queries'
+import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
@@ -13,7 +14,7 @@ import { rupees } from '../../lib/expectedProfit'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { computeHoldingPnl, summarizeCompanyHoldings } from '../../lib/parentCompanyPnl'
 import { InlineSpinner } from '../../components/PageSpinner'
-import type { BankAccount, DematAccount, ParentCompany, ParentCompanyHolding } from '../../types/database'
+import type { BankAccount, DematAccount, Ipo, ParentCompany, ParentCompanyHolding } from '../../types/database'
 
 const HOLDINGS_QUERY_KEY = ['parent_company_holdings'] as const
 
@@ -24,6 +25,7 @@ const HOLDINGS_QUERY_KEY = ['parent_company_holdings'] as const
 const EMPTY_DEMAT_ACCOUNTS: DematAccount[] = []
 const EMPTY_BANK_ACCOUNTS: BankAccount[] = []
 const EMPTY_HOLDINGS: ParentCompanyHolding[] = []
+const EMPTY_IPOS: Ipo[] = []
 
 function Field({ label, children }: { label: ReactNode; children: ReactNode }) {
   return (
@@ -67,12 +69,14 @@ export function ShareholderQuotaPage() {
   const companiesQuery = useParentCompanies()
   const dematQuery = useDematAccounts()
   const bankQuery = useBankAccounts()
+  const iposQuery = useIpos()
   const companies = useMemo(
     () => [...(companiesQuery.data ?? [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })),
     [companiesQuery.data],
   )
   const dematAccounts = dematQuery.data ?? EMPTY_DEMAT_ACCOUNTS
   const bankAccounts = bankQuery.data ?? EMPTY_BANK_ACCOUNTS
+  const ipos = iposQuery.data ?? EMPTY_IPOS
 
   const holdingsQuery = useQuery({
     queryKey: HOLDINGS_QUERY_KEY,
@@ -86,11 +90,16 @@ export function ShareholderQuotaPage() {
 
   // useCallback — passed to every CompanyCard as onChanged; a stable
   // reference is what lets React.memo on CompanyCard/HoldingRow actually
-  // skip re-rendering cards nothing changed about.
+  // skip re-rendering cards nothing changed about. Also invalidates the
+  // shared ipos cache (queries.ts) — linking/unlinking an IPO to a parent
+  // company writes ipos.parent_company_id, and that cache is shared with
+  // Dashboard/Applications/IposPage/Allotment board, so they all need to
+  // see the change too, not just this page.
   const reload = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.parentCompanies }),
       queryClient.invalidateQueries({ queryKey: HOLDINGS_QUERY_KEY }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos }),
     ])
   }, [queryClient])
 
@@ -170,7 +179,8 @@ export function ShareholderQuotaPage() {
   // companies/demat/bank loaded, since it's the one query with no shared
   // warm cache from other pages), flashing "No holdings recorded yet." right
   // before the real list popped in on every fresh visit to this page.
-  const loading = companiesQuery.isPending || dematQuery.isPending || bankQuery.isPending || holdingsQuery.isPending
+  const loading =
+    companiesQuery.isPending || dematQuery.isPending || bankQuery.isPending || holdingsQuery.isPending || iposQuery.isPending
 
   return (
     <div className="space-y-5">
@@ -222,6 +232,7 @@ export function ShareholderQuotaPage() {
           key={company.id}
           company={company}
           holdings={holdingsByCompany.get(company.id) ?? EMPTY_HOLDINGS}
+          ipos={ipos}
           livePrice={company.symbol ? livePrices[company.symbol]?.price ?? null : null}
           priceStale={company.symbol ? (livePrices[company.symbol]?.stale ?? false) : false}
           dematAccounts={dematAccounts}
@@ -244,6 +255,7 @@ export function ShareholderQuotaPage() {
 const CompanyCard = memo(function CompanyCard({
   company,
   holdings,
+  ipos,
   livePrice,
   priceStale,
   dematAccounts,
@@ -255,6 +267,7 @@ const CompanyCard = memo(function CompanyCard({
 }: {
   company: ParentCompany
   holdings: ParentCompanyHolding[]
+  ipos: Ipo[]
   livePrice: number | null
   priceStale: boolean
   dematAccounts: DematAccount[]
@@ -273,6 +286,21 @@ const CompanyCard = memo(function CompanyCard({
   const summary = useMemo(
     () => summarizeCompanyHoldings(holdings, livePrice, isMeAccount),
     [holdings, livePrice, isMeAccount],
+  )
+
+  // Real IPOs already wired to this company (ipos.parent_company_id,
+  // migration 0097) — every account in this card's holdings is eligible
+  // for these. Distinct from watched_ipo_names (a plain label for an IPO
+  // that isn't real yet); linking a watched name promotes it into one of
+  // these and removes it from the watched list (see IpoLinksEditor).
+  const linkedIpos = useMemo(() => ipos.filter((i) => i.parent_company_id === company.id), [ipos, company.id])
+  const unlinkedIpoOptions = useMemo(
+    () =>
+      [...ipos]
+        .filter((i) => i.parent_company_id == null)
+        .sort((a, b) => a.company_name.localeCompare(b.company_name, undefined, { sensitivity: 'base' }))
+        .map((i) => ({ value: i.id, label: i.company_name })),
+    [ipos],
   )
 
   async function saveEdit(e: FormEvent) {
@@ -310,19 +338,28 @@ const CompanyCard = memo(function CompanyCard({
   return (
     <div className="card p-4">
       {editing ? (
-        <form onSubmit={saveEdit} className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <Field label="Company name">
-            <input required value={editName} onChange={(e) => setEditName(e.target.value)} className="input" />
-          </Field>
-          <Field label="NSE symbol">
-            <input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)} className="input" />
-          </Field>
-          <div className="flex items-end gap-2">
+        <form onSubmit={saveEdit} className="space-y-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Company name">
+              <input required value={editName} onChange={(e) => setEditName(e.target.value)} className="input" />
+            </Field>
+            <Field label="NSE symbol">
+              <input value={editSymbol} onChange={(e) => setEditSymbol(e.target.value)} className="input" />
+            </Field>
+          </div>
+
+          <IpoLinksEditor company={company} linkedIpos={linkedIpos} unlinkedIpoOptions={unlinkedIpoOptions} onChanged={onChanged} />
+
+          {/* btn-primary + btn-secondary, the same Save/Cancel pairing used
+              on every other edit form in the app (e.g. AccountsPage) — a
+              plain X icon squeezed into an .input box read as broken/
+              unstyled next to a full-width Save button. */}
+          <div className="flex gap-2">
             <button type="submit" disabled={saving} className="btn-primary flex-1">
               {saving ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" onClick={() => setEditing(false)} className="input" aria-label="Cancel edit">
-              <XIcon size={14} />
+            <button type="button" onClick={() => setEditing(false)} className="btn-secondary">
+              Cancel
             </button>
           </div>
         </form>
@@ -337,6 +374,23 @@ const CompanyCard = memo(function CompanyCard({
               {livePrice != null && ` · ₹${livePrice.toLocaleString('en-IN')}`}
               {priceStale && ' (stale)'}
             </p>
+            {/* Read-only glance at IPOs — managing them (add/rename/delete/
+                link) moved into Edit below; a real linked IPO (good tone)
+                is told apart from a still-just-watched name (info tone). */}
+            {(linkedIpos.length > 0 || company.watched_ipo_names.length > 0) && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                {linkedIpos.map((i) => (
+                  <span key={i.id} className="badge badge-good">
+                    {firstIpoWord(i.company_name)}
+                  </span>
+                ))}
+                {company.watched_ipo_names.map((name) => (
+                  <span key={name} className="badge badge-info">
+                    {name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <button
@@ -356,8 +410,6 @@ const CompanyCard = memo(function CompanyCard({
           </div>
         </div>
       )}
-
-      <WatchedIposRow company={company} onChanged={onChanged} />
 
       {holdings.length > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-b py-2.5 text-xs sm:grid-cols-4" style={{ borderColor: 'var(--border)' }}>
@@ -422,14 +474,59 @@ const CompanyCard = memo(function CompanyCard({
   )
 })
 
-// Upcoming/watched IPO names a parent company's quota could apply to — e.g.
-// Coal India shareholders being separately eligible for both an "MCL" and a
-// "SECL" IPO, neither of which need exist as a real ipos row yet. Plain
-// labels stored on the company itself (parent_companies.watched_ipo_names,
-// migration 0098), shown as removable chips with a small add form below.
-function WatchedIposRow({ company, onChanged }: { company: ParentCompany; onChanged: () => Promise<void> }) {
-  const [adding, setAdding] = useState(false)
-  const [newIpoName, setNewIpoName] = useState('')
+// Small icon-only button (24px), the same compact size introduced for
+// HoldingRow's mark-sold/delete actions — used throughout this editor for
+// per-row remove/unlink so several rows of tight per-item controls don't
+// balloon the card's height.
+function SmallIconButton({
+  onClick,
+  label,
+  tone,
+  children,
+}: {
+  onClick: () => void
+  label: string
+  tone: 'neutral' | 'critical'
+  children: ReactNode
+}) {
+  const colors =
+    tone === 'critical'
+      ? { background: 'var(--critical-tint)', color: 'var(--critical)' }
+      : { background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+      style={colors}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Manages a parent company's IPOs, only shown while editing the card:
+//   - linkedIpos: real ipos rows already pointed at this company
+//     (ipos.parent_company_id) — every holder in this card is eligible for
+//     these; can only be unlinked here, not renamed (that's IposPage's job).
+//   - watched_ipo_names: plain text placeholders for an IPO that isn't real
+//     yet (migration 0098) — rename inline, delete, or "link" one to an
+//     actual ipos row once it exists, which promotes it into linkedIpos and
+//     removes the placeholder in the same action.
+function IpoLinksEditor({
+  company,
+  linkedIpos,
+  unlinkedIpoOptions,
+  onChanged,
+}: {
+  company: ParentCompany
+  linkedIpos: Ipo[]
+  unlinkedIpoOptions: { value: string; label: string }[]
+  onChanged: () => Promise<void>
+}) {
+  const [newName, setNewName] = useState('')
   const [saving, setSaving] = useState(false)
 
   async function saveNames(names: string[]) {
@@ -443,50 +540,124 @@ function WatchedIposRow({ company, onChanged }: { company: ParentCompany; onChan
     onChanged()
   }
 
-  async function addIpo(e: FormEvent) {
-    e.preventDefault()
-    const name = newIpoName.trim()
-    if (!name) return
-    setNewIpoName('')
-    setAdding(false)
-    await saveNames([...company.watched_ipo_names, name])
+  async function renameAt(index: number, value: string) {
+    const trimmed = value.trim()
+    const current = company.watched_ipo_names
+    if (trimmed === current[index]) return
+    // An emptied field deletes the entry rather than rejecting the edit —
+    // clearing the text is the obvious way to remove one while typing.
+    const next = trimmed ? current.map((n, i) => (i === index ? trimmed : n)) : current.filter((_, i) => i !== index)
+    await saveNames(next)
   }
 
-  async function removeIpo(name: string) {
-    await saveNames(company.watched_ipo_names.filter((n) => n !== name))
+  async function removeAt(index: number) {
+    await saveNames(company.watched_ipo_names.filter((_, i) => i !== index))
+  }
+
+  // Not a <form onSubmit> — this editor renders inside CompanyCard's own
+  // outer <form> (the Name/Symbol Save/Cancel form), and HTML doesn't allow
+  // nested forms. A browser silently flattens the inner one at parse time,
+  // which (confirmed via a throwaway harness) let clicking "Add" here
+  // trigger the OUTER form's Save/submit instead. A plain button + Enter-
+  // key handler avoids the nested-form entirely.
+  async function addName() {
+    const trimmed = newName.trim()
+    if (!trimmed) return
+    setNewName('')
+    await saveNames([...company.watched_ipo_names, trimmed])
+  }
+
+  async function unlinkIpo(ipoId: string) {
+    const { error } = await supabase.from('ipos').update({ parent_company_id: null }).eq('id', ipoId)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    onChanged()
+  }
+
+  // Two writes — first the real ipos row (the actual eligibility link),
+  // then dropping the now-redundant placeholder off watched_ipo_names.
+  // Order matters if the second write fails: better to have a linked IPO
+  // that's ALSO still listed as watched (a harmless, visible duplicate you
+  // can retry clearing) than a placeholder silently deleted with no link
+  // actually made.
+  async function linkAt(index: number, ipoId: string) {
+    setSaving(true)
+    const { error: linkError } = await supabase.from('ipos').update({ parent_company_id: company.id }).eq('id', ipoId)
+    if (linkError) {
+      setSaving(false)
+      showToast(linkError.message, 'critical')
+      return
+    }
+    const { error } = await supabase
+      .from('parent_companies')
+      .update({ watched_ipo_names: company.watched_ipo_names.filter((_, i) => i !== index) })
+      .eq('id', company.id)
+    setSaving(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    onChanged()
   }
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
-      {company.watched_ipo_names.map((name) => (
-        <span key={name} className="badge badge-info inline-flex items-center gap-1">
-          {name}
-          <button onClick={() => removeIpo(name)} disabled={saving} aria-label={`Remove ${name}`} className="disabled:opacity-50">
-            <XIcon size={11} />
-          </button>
-        </span>
-      ))}
-      {adding ? (
-        <form onSubmit={addIpo} className="flex items-center gap-1.5">
+    <div>
+      <p className="text-sm font-medium" style={{ color: 'var(--ink-secondary)' }}>
+        IPOs
+      </p>
+      <div className="mt-1 space-y-1.5">
+        {linkedIpos.map((ipo) => (
+          <div key={ipo.id} className="flex items-center justify-between gap-2">
+            <span className="badge badge-good">{firstIpoWord(ipo.company_name)}</span>
+            <SmallIconButton onClick={() => unlinkIpo(ipo.id)} label={`Unlink ${ipo.company_name}`} tone="critical">
+              <XIcon size={11} />
+            </SmallIconButton>
+          </div>
+        ))}
+        {company.watched_ipo_names.map((name, index) => (
+          <div key={`${index}-${name}`} className="flex items-center gap-1.5">
+            <input
+              defaultValue={name}
+              onBlur={(e) => renameAt(index, e.target.value)}
+              disabled={saving}
+              className="input h-8 flex-1 text-xs"
+            />
+            <div className="w-24 shrink-0">
+              <Combobox
+                aria-label={`Link ${name} to an IPO`}
+                placeholder="Link…"
+                searchPlaceholder="Search IPOs…"
+                emptyLabel="No unlinked IPOs"
+                value=""
+                onChange={(ipoId) => linkAt(index, ipoId)}
+                options={unlinkedIpoOptions}
+                disabled={saving}
+              />
+            </div>
+            <SmallIconButton onClick={() => removeAt(index)} label={`Delete ${name}`} tone="critical">
+              <XIcon size={11} />
+            </SmallIconButton>
+          </div>
+        ))}
+        <div className="flex items-center gap-1.5">
           <input
-            autoFocus
-            value={newIpoName}
-            onChange={(e) => setNewIpoName(e.target.value)}
-            onBlur={() => {
-              if (!newIpoName.trim()) setAdding(false)
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return
+              e.preventDefault()
+              addName()
             }}
             placeholder="e.g. MCL or SECL"
-            className="input h-7 w-36 text-xs"
+            className="input h-8 flex-1 text-xs"
           />
-          <button type="submit" disabled={saving} className="btn-primary h-7 px-2 text-xs">
+          <button type="button" onClick={addName} disabled={saving || !newName.trim()} className="btn-primary h-8 px-3 text-xs">
             Add
           </button>
-        </form>
-      ) : (
-        <button onClick={() => setAdding(true)} className="text-xs font-medium link-accent">
-          + Add IPO
-        </button>
-      )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -568,23 +739,13 @@ const HoldingRow = memo(function HoldingRow({
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {holding.status === 'HELD' && (
-            <button
-              onClick={() => setSelling((s) => !s)}
-              className="flex h-6 w-6 items-center justify-center rounded-md"
-              style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
-              aria-label="Mark sold"
-            >
+            <SmallIconButton onClick={() => setSelling((s) => !s)} label="Mark sold" tone="neutral">
               <CheckIcon size={11} />
-            </button>
+            </SmallIconButton>
           )}
-          <button
-            onClick={deleteHolding}
-            className="flex h-6 w-6 items-center justify-center rounded-md"
-            style={{ background: 'var(--critical-tint)', color: 'var(--critical)' }}
-            aria-label="Delete holding"
-          >
+          <SmallIconButton onClick={deleteHolding} label="Delete holding" tone="critical">
             <TrashIcon size={11} />
-          </button>
+          </SmallIconButton>
         </span>
       </div>
       <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
