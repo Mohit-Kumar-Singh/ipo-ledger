@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
@@ -82,12 +82,15 @@ export function ShareholderQuotaPage() {
   })
   const holdings = holdingsQuery.data ?? EMPTY_HOLDINGS
 
-  async function reload() {
+  // useCallback — passed to every CompanyCard as onChanged; a stable
+  // reference is what lets React.memo on CompanyCard/HoldingRow actually
+  // skip re-rendering cards nothing changed about.
+  const reload = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.parentCompanies }),
       queryClient.invalidateQueries({ queryKey: HOLDINGS_QUERY_KEY }),
     ])
-  }
+  }, [queryClient])
 
   // One batched fetch-stock-price call for every distinct symbol currently in
   // view — same pattern IposPage already uses for parent_company_symbol.
@@ -106,17 +109,28 @@ export function ShareholderQuotaPage() {
 
   const dematNameById = useMemo(() => new Map(dematAccounts.map((d) => [d.id, d.holder_name])), [dematAccounts])
 
-  function isMeAccount(bankId: string | null): boolean {
-    if (!bankId) return false
-    const b = bankAccounts.find((x) => x.id === bankId)
-    return !!b && sameIdentity(b.account_holder_name, profile?.full_name ?? '')
-  }
+  // useCallback, not a plain function — CompanyCard's own summarizeCompanyHoldings
+  // useMemo depends on isMeAccount, so a fresh reference on every render of
+  // this page (e.g. livePrices updating) would invalidate that memo on
+  // every single company card, recomputing all of them for no reason. A
+  // stable reference lets each card's memo actually hold.
+  const isMeAccount = useCallback(
+    (bankId: string | null): boolean => {
+      if (!bankId) return false
+      const b = bankAccounts.find((x) => x.id === bankId)
+      return !!b && sameIdentity(b.account_holder_name, profile?.full_name ?? '')
+    },
+    [bankAccounts, profile?.full_name],
+  )
 
-  function bankLabel(bankId: string | null): string {
-    if (!bankId) return 'Self-funded'
-    const b = bankAccounts.find((x) => x.id === bankId)
-    return b ? [b.account_holder_name, b.bank_name].filter(Boolean).join(' · ') || 'Bank account' : 'Unknown account'
-  }
+  const bankLabel = useCallback(
+    (bankId: string | null): string => {
+      if (!bankId) return 'Self-funded'
+      const b = bankAccounts.find((x) => x.id === bankId)
+      return b ? [b.account_holder_name, b.bank_name].filter(Boolean).join(' · ') || 'Bank account' : 'Unknown account'
+    },
+    [bankAccounts],
+  )
 
   const holdingsByCompany = useMemo(() => {
     const map = new Map<string, ParentCompanyHolding[]>()
@@ -149,7 +163,12 @@ export function ShareholderQuotaPage() {
     reload()
   }
 
-  const loading = companiesQuery.isPending || dematQuery.isPending || bankQuery.isPending
+  // holdingsQuery is included deliberately — it was missing before, which let
+  // company cards render before their holdings arrived (a beat after
+  // companies/demat/bank loaded, since it's the one query with no shared
+  // warm cache from other pages), flashing "No holdings recorded yet." right
+  // before the real list popped in on every fresh visit to this page.
+  const loading = companiesQuery.isPending || dematQuery.isPending || bankQuery.isPending || holdingsQuery.isPending
 
   return (
     <div className="space-y-5">
@@ -195,7 +214,7 @@ export function ShareholderQuotaPage() {
         <CompanyCard
           key={company.id}
           company={company}
-          holdings={holdingsByCompany.get(company.id) ?? []}
+          holdings={holdingsByCompany.get(company.id) ?? EMPTY_HOLDINGS}
           livePrice={company.symbol ? livePrices[company.symbol]?.price ?? null : null}
           priceStale={company.symbol ? (livePrices[company.symbol]?.stale ?? false) : false}
           dematAccounts={dematAccounts}
@@ -210,7 +229,12 @@ export function ShareholderQuotaPage() {
   )
 }
 
-function CompanyCard({
+// memo, not a plain function — every field above it (isMeAccount, bankLabel,
+// onChanged, dematNameById) is now a stable reference across renders of the
+// parent page, so this actually skips re-rendering a card when nothing
+// about that specific company changed (e.g. typing in a sibling card's own
+// add-holding form, which only updates that sibling's local state).
+const CompanyCard = memo(function CompanyCard({
   company,
   holdings,
   livePrice,
@@ -389,7 +413,7 @@ function CompanyCard({
       )}
     </div>
   )
-}
+})
 
 // Upcoming/watched IPO names a parent company's quota could apply to — e.g.
 // Coal India shareholders being separately eligible for both an "MCL" and a
@@ -471,7 +495,10 @@ function Stat({ label, value, color }: { label: string; value: string; color?: s
   )
 }
 
-function HoldingRow({
+// memo, same reasoning as CompanyCard above — bankLabel/onChanged are now
+// stable, so one row updating (e.g. marking it sold) doesn't force every
+// other row in the same card to re-render too.
+const HoldingRow = memo(function HoldingRow({
   holding,
   livePrice,
   holderName,
@@ -565,7 +592,7 @@ function HoldingRow({
       )}
     </div>
   )
-}
+})
 
 function AddHoldingForm({
   companyId,
@@ -622,12 +649,19 @@ function AddHoldingForm({
           options={dematOptions}
         />
       </Field>
-      <Field label="Quantity (shares)">
-        <input required type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="input" />
-      </Field>
-      <Field label="Buy price per share">
-        <input required type="number" step="0.01" min={0} value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} className="input" />
-      </Field>
+      {/* Grouped into one grid cell with its own 2-column layout so these
+          two short numeric fields sit side by side even on a phone, instead
+          of each claiming a full stacked row like the wider Combobox
+          fields below need to — one less screen's worth of scrolling to
+          add a holding on mobile. */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Quantity (shares)">
+          <input required type="number" min={1} value={quantity} onChange={(e) => setQuantity(e.target.value)} className="input" />
+        </Field>
+        <Field label="Buy price / share">
+          <input required type="number" step="0.01" min={0} value={buyPrice} onChange={(e) => setBuyPrice(e.target.value)} className="input" />
+        </Field>
+      </div>
       <Field label="Funder">
         <Combobox
           aria-label="Funder"
