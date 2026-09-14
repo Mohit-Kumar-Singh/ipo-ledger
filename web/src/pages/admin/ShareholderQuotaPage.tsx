@@ -155,14 +155,22 @@ export function ShareholderQuotaPage() {
   const [showAddCompany, setShowAddCompany] = useState(false)
   const [newName, setNewName] = useState('')
   const [newSymbol, setNewSymbol] = useState('')
+  // Optional — lets the very reason you're adding this company (you just
+  // learned of an upcoming IPO) go in at the same time, instead of forcing
+  // a second trip through Edit right after creating it. Still just the one
+  // field here; adding several, or one later, stays an Edit-form thing.
+  const [newIpoName, setNewIpoName] = useState('')
   const [savingCompany, setSavingCompany] = useState(false)
 
   async function addCompany(e: FormEvent) {
     e.preventDefault()
     setSavingCompany(true)
-    const { error } = await supabase
-      .from('parent_companies')
-      .insert({ name: newName.trim(), symbol: newSymbol.trim().toUpperCase() || null })
+    const trimmedIpoName = newIpoName.trim()
+    const { error } = await supabase.from('parent_companies').insert({
+      name: newName.trim(),
+      symbol: newSymbol.trim().toUpperCase() || null,
+      watched_ipo_names: trimmedIpoName ? [trimmedIpoName] : [],
+    })
     setSavingCompany(false)
     if (error) {
       showToast(error.message, 'critical')
@@ -170,6 +178,7 @@ export function ShareholderQuotaPage() {
     }
     setNewName('')
     setNewSymbol('')
+    setNewIpoName('')
     setShowAddCompany(false)
     reload()
   }
@@ -210,6 +219,9 @@ export function ShareholderQuotaPage() {
           </Field>
           <Field label="NSE symbol (optional)">
             <input value={newSymbol} onChange={(e) => setNewSymbol(e.target.value)} className="input" placeholder="e.g. COALINDIA" />
+          </Field>
+          <Field label="IPO name (optional)">
+            <input value={newIpoName} onChange={(e) => setNewIpoName(e.target.value)} className="input" placeholder="e.g. MCL" />
           </Field>
           <div className="flex items-end">
             <button type="submit" disabled={savingCompany} className="btn-primary w-full">
@@ -364,78 +376,83 @@ const CompanyCard = memo(function CompanyCard({
           </div>
         </form>
       ) : (
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <div>
-            <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
+        <div>
+          {/* Name and the action icons share this one row — items-start on
+              the old wrapping container let this row wrap onto its own
+              line below the name whenever the metadata line below took
+              enough width, instead of always sitting beside the name the
+              way a card header should. truncate + min-w-0 keeps a long
+              name from ever pushing the icons out of view. */}
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="min-w-0 truncate text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {company.name}
             </h2>
-            {/* Symbol/price and IPO names share one line now (was two
-                stacked blocks) — flex-wrap only breaks it onto a second
-                line if it genuinely doesn't fit, not by default. A real
-                linked IPO (good tone) is told apart from a still-just-
-                watched name (info tone); managing them (add/rename/delete/
-                link) moved into Edit below. */}
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
-              <span className="font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
-                {company.symbol ?? 'No symbol set'}
-                {livePrice != null && ` · ₹${livePrice.toLocaleString('en-IN')}`}
-                {priceStale && ' (stale)'}
-              </span>
-              {linkedIpos.map((i) => (
-                <span key={i.id} className="badge badge-good">
-                  {firstIpoWord(i.company_name)}
-                </span>
-              ))}
-              {company.watched_ipo_names.map((name) => (
-                <span key={name} className="badge badge-info">
-                  {name}
-                </span>
-              ))}
+            {/* Plain icon buttons (no tinted tile background at rest — just
+                color, with a hover fill), same pattern Applications already
+                uses for its own row-level edit/delete. Add holding sits in
+                this same top-right cluster now instead of a text link at
+                the bottom of the card, so all three card-level actions
+                live in one place. */}
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                onClick={() => setShowAddHolding((s) => !s)}
+                aria-label={showAddHolding ? 'Cancel adding holding' : 'Add holding'}
+                title={showAddHolding ? 'Cancel' : 'Add holding'}
+                className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
+                style={{ color: 'var(--ink-secondary)' }}
+              >
+                {showAddHolding ? <X size={15} /> : <Plus size={15} />}
+              </button>
+              <button
+                onClick={() => {
+                  setEditName(company.name)
+                  setEditSymbol(company.symbol ?? '')
+                  setEditing(true)
+                  // Its own toggle button lives in this same row and gets
+                  // hidden once editing starts — closing it here avoids an
+                  // open Add holding form with no way to dismiss it short
+                  // of cancelling edit first.
+                  setShowAddHolding(false)
+                }}
+                aria-label="Edit company"
+                title="Edit"
+                className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
+                style={{ color: 'var(--ink-muted)' }}
+              >
+                <PencilIcon size={15} />
+              </button>
+              <button
+                onClick={deleteCompany}
+                aria-label="Delete company"
+                title="Delete"
+                className="rounded-lg p-2 transition-colors hover:bg-[var(--critical-tint)] sm:p-1.5"
+                style={{ color: 'var(--critical)' }}
+              >
+                <TrashIcon size={15} />
+              </button>
             </div>
           </div>
-          {/* Plain icon buttons (no tinted tile background at rest — just
-              color, with a hover fill), same pattern Applications already
-              uses for its own row-level edit/delete. Add holding sits in
-              this same top-right cluster now instead of a text link at the
-              bottom of the card, so all three card-level actions live in
-              one place. */}
-          <div className="flex shrink-0 items-center gap-0.5">
-            <button
-              onClick={() => setShowAddHolding((s) => !s)}
-              aria-label={showAddHolding ? 'Cancel adding holding' : 'Add holding'}
-              title={showAddHolding ? 'Cancel' : 'Add holding'}
-              className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
-              style={{ color: 'var(--ink-secondary)' }}
-            >
-              {showAddHolding ? <X size={15} /> : <Plus size={15} />}
-            </button>
-            <button
-              onClick={() => {
-                setEditName(company.name)
-                setEditSymbol(company.symbol ?? '')
-                setEditing(true)
-                // Its own toggle button lives in this same row and gets
-                // hidden once editing starts — closing it here avoids an
-                // open Add holding form with no way to dismiss it short of
-                // cancelling edit first.
-                setShowAddHolding(false)
-              }}
-              aria-label="Edit company"
-              title="Edit"
-              className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              <PencilIcon size={15} />
-            </button>
-            <button
-              onClick={deleteCompany}
-              aria-label="Delete company"
-              title="Delete"
-              className="rounded-lg p-2 transition-colors hover:bg-[var(--critical-tint)] sm:p-1.5"
-              style={{ color: 'var(--critical)' }}
-            >
-              <TrashIcon size={15} />
-            </button>
+          {/* Symbol/price and IPO names share one line below the name row
+              — flex-wrap only breaks it onto a second line if it genuinely
+              doesn't fit, not by default. A real linked IPO (good tone) is
+              told apart from a still-just-watched name (info tone);
+              managing them (add/rename/delete/link) moved into Edit below. */}
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+            <span className="font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {company.symbol ?? 'No symbol set'}
+              {livePrice != null && ` · ₹${livePrice.toLocaleString('en-IN')}`}
+              {priceStale && ' (stale)'}
+            </span>
+            {linkedIpos.map((i) => (
+              <span key={i.id} className="badge badge-good">
+                {firstIpoWord(i.company_name)}
+              </span>
+            ))}
+            {company.watched_ipo_names.map((name) => (
+              <span key={name} className="badge badge-info">
+                {name}
+              </span>
+            ))}
           </div>
         </div>
       )}
