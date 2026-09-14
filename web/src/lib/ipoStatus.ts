@@ -104,3 +104,20 @@ export function hasBiddingClosed(ipo: Pick<Ipo, 'open_date' | 'close_date'>): bo
   if (dateStr === ipo.close_date) return hour > BID_CUTOFF_HOUR || (hour === BID_CUTOFF_HOUR && minute >= BID_CUTOFF_MINUTE)
   return false
 }
+
+// Manual archiving is only allowed once at least one full IST calendar day
+// has passed since allotment — before then there's still a live decision
+// to make (mark ALLOTTED/NOT_ALLOTTED, notify, sell), and archiving pulls
+// the IPO out of every list that work depends on (Applications, Allotment
+// board, Dashboard). Strictly AFTER allotment_date, not on-or-after —
+// allotment can land at any time of day, so the calendar day it happens on
+// still needs to be usable, not immediately archivable. No allotment_date
+// at all (TBA) means archiving isn't available yet either, not just
+// un-gated — there's nothing to measure "one day past" against. Distinct
+// from the daily cron's own rule (0038_ipo_auto_archive.sql: 7 days past
+// LISTING, not allotment) — that's a separate, later, unconditional sweep;
+// this is what makes the manual "Archive" button available sooner.
+export function canArchiveIpo(ipo: Pick<Ipo, 'allotment_date'>): boolean {
+  if (!ipo.allotment_date) return false
+  return nowIst().dateStr > ipo.allotment_date
+}

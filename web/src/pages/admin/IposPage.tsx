@@ -7,8 +7,9 @@ import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useIpos, useParentCompanies, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
-import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
+import { canArchiveIpo, hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { upsertIpoByIdentity } from '../../lib/ipoUpsert'
+import { formatShortDate } from '../../lib/formatDate'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import type { Ipo, Registrar } from '../../types/database'
@@ -17,6 +18,16 @@ import { InlineSpinner } from '../../components/PageSpinner'
 import { Combobox } from '../../components/Combobox'
 
 const LOW_GMP_THRESHOLD = 10
+
+// Presentational only (the actual gate is canArchiveIpo, lib/ipoStatus.ts)
+// — just for the Archive button's disabled tooltip, telling the admin
+// exactly which date it opens up on rather than a bare "not yet."
+function dayAfterIso(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  const date = new Date(Date.UTC(y, m - 1, d))
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0, 10)
+}
 
 function warnIfLowGmp(companyName: string, gmpNotes: string | null | undefined) {
   const pct = parseGmpPercent(gmpNotes)
@@ -405,6 +416,13 @@ export function IposPage() {
   // (0038) does this automatically 7 days after listing_date; this lets
   // admin do it sooner, or bring one back, without waiting.
   async function setArchived(ipo: Ipo, archived: boolean) {
+    // Defense in depth — the Archive button is already disabled until
+    // canArchiveIpo says yes, but this guards the actual write too rather
+    // than trusting the button was the only way in.
+    if (archived && !canArchiveIpo(ipo)) {
+      showToast("Can't archive yet — wait until one day after the allotment date.", 'warning')
+      return
+    }
     const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
     if (error) {
       showToast(error.message, 'critical')
@@ -705,6 +723,7 @@ function IpoCard({
   parentPrice?: { price: number | null; stale: boolean }
 }) {
   const status = deriveStatus(ipo)
+  const archiveEligible = canArchiveIpo(ipo)
   // Hot-GMP hype ring — a rotating conic-gradient glow around the card,
   // amber into red (var(--warning)/var(--critical), same tokens the app
   // already uses for "needs attention" elsewhere), not a fixed brand color,
@@ -785,9 +804,21 @@ function IpoCard({
               {onArchive && (
                 <button
                   onClick={onArchive}
+                  disabled={!archiveEligible}
                   aria-label={`Archive ${ipo.company_name}`}
-                  title="Archive"
-                  className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)]"
+                  // Manual archiving only opens up one full day after
+                  // allotment (canArchiveIpo, lib/ipoStatus.ts) — there's
+                  // still a live decision to make on this IPO before then
+                  // (mark allotted/not-allotted, notify, sell), and
+                  // archiving pulls it out of every list that work needs.
+                  title={
+                    archiveEligible
+                      ? 'Archive'
+                      : ipo.allotment_date
+                        ? `Can't archive until ${formatShortDate(dayAfterIso(ipo.allotment_date))}`
+                        : "Can't archive until the allotment date is known"
+                  }
+                  className="flex items-center rounded-md p-1 transition-colors hover:bg-[var(--hover-surface)] disabled:opacity-40 disabled:hover:bg-transparent"
                   style={{ color: 'var(--ink-muted)' }}
                 >
                   <Archive size={15} />
