@@ -1,14 +1,38 @@
 // Cron-triggered (every 4h, see migration 0009) — not admin-JWT gated since a
 // scheduled job has no user session; authenticates via x-cron-secret instead,
 // the same pattern send-whatsapp uses for its DB webhook.
-// Fetches both current and upcoming ipoji listings and upserts (by company
-// name, case-insensitive) any candidate that has open_date, close_date and
-// lot_size — the fields our schema requires NOT NULL. Candidates ipoji itself
-// shows as TBA/N/A are skipped; they'll pick up automatically once ipoji
-// fills them in on a later run, or an admin can add them manually meanwhile.
+// Fetches both current and upcoming ipoji listings and upserts any candidate
+// that has open_date, close_date and lot_size — the fields our schema
+// requires NOT NULL. Candidates ipoji itself shows as TBA/N/A are skipped;
+// they'll pick up automatically once ipoji fills them in on a later run, or
+// an admin can add them manually meanwhile.
+// Matched against existing rows by ipoji's own detail-page slug first (see
+// findExisting/findExistingMatch below), falling back to company name
+// (case-insensitive) only when no slug is known yet — slug survives ipoji
+// renaming an IPO's display name mid-bidding, which name-matching alone
+// cannot (see migration 0099's comment for the real "NSE" vs "National
+// Stock Exchange of India" case this fixes).
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { fetchDetail, fetchListCandidates, parseGmpPercent, type Candidate } from '../_shared/ipoji.ts'
 import { corsHeadersFor, handlePreflight } from '../_shared/cors.ts'
+
+// Same decision as web/src/lib/ipoIdentity.ts's findExistingIpoMatch —
+// ported rather than imported, since a Deno Edge Function and the Vite web
+// app don't share a module boundary. Keep the two in sync (and see that
+// file's test suite for the NSE/National Stock Exchange regression this
+// exists to prevent) if this logic changes.
+interface ExistingIpoRef {
+  id: string
+  ipoji_slug: string | null
+}
+
+function findExistingMatch(ipojiSlug: string | null, bySlug: ExistingIpoRef[], byName: ExistingIpoRef[]): ExistingIpoRef | null {
+  if (ipojiSlug) {
+    const slugMatch = bySlug.find((r) => r.ipoji_slug === ipojiSlug)
+    if (slugMatch) return slugMatch
+  }
+  return byName[0] ?? null
+}
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -54,6 +78,24 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   return results
 }
 
+// Two targeted queries (by slug, by name) rather than fetching every row —
+// findExistingMatch above just picks the winner between whatever each one
+// returned, same priority order as web/src/lib/ipoIdentity.ts.
+async function findExisting(ipojiSlug: string | null, companyName: string): Promise<ExistingIpoRef | null> {
+  let bySlug: ExistingIpoRef[] = []
+  if (ipojiSlug) {
+    const { data } = await admin.from('ipos').select('id, ipoji_slug').eq('ipoji_slug', ipojiSlug).limit(1)
+    bySlug = data ?? []
+  }
+  const { data: byName } = await admin
+    .from('ipos')
+    .select('id, ipoji_slug')
+    .ilike('company_name', companyName)
+    .order('created_at', { ascending: true })
+    .limit(1)
+  return findExistingMatch(ipojiSlug, bySlug, byName ?? [])
+}
+
 async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   let allotment_date: string | null = null
   let listing_date: string | null = null
@@ -66,6 +108,12 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   // so it's simply omitted from the payload below rather than overwriting
   // an admin's manual override with "unknown" on the next cron run.
   let allotment_out: boolean | undefined
+  // Resolved after following any redirect fetchDetail's request hits — the
+  // stable identifier that survives ipoji renaming an IPO's display name
+  // mid-bidding (confirmed live: "National Stock Exchange of India" ->
+  // "NSE", old slug 301-redirects to the new one). Stays null only if the
+  // detail fetch itself failed below, never because no redirect happened.
+  let ipoji_slug: string | null = null
 
   try {
     const detail = await fetchDetail(c.source_url)
@@ -74,6 +122,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     issue_size = detail.issue_size ?? issue_size
     retail_issue_size = detail.retail_issue_size
     retail_subscription_rate = detail.retail_subscription_rate
+    ipoji_slug = detail.ipoji_slug
     if (detail.registrar) registrar = detail.registrar
     if (detail.allotment_out != null) allotment_out = detail.allotment_out
   } catch {
@@ -95,23 +144,16 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
     issue_size,
     retail_issue_size,
     retail_subscription_rate,
+    ...(ipoji_slug ? { ipoji_slug } : {}),
     ...(allotment_out !== undefined ? { allotment_out } : {}),
   }
 
-  // .limit(1) instead of .maybeSingle(): if a duplicate ever slips past the
-  // DB's unique index (ipos_company_name_ci_key, migration 0044) —
-  // .maybeSingle() errors the moment more than one row matches, which made
-  // `existing` read as absent and caused every later cron run to insert yet
-  // another duplicate instead of updating. This was the actual root cause
-  // of the runaway duplicate IPO cards: once any two rows shared a name, the
-  // lookup broke permanently and a new duplicate landed on every 4h run.
-  const { data: existingRows } = await admin
-    .from('ipos')
-    .select('id')
-    .ilike('company_name', company_name)
-    .order('created_at', { ascending: true })
-    .limit(1)
-  const existing = existingRows?.[0]
+  // Root cause of the "NSE" / "National Stock Exchange of India" duplicate:
+  // company_name matching alone can never catch ipoji renaming an IPO's
+  // display name mid-bidding — the two strings share no normalizable
+  // substring. ipoji_slug (when known) is checked first and wins; name
+  // stays the fallback for legacy rows saved before slug tracking existed.
+  const existing = await findExisting(ipoji_slug, company_name)
 
   if (existing) {
     const { error } = await admin.from('ipos').update(payload).eq('id', existing.id)
@@ -121,18 +163,14 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   const { error: insertError } = await admin.from('ipos').insert(payload)
   if (!insertError) return 'saved'
   // Concurrent workers in the same mapWithConcurrency batch can race past
-  // the lookup above for the same company — the unique index turns that
+  // the lookup above for the same company — the unique index (on
+  // ipoji_slug when set, and always on lower(company_name)) turns that
   // into a 23505 instead of a second row; fall back to updating whichever
   // insert won.
   if (insertError.code === '23505') {
-    const { data: retryExisting } = await admin
-      .from('ipos')
-      .select('id')
-      .ilike('company_name', company_name)
-      .order('created_at', { ascending: true })
-      .limit(1)
-    if (retryExisting?.[0]) {
-      const { error } = await admin.from('ipos').update(payload).eq('id', retryExisting[0].id)
+    const retryExisting = await findExisting(ipoji_slug, company_name)
+    if (retryExisting) {
+      const { error } = await admin.from('ipos').update(payload).eq('id', retryExisting.id)
       return error ? 'failed' : 'saved'
     }
   }

@@ -67,6 +67,32 @@ export interface Detail {
   // that as "unknown", not "not yet", so it doesn't override a manual
   // admin edit either way. See allotmentOutFromText below.
   allotment_out: boolean | null
+  // ipoji's own stable per-IPO identifier — the "/ipo/<slug>" path segment
+  // of the detail page URL AFTER following any redirect (fetchHtml below
+  // captures the fetch Response's own .url, not the URL requested). Real
+  // case this exists for: ipoji renamed "National Stock Exchange of India"
+  // to "NSE" at some point and 301-redirects the old
+  // /ipo/national-stock-exchange-of-india-ipo slug to the new /ipo/nse-ipo
+  // one (confirmed live) — company_name alone can never catch a rename
+  // like that (the two strings share no normalizable substring), but the
+  // slug this resolves to is the same IPO either way. null only if the
+  // detail fetch itself failed (see upsertCandidate's try/catch in
+  // auto-import-ipos), never because the redirect didn't happen — a
+  // request that isn't redirected still resolves to its own requested URL.
+  ipoji_slug: string | null
+}
+
+// Pulls "nse-ipo" out of ".../ipo/nse-ipo" (any protocol/subdomain/query
+// string) — kept case-insensitive-normalized (lowercased) so a future
+// scrape can never fail to match purely on casing. Mirrors
+// web/src/lib/ipoIdentity.ts's extractIpojiSlug; duplicated rather than
+// imported since Deno Edge Functions and the Vite web app don't share a
+// module boundary (same tradeoff already made for parseGmpPercent above) —
+// keep both in sync if this changes.
+export function extractIpojiSlug(url: string | null | undefined): string | null {
+  if (!url) return null
+  const match = url.match(/\/ipo\/([a-z0-9-]+)/i)
+  return match ? match[1].toLowerCase() : null
 }
 
 // ipoji shows "Allotment Out" once results are actually published, and
@@ -116,15 +142,19 @@ export function parseIpojiDate(text: string): string | null {
   return `${m[3]}-${month}-${m[2].padStart(2, '0')}`
 }
 
-async function fetchHtml(url: string): Promise<string> {
+// Returns the resolved Response.url alongside the body — after any
+// redirect (fetch follows redirects by default), not the URL requested.
+// fetchDetail below uses this to recover ipoji's real current slug even
+// when called with an old/renamed one.
+async function fetchHtml(url: string): Promise<{ html: string; finalUrl: string }> {
   const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } })
   if (!res.ok) throw new Error(`upstream returned ${res.status}`)
-  return res.text()
+  return { html: await res.text(), finalUrl: res.url }
 }
 
 export async function fetchListCandidates(source: string): Promise<Candidate[]> {
   const url = SOURCES[source in SOURCES ? source : 'current']
-  const html = await fetchHtml(url)
+  const { html } = await fetchHtml(url)
   const doc = new DOMParser().parseFromString(html, 'text/html')
   if (!doc) throw new Error('Could not parse source page')
 
@@ -204,11 +234,12 @@ export async function fetchDetail(detailUrl: string): Promise<Detail> {
   if (!detailUrl.startsWith('https://www.ipoji.com/ipo/')) {
     throw new Error('detail_url must be an ipoji.com /ipo/ page')
   }
-  const html = await fetchHtml(detailUrl)
+  const { html, finalUrl } = await fetchHtml(detailUrl)
   const doc = new DOMParser().parseFromString(html, 'text/html')
   if (!doc) throw new Error('Could not parse detail page')
 
   const result: Detail = {
+    ipoji_slug: extractIpojiSlug(finalUrl),
     allotment_date: null,
     listing_date: null,
     exchange: null,

@@ -8,6 +8,7 @@ import { useIpos, useParentCompanies, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
+import { upsertIpoByIdentity } from '../../lib/ipoUpsert'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import type { Ipo, Registrar } from '../../types/database'
@@ -57,6 +58,11 @@ interface ImportDetail {
   registrar_name: string | null
   retail_subscription_rate: string | null
   allotment_out: boolean | null
+  // Resolved AFTER following any redirect (see _shared/ipoji.ts) — the
+  // stable identifier that survives ipoji renaming an IPO's display name
+  // mid-bidding. See lib/ipoUpsert.ts for why this must come from here,
+  // not be re-derived from the candidate's own source_url.
+  ipoji_slug: string | null
 }
 
 // 10% floor (raised from 7%, matching LOW_GMP_THRESHOLD's own cutoff below)
@@ -127,21 +133,12 @@ function sortIpos(ipos: Ipo[]): Ipo[] {
   })
 }
 
-// Collapses stray whitespace ipoji's markup (or a manual typo) can introduce
-// — e.g. a trailing space or double space — which would otherwise make the
-// exact-match lookup below miss an existing row and insert a duplicate.
-function normalizeCompanyName(name: string): string {
-  return name.trim().replace(/\s+/g, ' ')
-}
-
-// Upserts by company name (case-insensitive exact match) so re-importing the
-// same IPO refreshes it instead of creating a duplicate.
 // Each detail fetch is a separate round-trip through the import-ipos Edge
 // Function to ipoji.com — running the whole selection serially made a
 // several-IPO bulk import take tens of seconds. Bounded concurrency keeps it
 // fast without firing every request at once. Safe to parallelize here since
-// each candidate in one batch is a distinct company (upsertIpo's lookup is
-// per company_name, so parallel workers never touch the same row).
+// each candidate in one batch is a distinct company (upsertIpoByIdentity's
+// lookup is per-candidate, so parallel workers never touch the same row).
 async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)
   let next = 0
@@ -153,49 +150,6 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return results
-}
-
-async function upsertIpo(payload: Record<string, unknown>): Promise<{ error: string | null }> {
-  const normalized = { ...payload, company_name: normalizeCompanyName(payload.company_name as string) }
-
-  // .limit(1) instead of .maybeSingle(): if a duplicate ever slips past the
-  // DB's unique index (ipos_company_name_ci_key, migration 0044) — e.g. two
-  // upserts racing — .maybeSingle() errors the moment more than one row
-  // matches, which made `existing` read as absent and caused every later
-  // call to insert yet another duplicate instead of updating. .limit(1)
-  // degrades gracefully to "just pick one" instead of erroring.
-  const { data: existingRows } = await supabase
-    .from('ipos')
-    .select('id')
-    .ilike('company_name', normalized.company_name)
-    .order('created_at', { ascending: true })
-    .limit(1)
-  const existing = existingRows?.[0]
-
-  if (existing) {
-    const { error } = await supabase.from('ipos').update(normalized).eq('id', existing.id)
-    return { error: error?.message ?? null }
-  }
-
-  const { error: insertError } = await supabase.from('ipos').insert(normalized)
-  if (!insertError) return { error: null }
-  // A concurrent upsert (e.g. the cron import running at the same moment)
-  // may have inserted the same company between the lookup above and this
-  // insert — the unique index turns that into a 23505 instead of a second
-  // row. Fall back to updating the row that won the race.
-  if (insertError.code === '23505') {
-    const { data: retryExisting } = await supabase
-      .from('ipos')
-      .select('id')
-      .ilike('company_name', normalized.company_name)
-      .order('created_at', { ascending: true })
-      .limit(1)
-    if (retryExisting?.[0]) {
-      const { error } = await supabase.from('ipos').update(normalized).eq('id', retryExisting[0].id)
-      return { error: error?.message ?? null }
-    }
-  }
-  return { error: insertError.message }
 }
 
 export function IposPage() {
@@ -352,25 +306,28 @@ export function IposPage() {
         body: { mode: 'detail', detail_url: c.source_url },
       })
 
-      const { error } = await upsertIpo({
-        company_name: c.company_name,
-        price_low: c.price_low,
-        price_high: c.price_high,
-        lot_size: c.lot_size,
-        open_date: c.open_date,
-        close_date: c.close_date,
-        allotment_date: detail?.allotment_date ?? null,
-        listing_date: detail?.listing_date ?? null,
-        registrar: detail?.registrar ?? 'OTHER',
-        gmp_notes: c.gmp,
-        issue_size: detail?.issue_size ?? c.issue_size,
-        retail_issue_size: detail?.retail_issue_size ?? null,
-        retail_subscription_rate: detail?.retail_subscription_rate ?? null,
-        // Omitted entirely (not set to null) when ipoji shows neither
-        // "Allotment Out" nor "Allotment Awaited" yet — a re-import
-        // shouldn't stomp a manual admin correction with "unknown".
-        ...(detail?.allotment_out != null ? { allotment_out: detail.allotment_out } : {}),
-      })
+      const { error } = await upsertIpoByIdentity(
+        {
+          company_name: c.company_name,
+          price_low: c.price_low,
+          price_high: c.price_high,
+          lot_size: c.lot_size,
+          open_date: c.open_date,
+          close_date: c.close_date,
+          allotment_date: detail?.allotment_date ?? null,
+          listing_date: detail?.listing_date ?? null,
+          registrar: detail?.registrar ?? 'OTHER',
+          gmp_notes: c.gmp,
+          issue_size: detail?.issue_size ?? c.issue_size,
+          retail_issue_size: detail?.retail_issue_size ?? null,
+          retail_subscription_rate: detail?.retail_subscription_rate ?? null,
+          // Omitted entirely (not set to null) when ipoji shows neither
+          // "Allotment Out" nor "Allotment Awaited" yet — a re-import
+          // shouldn't stomp a manual admin correction with "unknown".
+          ...(detail?.allotment_out != null ? { allotment_out: detail.allotment_out } : {}),
+        },
+        detail?.ipoji_slug,
+      )
 
       if (error) {
         skipped++
@@ -1058,7 +1015,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
     // the name-based upsert (used by manual "Add" and the import flow).
     const { error } = existing
       ? { error: (await supabase.from('ipos').update(payload).eq('id', existing.id)).error?.message ?? null }
-      : await upsertIpo(payload)
+      : await upsertIpoByIdentity(payload)
 
     setSubmitting(false)
     if (error) {

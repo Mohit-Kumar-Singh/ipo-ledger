@@ -7,6 +7,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit, effectiveSplitWithFunder } from '../../lib/profitSplit'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
+import { selectArchivedIpos } from '../../lib/archiveVisibility'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { AllotmentBoardRow, Ipo } from '../../types/database'
 
@@ -60,10 +61,7 @@ export function ArchivesPage() {
   const iposQuery = useIpos()
   const boardQuery = useAllotmentBoardAll()
   const ipos = useMemo(
-    () =>
-      (iposQuery.data ?? [])
-        .filter((i) => i.is_archived)
-        .sort((a, b) => (b.listing_date ?? '').localeCompare(a.listing_date ?? '')),
+    () => selectArchivedIpos(iposQuery.data ?? []).sort((a, b) => (b.listing_date ?? '').localeCompare(a.listing_date ?? '')),
     [iposQuery.data],
   )
   const rows = useMemo(() => (boardQuery.data ?? []).filter((r) => r.ipo_is_archived), [boardQuery.data])
@@ -131,11 +129,17 @@ export function ArchivesPage() {
     rowsByIpo.get(r.ipo_id)!.push(r)
   }
 
-  // An archived IPO nobody ever actually applied to (auto-archived once
-  // fully NOT_ALLOTTED, or archived by hand before anything was tracked
-  // against it) isn't a "settled" record worth keeping in view here — just
-  // noise with nothing underneath it to expand into.
-  const visibleIpos = ipos.filter((ipo) => (rowsByIpo.get(ipo.id)?.length ?? 0) > 0)
+  // Every archived IPO, not just ones with at least one application — a
+  // prior version filtered this down to "only ones with something to
+  // expand into," which silently made an archived IPO with ZERO
+  // applications (auto-archived once fully NOT_ALLOTTED, or archived by
+  // hand before anything was tracked against it) permanently unreachable:
+  // not in the active list (correct, by design) and also not here, with no
+  // button anywhere left to unarchive it short of a direct database edit.
+  // Confirmed live: 16 real archived IPOs had exactly this problem.
+  // selectArchivedIpos (lib/archiveVisibility.ts) already is the full
+  // archived set — do not add a further filter here.
+  const visibleIpos = ipos
 
   const totals = visibleIpos.reduce(
     (acc, ipo) => {

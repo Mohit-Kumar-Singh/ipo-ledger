@@ -332,6 +332,19 @@ const CompanyCard = memo(function CompanyCard({
   }
 
   async function deleteCompany() {
+    // Checked up front rather than just attempting the delete and parsing
+    // the resulting FK-violation — ipos.parent_company_id has no ON DELETE
+    // clause (migration 0097), so Postgres blocks this outright while any
+    // real IPO is still linked, and the raw 23503 error message reads as a
+    // cryptic DB internals dump rather than telling the admin what to
+    // actually do about it (unlink each one first, here in Edit).
+    if (linkedIpos.length > 0) {
+      showToast(
+        `Can't delete ${company.name} — unlink ${linkedIpos.map((i) => firstIpoWord(i.company_name)).join(', ')} first.`,
+        'critical',
+      )
+      return
+    }
     if (
       !(await confirmDialog(
         `Delete ${company.name}? This also deletes ${holdings.length} holding${holdings.length === 1 ? '' : 's'} recorded against it.`,

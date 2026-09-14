@@ -108,6 +108,12 @@ export interface Ipo {
   // parent_company_name/symbol above, which stay purely cosmetic. Null =
   // no shareholder-quota eligibility lookup configured for this IPO.
   parent_company_id: string | null
+  // ipoji's own detail-page slug (migration 0099) — the stable identifier
+  // ipo upserts match on before falling back to company_name, since it
+  // survives ipoji renaming an IPO's display name mid-bidding (the "NSE" /
+  // "National Stock Exchange of India" case). Null for manually-added IPOs
+  // with no ipoji link, and for any row saved before this existed.
+  ipoji_slug: string | null
 }
 
 // A listed parent/associate company whose existing shareholders get a

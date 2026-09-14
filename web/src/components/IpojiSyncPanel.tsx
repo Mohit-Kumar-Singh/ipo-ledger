@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { InfoTooltip } from './HoverCard'
 import { supabase } from '../lib/supabase'
 import { withRetry, isTransientNetworkError } from '../lib/networkRetry'
+import { upsertIpoByIdentity } from '../lib/ipoUpsert'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Fully automatic across every page — confirmed live (5-page real run).
@@ -804,6 +805,10 @@ interface ImportDetail {
   retail_issue_size: string | null
   retail_subscription_rate: string | null
   allotment_out: boolean | null
+  // Resolved after following any redirect — see lib/ipoUpsert.ts for why
+  // this (not the candidate's own source_url) is what must be passed
+  // through to upsertIpoByIdentity below.
+  ipoji_slug: string | null
 }
 
 // Same prefix/substring rule as matchIpo above, just against ipoji's own
@@ -860,31 +865,13 @@ async function fetchAndCreateMissingIpo(ipojiName: string): Promise<Ipo | null> 
     ...(detail?.allotment_out != null ? { allotment_out: detail.allotment_out } : {}),
   }
 
-  // Same ilike-then-insert/update-on-conflict pattern as IposPage's
-  // upsertIpo — a concurrent cron import or a second sync run racing this
-  // one shouldn't ever produce a duplicate row for the same company.
-  const { data: existingRows } = await supabase
-    .from('ipos')
-    .select('*')
-    .ilike('company_name', payload.company_name)
-    .order('created_at', { ascending: true })
-    .limit(1)
-  if (existingRows?.[0]) {
-    const { data: updated } = await supabase.from('ipos').update(payload).eq('id', existingRows[0].id).select('*').single()
-    return (updated as Ipo) ?? (existingRows[0] as Ipo)
-  }
-  const { data: inserted, error } = await supabase.from('ipos').insert(payload).select('*').single()
-  if (!error) return inserted as Ipo
-  if (error.code === '23505') {
-    const { data: retryExisting } = await supabase
-      .from('ipos')
-      .select('*')
-      .ilike('company_name', payload.company_name)
-      .limit(1)
-    return (retryExisting?.[0] as Ipo) ?? null
-  }
-  console.error('ipoji sync — failed to create missing IPO', ipojiName, error)
-  return null
+  // Same upsert-by-identity IposPage's own "Import from ipoji.com" flow
+  // uses (lib/ipoUpsert.ts) — matches by ipoji's stable slug first (so a
+  // renamed IPO like "NSE"/"National Stock Exchange of India" still
+  // resolves to the same row), falling back to company_name.
+  const { error, ipo } = await upsertIpoByIdentity(payload, detail?.ipoji_slug)
+  if (error) console.error('ipoji sync — failed to create missing IPO', ipojiName, error)
+  return ipo
 }
 
 export function IpojiSyncPanel({
