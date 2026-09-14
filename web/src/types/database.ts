@@ -120,6 +120,12 @@ export interface ParentCompany {
   symbol: string | null
   notes: string | null
   created_at: string
+  // Upcoming/watched IPO names this company's shareholder quota could apply
+  // to (migration 0098) — e.g. Coal India shareholders being separately
+  // eligible for both an "MCL" and a "SECL" IPO. Plain labels, not linked
+  // to real ipos rows (see ipos.parent_company_id for that, once one
+  // actually exists).
+  watched_ipo_names: string[]
 }
 
 export type HoldingStatus = 'HELD' | 'SOLD'

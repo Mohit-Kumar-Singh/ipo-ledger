@@ -326,6 +326,8 @@ function CompanyCard({
         </div>
       )}
 
+      <WatchedIposRow company={company} onChanged={onChanged} />
+
       {holdings.length > 0 && (
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-b py-2.5 text-xs sm:grid-cols-4" style={{ borderColor: 'var(--border)' }}>
           <Stat label="Invested" value={rupees(summary.investedTotal)} />
@@ -384,6 +386,75 @@ function CompanyCard({
             await onChanged()
           }}
         />
+      )}
+    </div>
+  )
+}
+
+// Upcoming/watched IPO names a parent company's quota could apply to — e.g.
+// Coal India shareholders being separately eligible for both an "MCL" and a
+// "SECL" IPO, neither of which need exist as a real ipos row yet. Plain
+// labels stored on the company itself (parent_companies.watched_ipo_names,
+// migration 0098), shown as removable chips with a small add form below.
+function WatchedIposRow({ company, onChanged }: { company: ParentCompany; onChanged: () => Promise<void> }) {
+  const [adding, setAdding] = useState(false)
+  const [newIpoName, setNewIpoName] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function saveNames(names: string[]) {
+    setSaving(true)
+    const { error } = await supabase.from('parent_companies').update({ watched_ipo_names: names }).eq('id', company.id)
+    setSaving(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    onChanged()
+  }
+
+  async function addIpo(e: FormEvent) {
+    e.preventDefault()
+    const name = newIpoName.trim()
+    if (!name) return
+    setNewIpoName('')
+    setAdding(false)
+    await saveNames([...company.watched_ipo_names, name])
+  }
+
+  async function removeIpo(name: string) {
+    await saveNames(company.watched_ipo_names.filter((n) => n !== name))
+  }
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      {company.watched_ipo_names.map((name) => (
+        <span key={name} className="badge badge-info inline-flex items-center gap-1">
+          {name}
+          <button onClick={() => removeIpo(name)} disabled={saving} aria-label={`Remove ${name}`} className="disabled:opacity-50">
+            <XIcon size={11} />
+          </button>
+        </span>
+      ))}
+      {adding ? (
+        <form onSubmit={addIpo} className="flex items-center gap-1.5">
+          <input
+            autoFocus
+            value={newIpoName}
+            onChange={(e) => setNewIpoName(e.target.value)}
+            onBlur={() => {
+              if (!newIpoName.trim()) setAdding(false)
+            }}
+            placeholder="e.g. MCL or SECL"
+            className="input h-7 w-36 text-xs"
+          />
+          <button type="submit" disabled={saving} className="btn-primary h-7 px-2 text-xs">
+            Add
+          </button>
+        </form>
+      ) : (
+        <button onClick={() => setAdding(true)} className="text-xs font-medium link-accent">
+          + Add IPO
+        </button>
       )}
     </div>
   )
