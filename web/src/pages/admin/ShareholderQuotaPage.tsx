@@ -392,23 +392,63 @@ const CompanyCard = memo(function CompanyCard({
               </div>
             )}
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          {/* Plain icon buttons (no tinted tile background at rest — just
+              color, with a hover fill), same pattern Applications already
+              uses for its own row-level edit/delete. Add holding sits in
+              this same top-right cluster now instead of a text link at the
+              bottom of the card, so all three card-level actions live in
+              one place. */}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              onClick={() => setShowAddHolding((s) => !s)}
+              aria-label={showAddHolding ? 'Cancel adding holding' : 'Add holding'}
+              title={showAddHolding ? 'Cancel' : 'Add holding'}
+              className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
+              style={{ color: 'var(--ink-secondary)' }}
+            >
+              {showAddHolding ? <X size={15} /> : <Plus size={15} />}
+            </button>
             <button
               onClick={() => {
                 setEditName(company.name)
                 setEditSymbol(company.symbol ?? '')
                 setEditing(true)
+                // Its own toggle button lives in this same row and gets
+                // hidden once editing starts — closing it here avoids an
+                // open Add holding form with no way to dismiss it short of
+                // cancelling edit first.
+                setShowAddHolding(false)
               }}
-              className="icon-badge icon-badge-neutral"
               aria-label="Edit company"
+              title="Edit"
+              className="rounded-lg p-2 transition-colors hover:bg-[var(--hover-surface)] sm:p-1.5"
+              style={{ color: 'var(--ink-muted)' }}
             >
-              <PencilIcon size={13} />
+              <PencilIcon size={15} />
             </button>
-            <button onClick={deleteCompany} className="icon-badge icon-badge-critical" aria-label="Delete company">
-              <TrashIcon size={13} />
+            <button
+              onClick={deleteCompany}
+              aria-label="Delete company"
+              title="Delete"
+              className="rounded-lg p-2 transition-colors hover:bg-[var(--critical-tint)] sm:p-1.5"
+              style={{ color: 'var(--critical)' }}
+            >
+              <TrashIcon size={15} />
             </button>
           </div>
         </div>
+      )}
+
+      {showAddHolding && (
+        <AddHoldingForm
+          companyId={company.id}
+          dematAccounts={dematAccounts}
+          bankAccounts={bankAccounts}
+          onDone={async () => {
+            setShowAddHolding(false)
+            await onChanged()
+          }}
+        />
       )}
 
       {holdings.length > 0 && (
@@ -455,21 +495,6 @@ const CompanyCard = memo(function CompanyCard({
         )}
       </div>
 
-      <button onClick={() => setShowAddHolding((s) => !s)} className="mt-3 text-xs font-medium link-accent">
-        {showAddHolding ? 'Cancel' : '+ Add holding'}
-      </button>
-
-      {showAddHolding && (
-        <AddHoldingForm
-          companyId={company.id}
-          dematAccounts={dematAccounts}
-          bankAccounts={bankAccounts}
-          onDone={async () => {
-            setShowAddHolding(false)
-            await onChanged()
-          }}
-        />
-      )}
     </div>
   )
 })
