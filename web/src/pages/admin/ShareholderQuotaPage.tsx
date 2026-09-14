@@ -369,28 +369,29 @@ const CompanyCard = memo(function CompanyCard({
             <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {company.name}
             </h2>
-            <p className="mt-0.5 font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
-              {company.symbol ?? 'No symbol set'}
-              {livePrice != null && ` · ₹${livePrice.toLocaleString('en-IN')}`}
-              {priceStale && ' (stale)'}
-            </p>
-            {/* Read-only glance at IPOs — managing them (add/rename/delete/
-                link) moved into Edit below; a real linked IPO (good tone)
-                is told apart from a still-just-watched name (info tone). */}
-            {(linkedIpos.length > 0 || company.watched_ipo_names.length > 0) && (
-              <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                {linkedIpos.map((i) => (
-                  <span key={i.id} className="badge badge-good">
-                    {firstIpoWord(i.company_name)}
-                  </span>
-                ))}
-                {company.watched_ipo_names.map((name) => (
-                  <span key={name} className="badge badge-info">
-                    {name}
-                  </span>
-                ))}
-              </div>
-            )}
+            {/* Symbol/price and IPO names share one line now (was two
+                stacked blocks) — flex-wrap only breaks it onto a second
+                line if it genuinely doesn't fit, not by default. A real
+                linked IPO (good tone) is told apart from a still-just-
+                watched name (info tone); managing them (add/rename/delete/
+                link) moved into Edit below. */}
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
+                {company.symbol ?? 'No symbol set'}
+                {livePrice != null && ` · ₹${livePrice.toLocaleString('en-IN')}`}
+                {priceStale && ' (stale)'}
+              </span>
+              {linkedIpos.map((i) => (
+                <span key={i.id} className="badge badge-good">
+                  {firstIpoWord(i.company_name)}
+                </span>
+              ))}
+              {company.watched_ipo_names.map((name) => (
+                <span key={name} className="badge badge-info">
+                  {name}
+                </span>
+              ))}
+            </div>
           </div>
           {/* Plain icon buttons (no tinted tile background at rest — just
               color, with a hover fill), same pattern Applications already
@@ -444,6 +445,7 @@ const CompanyCard = memo(function CompanyCard({
           companyId={company.id}
           dematAccounts={dematAccounts}
           bankAccounts={bankAccounts}
+          isMeAccount={isMeAccount}
           onDone={async () => {
             setShowAddHolding(false)
             await onChanged()
@@ -466,14 +468,6 @@ const CompanyCard = memo(function CompanyCard({
       {summary.hasUnpriced && holdings.length > 0 && (
         <p className="mt-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
           Some holdings have no live price yet and aren't counted above.
-        </p>
-      )}
-      {summary.holderGains.length > 0 && (
-        <p className="mt-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
-          Holder gains:{' '}
-          {summary.holderGains
-            .map((g) => `${dematNameById.get(g.dematId) ?? 'Account holder'} ${signedRupees(g.pnl)}`)
-            .join(', ')}
         </p>
       )}
 
@@ -503,6 +497,11 @@ const CompanyCard = memo(function CompanyCard({
 // HoldingRow's mark-sold/delete actions — used throughout this editor for
 // per-row remove/unlink so several rows of tight per-item controls don't
 // balloon the card's height.
+// Plain icon (no persistent tinted background) — same look CompanyCard's
+// own Edit/Delete/Add buttons use and Applications already uses for its
+// row-level edit/delete: color only at rest, a hover fill is the only
+// affordance. Reused for every small per-row action on this page (holding
+// mark-sold/delete, linked/watched IPO unlink/delete).
 function SmallIconButton({
   onClick,
   label,
@@ -514,18 +513,17 @@ function SmallIconButton({
   tone: 'neutral' | 'critical'
   children: ReactNode
 }) {
-  const colors =
-    tone === 'critical'
-      ? { background: 'var(--critical-tint)', color: 'var(--critical)' }
-      : { background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }
+  const style =
+    tone === 'critical' ? { color: 'var(--critical)' } : { color: 'var(--ink-secondary)' }
+  const hoverBg = tone === 'critical' ? 'hover:bg-[var(--critical-tint)]' : 'hover:bg-[var(--hover-surface)]'
   return (
     <button
       type="button"
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-      style={colors}
+      className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors ${hoverBg}`}
+      style={style}
     >
       {children}
     </button>
@@ -802,11 +800,13 @@ function AddHoldingForm({
   companyId,
   dematAccounts,
   bankAccounts,
+  isMeAccount,
   onDone,
 }: {
   companyId: string
   dematAccounts: DematAccount[]
   bankAccounts: BankAccount[]
+  isMeAccount: (bankId: string | null) => boolean
   onDone: () => Promise<void>
 }) {
   const [dematId, setDematId] = useState('')
@@ -816,7 +816,11 @@ function AddHoldingForm({
   const [quantity, setQuantity] = useState('1')
   const [buyPrice, setBuyPrice] = useState('')
   const [funderId, setFunderId] = useState('')
-  const [lossBearerId, setLossBearerId] = useState('')
+  // Defaults to the admin's own bank account, not blank — the common case
+  // for a self-funded lot is the holder buying it on the admin's say-so,
+  // with the admin still owing them if it drops. Still clearable/changeable
+  // for a genuinely fully-self-funded purchase with no such arrangement.
+  const [lossBearerId, setLossBearerId] = useState(() => bankAccounts.find((b) => isMeAccount(b.id))?.id ?? '')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
