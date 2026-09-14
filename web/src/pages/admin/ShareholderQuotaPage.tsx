@@ -544,28 +544,39 @@ const HoldingRow = memo(function HoldingRow({
 
   return (
     <div className="border-t pt-1.5 text-sm" style={{ borderColor: 'var(--border)' }}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span style={{ color: 'var(--ink-primary)' }}>
-          {holderName}
-          <span className="ml-1.5 font-mono-ipo text-xs" style={{ color: 'var(--ink-muted)' }}>
-            {holding.quantity} sh × ₹{holding.buy_price.toLocaleString('en-IN')}
+      {/* One line: holder name, then (buy price / profit-loss) in brackets —
+          quantity is only shown when it's not the default 1 (shareholder
+          quota only ever needs 1 share, so a bare "1 sh ×" prefix on every
+          row was just noise). Small icon-only buttons (h-6 w-6, not the
+          site-wide 44px .icon-badge) on the right so both fit on the same
+          line as the name instead of wrapping. */}
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate" style={{ color: 'var(--ink-primary)' }}>
+          {holderName}{' '}
+          <span className="font-mono-ipo text-xs" style={{ color: pnl.pnl != null ? pnlColor(pnl.pnl) : 'var(--ink-muted)' }}>
+            (₹{holding.buy_price.toLocaleString('en-IN')}
+            {holding.quantity !== 1 && ` × ${holding.quantity}`}
+            {pnl.pnl != null ? ` / ${signedRupees(pnl.pnl)}` : ' / —'})
           </span>
         </span>
-        <span className="flex items-center gap-2 font-mono-ipo text-xs">
-          {pnl.pnl != null ? (
-            <span style={{ color: pnlColor(pnl.pnl) }}>
-              {holding.status === 'SOLD' ? 'Sold' : 'Unrealized'} {signedRupees(pnl.pnl)}
-            </span>
-          ) : (
-            <span style={{ color: 'var(--ink-muted)' }}>No live price</span>
-          )}
+        <span className="flex shrink-0 items-center gap-1">
           {holding.status === 'HELD' && (
-            <button onClick={() => setSelling((s) => !s)} className="icon-badge icon-badge-neutral" aria-label="Mark sold">
-              <CheckIcon size={12} />
+            <button
+              onClick={() => setSelling((s) => !s)}
+              className="flex h-6 w-6 items-center justify-center rounded-md"
+              style={{ background: 'var(--hover-surface)', color: 'var(--ink-secondary)' }}
+              aria-label="Mark sold"
+            >
+              <CheckIcon size={11} />
             </button>
           )}
-          <button onClick={deleteHolding} className="icon-badge icon-badge-critical" aria-label="Delete holding">
-            <TrashIcon size={12} />
+          <button
+            onClick={deleteHolding}
+            className="flex h-6 w-6 items-center justify-center rounded-md"
+            style={{ background: 'var(--critical-tint)', color: 'var(--critical)' }}
+            aria-label="Delete holding"
+          >
+            <TrashIcon size={11} />
           </button>
         </span>
       </div>
@@ -606,7 +617,10 @@ function AddHoldingForm({
   onDone: () => Promise<void>
 }) {
   const [dematId, setDematId] = useState('')
-  const [quantity, setQuantity] = useState('')
+  // Defaults to 1, not blank — a shareholder quota only ever requires
+  // holding 1 share to qualify, so that's overwhelmingly the common case;
+  // still editable for the rare multi-share purchase.
+  const [quantity, setQuantity] = useState('1')
   const [buyPrice, setBuyPrice] = useState('')
   const [funderId, setFunderId] = useState('')
   const [lossBearerId, setLossBearerId] = useState('')
