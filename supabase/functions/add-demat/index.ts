@@ -129,8 +129,20 @@ Deno.serve(async (req) => {
     // means "field wasn't in the request" (leave alone on an update), an
     // explicit empty string/null clears it.
     const followUp: Record<string, unknown> = {
-      profit_share_percent: profitShare,
       is_active: typeof is_active === 'boolean' ? is_active : true,
+    }
+    // AUTHZ-03: profit_share_percent drives real payout/profit-split math —
+    // only an admin may change it once an account already exists. A
+    // non-admin's own brand-new self-added account may still set its
+    // initial value here, unchanged from today's create-time self-service
+    // behavior (AccountsPage.tsx's "+ Add account" flow shows this same
+    // field on creation with no admin gate); editing an EXISTING account's
+    // cut is admin-only from this point on. The value is silently omitted
+    // rather than rejecting the whole request, since every other field in
+    // the same edit (holder name, phone, credentials, active flag) should
+    // still save normally.
+    if (isAdmin || !demat_id) {
+      followUp.profit_share_percent = profitShare
     }
     // Constrained trading platform (migration 0074). undefined = not in the
     // request (leave alone); '' / null clears it. The DB enum rejects any

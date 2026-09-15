@@ -1,0 +1,58 @@
+-- Security audit finding AUTHZ-01 (HIGH): search_unlinked_demat_accounts and
+-- search_unlinked_bank_accounts (0028, 0032) are `security definer`,
+-- `grant execute ... to authenticated`, with no relationship check on the
+-- caller, no minimum query length, and no rate limit. Any signed-in user —
+-- including one who self-registered seconds ago — can call either with an
+-- empty or single-character query and page through up to 20 real holder
+-- names + masked phone/UPI/bank details of every unlinked account in the
+-- ledger per call, repeatable with a different query prefix to harvest the
+-- whole table.
+--
+-- Re-traced the complete self-service link flow this search was built to
+-- support (0027/0028/0032) against the CURRENT frontend before choosing a
+-- fix, rather than assuming it's still live. It isn't: ProfilePage.tsx says
+-- so directly —
+--
+--   "The self-service 'search for your account, submit a link request,
+--   admin approves' flow (plus the self-attested PAN it depended on) has
+--   been removed — an admin now links demat/bank accounts to a person
+--   directly from the Users page ..., no request/approval round-trip."
+--
+-- Confirmed by exhaustive grep across web/src: nothing calls
+-- search_unlinked_demat_accounts, search_unlinked_bank_accounts,
+-- request_demat_link, request_bank_link, decide_demat_link_request,
+-- decide_bank_link_request, or set_self_pan_hash. UsersPage.tsx's
+-- linkDemat/linkBank instead run a plain
+-- `update demat_accounts/bank_accounts set linked_user_id = ...` directly,
+-- under the admin's existing p_demat_admin/p_bank_admin "for all" RLS
+-- policy — a completely different, already-correctly-scoped code path this
+-- migration does not touch.
+--
+-- With the workflow these two functions existed for now retired, hardening
+-- the search (minimum query length, rate limiting, secret-first matching)
+-- would still leave a live, callable, no-relationship-required enumeration
+-- endpoint serving a feature with zero remaining legitimate callers. The
+-- correct fix for genuinely dead, sensitive API surface is to make it
+-- unreachable by any client role, not merely harder to abuse.
+--
+-- REVOKE, not DROP: reversible with a single GRANT if a properly-redesigned
+-- (secret-first) self-service search is ever rebuilt, without re-authoring
+-- the function. Confirmed via `grep -n "search_unlinked_(demat|bank)_accounts"
+-- supabase/migrations/*.sql` that no other function, trigger, or view in
+-- this schema calls either internally, so this breaks nothing else. Note
+-- this necessarily also revokes admin's own direct-RPC access (Postgres has
+-- no separate "admin" role here — is_admin() is an app-level check via
+-- profiles.role, not a distinct grantable role) — confirmed harmless since
+-- UsersPage.tsx's admin flow never called these either, using its own
+-- full-table client-side filter (`demat.filter(d => !d.linked_user_id)`)
+-- instead.
+--
+-- Scoped to exactly the two functions this finding named. request_demat_link
+-- / request_bank_link / decide_*_link_request / set_self_pan_hash are part
+-- of the same retired pipeline but are not themselves an enumeration vector
+-- (request_*_link return only a status string, never a name, and
+-- demat_id/bank_account_id are random UUIDs — not discoverable without the
+-- search this migration removes) and were not named in this finding; left
+-- untouched here as a separate cleanup candidate rather than folded in.
+revoke execute on function search_unlinked_demat_accounts(text) from authenticated;
+revoke execute on function search_unlinked_bank_accounts(text) from authenticated;
