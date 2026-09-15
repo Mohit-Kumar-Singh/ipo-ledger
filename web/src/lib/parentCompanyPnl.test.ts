@@ -14,6 +14,7 @@ function holding(overrides: Partial<ParentCompanyHolding> = {}): ParentCompanyHo
     status: 'HELD',
     sell_price: null,
     created_at: '2026-01-01T00:00:00Z',
+    bought_at: null,
     ...overrides,
   }
 }

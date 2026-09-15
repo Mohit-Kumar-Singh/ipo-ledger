@@ -5,6 +5,7 @@ import { Plus, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useParentCompanies, useDematAccounts, useBankAccounts, useIpos, queryKeys } from '../../lib/queries'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
+import { formatShortDate } from '../../lib/formatDate'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
@@ -12,7 +13,7 @@ import { Combobox } from '../../components/Combobox'
 import { InfoTooltip } from '../../components/HoverCard'
 import { rupees } from '../../lib/expectedProfit'
 import { sameIdentity } from '../../lib/applicationAttribution'
-import { computeHoldingPnl, summarizeCompanyHoldings } from '../../lib/parentCompanyPnl'
+import { computeHoldingPnl, summarizeCompanyHoldings, type CompanyHoldingsSummary } from '../../lib/parentCompanyPnl'
 import { InlineSpinner } from '../../components/PageSpinner'
 import type { BankAccount, DematAccount, Ipo, ParentCompany, ParentCompanyHolding } from '../../types/database'
 
@@ -152,6 +153,46 @@ export function ShareholderQuotaPage() {
     return map
   }, [holdings])
 
+  // Computed once here (not inside each CompanyCard) so the same per-company
+  // numbers can feed both that card's own stat row AND the overall totals
+  // below, instead of summarizing every company's holdings twice.
+  const companySummaries = useMemo(
+    () =>
+      companies.map((company) => {
+        const livePrice = company.symbol ? (livePrices[company.symbol]?.price ?? null) : null
+        const companyHoldings = holdingsByCompany.get(company.id) ?? EMPTY_HOLDINGS
+        return {
+          company,
+          livePrice,
+          priceStale: company.symbol ? (livePrices[company.symbol]?.stale ?? false) : false,
+          holdings: companyHoldings,
+          summary: summarizeCompanyHoldings(companyHoldings, livePrice, isMeAccount),
+        }
+      }),
+    [companies, livePrices, holdingsByCompany, isMeAccount],
+  )
+
+  // Sum of every company's own summary — "if [an account] bought shares in
+  // 2 companies, that counts as 2" means the headline count here is the
+  // total number of holding ROWS across every company, not distinct account
+  // holders (holdings.length already is that: one row per holder-company
+  // purchase lot).
+  const overall = useMemo(() => {
+    let investedTotal = 0
+    let fundedByMeTotal = 0
+    let myPnl = 0
+    let holderGainsTotal = 0
+    let hasUnpriced = false
+    for (const { summary } of companySummaries) {
+      investedTotal += summary.investedTotal
+      fundedByMeTotal += summary.fundedByMeTotal
+      myPnl += summary.myPnl
+      holderGainsTotal += summary.holderGains.reduce((s, g) => s + g.pnl, 0)
+      if (summary.hasUnpriced) hasUnpriced = true
+    }
+    return { totalHoldings: holdings.length, investedTotal, fundedByMeTotal, myPnl, holderGainsTotal, hasUnpriced }
+  }, [companySummaries, holdings.length])
+
   const [showAddCompany, setShowAddCompany] = useState(false)
   const [newName, setNewName] = useState('')
   const [newSymbol, setNewSymbol] = useState('')
@@ -239,14 +280,17 @@ export function ShareholderQuotaPage() {
         </div>
       )}
 
-      {companies.map((company) => (
+      {!loading && companies.length > 0 && <OverallSummaryCard overall={overall} />}
+
+      {companySummaries.map(({ company, holdings: companyHoldings, livePrice, priceStale, summary }) => (
         <CompanyCard
           key={company.id}
           company={company}
-          holdings={holdingsByCompany.get(company.id) ?? EMPTY_HOLDINGS}
+          holdings={companyHoldings}
+          summary={summary}
           ipos={ipos}
-          livePrice={company.symbol ? livePrices[company.symbol]?.price ?? null : null}
-          priceStale={company.symbol ? (livePrices[company.symbol]?.stale ?? false) : false}
+          livePrice={livePrice}
+          priceStale={priceStale}
           dematAccounts={dematAccounts}
           bankAccounts={bankAccounts}
           dematNameById={dematNameById}
@@ -259,6 +303,48 @@ export function ShareholderQuotaPage() {
   )
 }
 
+// Sits above the per-company cards — the same 4 numbers each of those cards
+// already shows (Invested/Funded by me/My P&L/Holder gains), summed across
+// every parent company, plus a headline count of every holding recorded
+// (each holder-company purchase lot counts separately, so one holder in 2
+// companies counts as 2 — see the `overall` useMemo above).
+function OverallSummaryCard({
+  overall,
+}: {
+  overall: {
+    totalHoldings: number
+    investedTotal: number
+    fundedByMeTotal: number
+    myPnl: number
+    holderGainsTotal: number
+    hasUnpriced: boolean
+  }
+}) {
+  return (
+    <div className="card p-4">
+      <h2 className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+        All companies
+      </h2>
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+        <Stat label="Total holdings" value={String(overall.totalHoldings)} />
+        <Stat label="Total invested" value={rupees(overall.investedTotal)} />
+        <Stat label="Funded by me" value={rupees(overall.fundedByMeTotal)} />
+        <Stat label="My P&L" value={signedRupees(overall.myPnl)} color={pnlColor(overall.myPnl)} />
+        <Stat
+          label="Holder gains"
+          value={overall.holderGainsTotal === 0 ? '—' : signedRupees(overall.holderGainsTotal)}
+          color={overall.holderGainsTotal > 0 ? 'var(--good-text)' : undefined}
+        />
+      </div>
+      {overall.hasUnpriced && (
+        <p className="mt-1.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
+          Some holdings have no live price yet and aren't counted above.
+        </p>
+      )}
+    </div>
+  )
+}
+
 // memo, not a plain function — every field above it (isMeAccount, bankLabel,
 // onChanged, dematNameById) is now a stable reference across renders of the
 // parent page, so this actually skips re-rendering a card when nothing
@@ -267,6 +353,7 @@ export function ShareholderQuotaPage() {
 const CompanyCard = memo(function CompanyCard({
   company,
   holdings,
+  summary,
   ipos,
   livePrice,
   priceStale,
@@ -279,6 +366,7 @@ const CompanyCard = memo(function CompanyCard({
 }: {
   company: ParentCompany
   holdings: ParentCompanyHolding[]
+  summary: CompanyHoldingsSummary
   ipos: Ipo[]
   livePrice: number | null
   priceStale: boolean
@@ -294,11 +382,6 @@ const CompanyCard = memo(function CompanyCard({
   const [editSymbol, setEditSymbol] = useState(company.symbol ?? '')
   const [showAddHolding, setShowAddHolding] = useState(false)
   const [saving, setSaving] = useState(false)
-
-  const summary = useMemo(
-    () => summarizeCompanyHoldings(holdings, livePrice, isMeAccount),
-    [holdings, livePrice, isMeAccount],
-  )
 
   // Real IPOs already wired to this company (ipos.parent_company_id,
   // migration 0097) — every account in this card's holdings is eligible
@@ -484,7 +567,8 @@ const CompanyCard = memo(function CompanyCard({
       )}
 
       {holdings.length > 0 && (
-        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-b py-2.5 text-xs sm:grid-cols-4" style={{ borderColor: 'var(--border)' }}>
+        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-b py-2.5 text-xs sm:grid-cols-5" style={{ borderColor: 'var(--border)' }}>
+          <Stat label="Total holdings" value={String(holdings.length)} />
           <Stat label="Invested" value={rupees(summary.investedTotal)} />
           <Stat label="Funded by me" value={rupees(summary.fundedByMeTotal)} />
           <Stat label="My P&L" value={signedRupees(summary.myPnl)} color={pnlColor(summary.myPnl)} />
@@ -744,6 +828,11 @@ const HoldingRow = memo(function HoldingRow({
 }) {
   const [selling, setSelling] = useState(false)
   const [sellPrice, setSellPrice] = useState('')
+  // Buy price, unlike sell price, isn't a one-way "lock it in" action — it's
+  // a correction to a number that might've been mistyped or estimated at
+  // add-holding time, so it stays editable regardless of HELD/SOLD status.
+  const [editingPrice, setEditingPrice] = useState(false)
+  const [editBuyPrice, setEditBuyPrice] = useState(String(holding.buy_price))
   const [submitting, setSubmitting] = useState(false)
   const pnl = computeHoldingPnl(holding, livePrice)
 
@@ -760,6 +849,22 @@ const HoldingRow = memo(function HoldingRow({
       return
     }
     setSelling(false)
+    onChanged()
+  }
+
+  async function saveBuyPrice(e: FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    const { error } = await supabase
+      .from('parent_company_holdings')
+      .update({ buy_price: Number(editBuyPrice) })
+      .eq('id', holding.id)
+    setSubmitting(false)
+    if (error) {
+      showToast(error.message, 'critical')
+      return
+    }
+    setEditingPrice(false)
     onChanged()
   }
 
@@ -792,10 +897,28 @@ const HoldingRow = memo(function HoldingRow({
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {holding.status === 'HELD' && (
-            <SmallIconButton onClick={() => setSelling((s) => !s)} label="Mark sold" tone="neutral">
+            <SmallIconButton
+              onClick={() => {
+                setSelling((s) => !s)
+                setEditingPrice(false)
+              }}
+              label="Mark sold"
+              tone="neutral"
+            >
               <CheckIcon size={11} />
             </SmallIconButton>
           )}
+          <SmallIconButton
+            onClick={() => {
+              setEditBuyPrice(String(holding.buy_price))
+              setEditingPrice((s) => !s)
+              setSelling(false)
+            }}
+            label="Edit buy price"
+            tone="neutral"
+          >
+            <PencilIcon size={11} />
+          </SmallIconButton>
           <SmallIconButton onClick={deleteHolding} label="Delete holding" tone="critical">
             <TrashIcon size={11} />
           </SmallIconButton>
@@ -804,6 +927,7 @@ const HoldingRow = memo(function HoldingRow({
       <p className="mt-0.5 text-xs" style={{ color: 'var(--ink-muted)' }}>
         Funded by {bankLabel(holding.funder_id)}
         {!holding.funder_id && holding.loss_bearer_id && ` · loss covered by ${bankLabel(holding.loss_bearer_id)}`}
+        {holding.bought_at && ` · bought ${formatShortDate(holding.bought_at)}`}
       </p>
       {selling && (
         <form onSubmit={markSold} className="mt-1.5 flex items-center gap-2">
@@ -819,6 +943,23 @@ const HoldingRow = memo(function HoldingRow({
           />
           <button type="submit" disabled={submitting} className="btn-primary h-8 px-3 text-xs">
             {submitting ? 'Saving…' : 'Mark sold'}
+          </button>
+        </form>
+      )}
+      {editingPrice && (
+        <form onSubmit={saveBuyPrice} className="mt-1.5 flex items-center gap-2">
+          <input
+            required
+            type="number"
+            step="0.01"
+            min={0}
+            value={editBuyPrice}
+            onChange={(e) => setEditBuyPrice(e.target.value)}
+            placeholder="Buy price per share"
+            className="input h-8 flex-1 text-xs"
+          />
+          <button type="submit" disabled={submitting} className="btn-primary h-8 px-3 text-xs">
+            {submitting ? 'Saving…' : 'Save'}
           </button>
         </form>
       )}
@@ -851,6 +992,11 @@ function AddHoldingForm({
   // with the admin still owing them if it drops. Still clearable/changeable
   // for a genuinely fully-self-funded purchase with no such arrangement.
   const [lossBearerId, setLossBearerId] = useState(() => bankAccounts.find((b) => isMeAccount(b.id))?.id ?? '')
+  // Optional, unlike an application's applied_at — a holding is often
+  // entered well after the actual purchase, and the exact date isn't always
+  // known/worth tracking down, so this stays blank rather than forcing
+  // today's date on a purchase that may have happened long before.
+  const [boughtAt, setBoughtAt] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -869,6 +1015,7 @@ function AddHoldingForm({
       buy_price: Number(buyPrice),
       funder_id: funderId || null,
       loss_bearer_id: funderId ? null : lossBearerId || null,
+      bought_at: boughtAt || null,
     })
     setSubmitting(false)
     if (error) {
@@ -925,6 +1072,9 @@ function AddHoldingForm({
           />
         </Field>
       )}
+      <Field label="Date bought (optional)">
+        <input type="date" value={boughtAt} onChange={(e) => setBoughtAt(e.target.value)} className="input" />
+      </Field>
       <div className="flex items-end">
         <button type="submit" disabled={submitting || !dematId} className="btn-primary w-full">
           {submitting ? 'Saving…' : 'Add holding'}

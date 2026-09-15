@@ -150,6 +150,10 @@ export interface ParentCompanyHolding {
   status: HoldingStatus
   sell_price: number | null
   created_at: string
+  // Optional (migration 0100) — when the purchase itself happened, distinct
+  // from created_at (when this row was entered into the ledger, often well
+  // after the fact for older holdings).
+  bought_at: string | null
 }
 
 export interface Application {
