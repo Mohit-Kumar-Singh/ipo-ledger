@@ -1025,7 +1025,20 @@ export function ApplicationsPage() {
                       </div>
 
                       <div className="min-w-[9rem] flex-1">
-                        <div className="flex items-center gap-1.5">
+                        {/* flex-wrap — found while verifying the min-w-0 fix
+                            below: a row with several badges at once (funder
+                            override tag + duplicate + a non-RETAIL category,
+                            say) has its own non-negotiable minimum width
+                            (none of these shrink), and at some in-between
+                            widths that total still doesn't fit even once the
+                            name itself has truncated to nothing — without
+                            flex-wrap the overflow doesn't clip, it bleeds
+                            sideways into the IPO-name column exactly like
+                            the name overlap did. Wrapping onto a second line
+                            keeps every badge fully visible (a couple of
+                            these rows just get a little taller) instead of
+                            hiding or clipping anything. */}
+                        <div className="flex flex-wrap items-center gap-1.5">
                           {/* min-w-0 is the actual fix, not decorative — a
                               flex item's default min-width is `auto` (its
                               own content size), which overrides `truncate`
