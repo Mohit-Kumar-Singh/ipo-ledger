@@ -784,15 +784,19 @@ function SoldPayoutsSection({
     // lotProfitEstimate.ts's estimateLotProfit, just using this
     // application's real bid_amount instead of the IPO's price_high (which
     // this board's row shape doesn't carry) — then run through the same
-    // computeProfitSplit everything else on this page uses, so "Expected
-    // profit" here means the same thing "Your share"/the Dashboard's
-    // "Expected profit" tile mean elsewhere: the admin's own take, not the
+    // computeProfitSplit everything else on this page uses. Unlike the
+    // "Your share" preview elsewhere on this page, this message goes TO the
+    // funder, so it needs THEIR number: assume a 50/50 split regardless of
+    // this application's own (settlement-time) split_profit_with_funder
+    // toggle — that flag reflects what the admin decided when marking the
+    // sale, which hasn't happened yet here, and defaults to false, which
+    // was silently showing the admin's whole share as if it were the
     // funder's.
     const pricePerShareApplied =
       row.bid_amount != null && row.lots > 0 && row.lot_size > 0
         ? row.bid_amount / (row.lots * row.lot_size)
         : null
-    const expectedProfit =
+    const split =
       gmpPercent != null && pricePerShareApplied != null && row.bid_amount != null
         ? computeProfitSplit({
             sellPricePerShare: pricePerShareApplied * (1 + gmpPercent / 100),
@@ -803,16 +807,29 @@ function SoldPayoutsSection({
             dematHolderName: row.holder_name,
             funderName: row.bank_account_holder_name,
             profitPersonName,
-            splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
-          }).profitPersonShare
+            splitWithFunder: effectiveSplitWithFunder(row, true),
+          })
         : null
+    // A genuine third-party funder (not the admin funding themselves, and
+    // not a CASE_2 shared account where the split doesn't apply) sees the
+    // halving spelled out — "2810/2 = 1405" — rather than a bare number
+    // that reads as if the whole pot were theirs. When there's no real
+    // split (the recipient IS the admin, e.g. self-funded via their own
+    // UPI), their share IS the whole remaining amount, so no halving to
+    // show.
+    const expectedProfitText =
+      split == null
+        ? ''
+        : split.hasFunder && !split.isFunderSelf && split.funderShare !== 0
+          ? `${Math.round(split.remainingAfterCut).toLocaleString('en-IN')}/2 = ${Math.round(split.funderShare).toLocaleString('en-IN')}`
+          : Math.round(split.profitPersonShare).toLocaleString('en-IN')
     const message = renderMessageBody('ipo_allotted_funder', [
       row.bank_account_holder_name ?? 'there',
       row.company_name,
       row.holder_name,
       listingLabel(row),
       gmpPercent != null ? `${gmpPercent}%` : '',
-      expectedProfit != null ? Math.round(expectedProfit).toLocaleString('en-IN') : '',
+      expectedProfitText,
     ])
     sendCustomWhatsapp(row.bank_account_phone, message)
   }
