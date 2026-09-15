@@ -1005,7 +1005,25 @@ export function ApplicationsPage() {
                           column flex), so every row's IPO/status/mandate
                           columns start at the same X and the actions block
                           never gets pushed to a new line. */}
-                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:grid sm:items-start sm:gap-4 sm:[grid-template-columns:minmax(10rem,1fr)_minmax(9rem,12rem)_minmax(5rem,7rem)_minmax(11rem,14rem)_auto]">
+                      {/* Two 1fr spacer tracks flank the IPO-name column
+                          (empty divs right below, hidden on phone) instead
+                          of the identity column alone soaking up all
+                          leftover row width — on a wide screen that single
+                          growing column pushed the IPO name hard against
+                          the sold/mandate columns on its right while
+                          leaving a huge gap on its left (reported live:
+                          "Karamtara" sat right next to "Mandate cancelled"
+                          with almost the whole row's width of empty space
+                          before it, not roughly centered between the
+                          holder name and mandate status). Splitting the
+                          slack into two equal flexible tracks — one before
+                          the IPO name, one after — keeps it genuinely
+                          equidistant from both neighbors at any width,
+                          while the identity/IPO-name/sold/mandate/actions
+                          columns themselves stay exactly the same fixed
+                          ranges (and therefore still line up at the same X
+                          from row to row) as before. */}
+                      <div className="stagger-item flex flex-col gap-2.5 p-4 sm:grid sm:items-start sm:gap-4 sm:[grid-template-columns:minmax(10rem,16rem)_1fr_minmax(9rem,12rem)_1fr_minmax(5rem,7rem)_minmax(11rem,14rem)_auto]">
                       <div className="flex min-w-0 items-start justify-between gap-3">
                       <div className="flex min-w-0 flex-1 items-start gap-3">
                       {eligibleForNotAllotted && (
@@ -1204,6 +1222,13 @@ export function ApplicationsPage() {
                         )}
                       </div>
                       </div>
+                      {/* Empty spacer track (1fr, see the row's grid-
+                          template-columns) — soaks up half the row's
+                          leftover width so the IPO-name column right after
+                          it starts at a genuinely flexible, not fixed,
+                          position. Paired with the matching spacer just
+                          after that column below. */}
+                      <div className="hidden sm:block" aria-hidden="true" />
                       {/* Dedicated IPO name + app number column, desktop
                           only — was inline on the holder name's own line
                           (removed above), which made that line's width (and
@@ -1213,11 +1238,16 @@ export function ApplicationsPage() {
                           a true sibling of the identity block above (not
                           nested inside it) — same idea as the mandate/status
                           columns beside it, so every row's columns land in
-                          the same place regardless of content length. */}
-                      <div className="hidden min-w-0 text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
+                          the same place regardless of content length.
+                          text-center on top of the flanking spacer tracks
+                          (above and below) centers the text within this
+                          column too, not just the column within the row. */}
+                      <div className="hidden min-w-0 text-center text-xs sm:block" style={{ color: 'var(--ink-muted)' }}>
                         {a.ipos?.company_name && <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>{firstIpoWord(a.ipos.company_name)}</p>}
                         {a.ipoji_app_number && <p className="truncate">#{a.ipoji_app_number}</p>}
                       </div>
+                      {/* Second flanking spacer — see the one above. */}
+                      <div className="hidden sm:block" aria-hidden="true" />
 
                       {/* Phone: sold price / status badge show inline on the
                           mandate row itself (see the mandate block below)
