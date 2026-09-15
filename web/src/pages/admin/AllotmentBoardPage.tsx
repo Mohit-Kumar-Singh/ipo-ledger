@@ -16,6 +16,7 @@ import { parseGmpPercent } from '../../lib/ipoGmp'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
+import { ActionMenu, type ActionMenuItem } from '../../components/ActionMenu'
 import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
@@ -876,16 +877,16 @@ function SoldPayoutsSection({
                       </p>
                     )}
                   </div>
-                  {/* Stacked on phone (flex-col), one row from sm: up —
-                      three elements (status, Mark sold/Edit sale, Undo)
-                      cramped into one row was the thing getting clipped/
-                      unreadable on a narrow screen.
-
-                      Text labels, not icons: these were briefly icon-only
-                      (v1.177.0/v1.179.0) and reverted here by request. The
-                      status pill itself stays on StatusBadge, which the
-                      table shares — only the ACTIONS went back to text. */}
-                  <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+                  {/* One row always, badge + primary action + overflow menu
+                      — this used to stack up to five text-link actions
+                      (Mark sold, Notify holder, Notify funder, Sell
+                      reminder, Undo) vertically on phone, which was a lot
+                      of empty space on one side of the row while the left
+                      side (name/lots/summary) sat at a fraction of that
+                      height. Mark sold/Edit sale stays inline as the one
+                      action actually used every time; the rest move into
+                      the "⋯" menu (components/ActionMenu.tsx). */}
+                  <div className="flex shrink-0 items-center gap-2">
                     <StatusBadge status={row.status} />
                     {!isEditing && canMark(row) && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
@@ -893,43 +894,41 @@ function SoldPayoutsSection({
                       </button>
                     )}
                     {row.status === 'ALLOTTED' && canMark(row) && (
-                      <button
-                        onClick={() => congratulateHolder(row)}
-                        className="link-accent text-xs font-medium"
-                        title="WhatsApp the account holder the 'IPO allotted 🎉' message"
-                      >
-                        Notify holder
-                      </button>
-                    )}
-                    {row.status === 'ALLOTTED' && canMark(row) && hasDistinctFunder(row) && (
-                      <button
-                        onClick={() => congratulateFunder(row)}
-                        className="link-accent text-xs font-medium"
-                        title={`WhatsApp ${row.bank_account_holder_name} the 'IPO allotted 🎉' message (funder)`}
-                      >
-                        Notify funder
-                      </button>
-                    )}
-                    {row.status === 'ALLOTTED' && canMark(row) && (
-                      <button
-                        onClick={() => notifyHolder(row)}
-                        disabled={notifying === row.application_id}
-                        className="text-xs font-medium hover:underline disabled:opacity-50"
-                        style={{ color: 'var(--ink-muted)' }}
-                        title="WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF"
-                      >
-                        {notifying === row.application_id ? 'Preparing…' : 'Sell reminder'}
-                      </button>
-                    )}
-                    {row.status === 'ALLOTTED' && canMark(row) && (
-                      <button
-                        onClick={() => onUndo(row.application_id)}
-                        className="text-xs font-medium hover:underline"
-                        style={{ color: 'var(--ink-muted)' }}
-                        title="Revert back to Applied"
-                      >
-                        Undo
-                      </button>
+                      <ActionMenu
+                        label={`More actions for ${row.holder_name}`}
+                        items={[
+                          {
+                            key: 'notify-holder',
+                            label: 'Notify holder',
+                            title: "WhatsApp the account holder the 'IPO allotted 🎉' message",
+                            onClick: () => congratulateHolder(row),
+                          },
+                          ...(hasDistinctFunder(row)
+                            ? [
+                                {
+                                  key: 'notify-funder',
+                                  label: 'Notify funder',
+                                  title: `WhatsApp ${row.bank_account_holder_name} the 'IPO allotted 🎉' message (funder)`,
+                                  onClick: () => congratulateFunder(row),
+                                } satisfies ActionMenuItem,
+                              ]
+                            : []),
+                          {
+                            key: 'sell-reminder',
+                            label: notifying === row.application_id ? 'Preparing…' : 'Sell reminder',
+                            title: 'WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF',
+                            disabled: notifying === row.application_id,
+                            onClick: () => notifyHolder(row),
+                          },
+                          {
+                            key: 'undo',
+                            label: 'Undo',
+                            title: 'Revert back to Applied',
+                            tone: 'muted',
+                            onClick: () => onUndo(row.application_id),
+                          },
+                        ]}
+                      />
                     )}
                   </div>
                 </div>
