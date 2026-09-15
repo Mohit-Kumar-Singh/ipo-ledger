@@ -1026,7 +1026,17 @@ export function ApplicationsPage() {
 
                       <div className="min-w-[9rem] flex-1">
                         <div className="flex items-center gap-1.5">
-                          <p className="truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
+                          {/* min-w-0 is the actual fix, not decorative — a
+                              flex item's default min-width is `auto` (its
+                              own content size), which overrides `truncate`
+                              entirely: a long name like "Anshika ma'am"
+                              refused to shrink below its own text width and
+                              visually spilled out of this column, over the
+                              IPO name in the next one, while a short name
+                              like "Aditya" happened to fit and looked fine
+                              — the exact "some rows overlap, others don't"
+                              pattern reported live. */}
+                          <p className="min-w-0 truncate font-medium" style={{ color: 'var(--ink-primary)' }}>
                             {holderName}
                           </p>
                           {/* IPO name + app number used to run inline right
