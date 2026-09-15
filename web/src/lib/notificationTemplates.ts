@@ -50,12 +50,26 @@ export function renderMessageBody(templateName: string, params: string[]): strin
         `You may get a UPI/ASBA mandate request from your bank; please approve it today.` +
         portalLine()
       )
-    case 'ipo_allotted_funder':
+    case 'ipo_allotted_funder': {
+      // GMP%/expected-profit lines are optional — a funder message sent
+      // before gmp_notes has a parseable "%" (or with no bid_amount to
+      // project a profit from) still needs to go out, just without those
+      // two lines rather than showing a bogus "n/a" the admin never
+      // actually calculated.
+      const gmpLine = p(4) ? `\n\`GMP:- ${p(4)}\`` : ''
+      const profitLine = p(5) ? `\n\`Expected profit :- ${p(5)}\`` : ''
+      // Same window.location.origin portalLine() uses (dev/preview/prod all
+      // stay correct), just reformatted as a quote-block "For Details Visit"
+      // line — this template's own requested footer, not a change to the
+      // shared portalLine() every other template still uses.
+      const origin = typeof window === 'undefined' ? '' : window.location.origin
       return (
-        `Hi ${p(0)}, good news! ${p(2)}'s *${p(1)}* IPO, funded through your account, has been *ALLOTTED* 🎉. ` +
-        `Listing date: *${p(3)}*.` +
-        portalLine()
+        `Hi ${p(0)}, good news!\n` +
+        `*${p(2)}'s* \`${p(1)} IPO\`, funded through your account, has been ALLOTTED 🎉.\n` +
+        `\`Listing date: ${p(3)}\`${gmpLine}${profitLine}\n\n` +
+        `> For Details Visit : ${origin}`
       )
+    }
     case 'sell_reminder':
       // Whole body composed on the client (IPO name + listing date +
       // admin's editable note), passed as a single param — same "doesn't

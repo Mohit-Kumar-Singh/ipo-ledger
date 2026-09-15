@@ -779,11 +779,40 @@ function SoldPayoutsSection({
 
   function congratulateFunder(row: AllotmentBoardRow) {
     if (!row.bank_account_phone) return
+    const gmpPercent = parseGmpPercent(row.gmp_notes)
+    // Same GMP-grossed-up-off-the-actual-applied-price approach as
+    // lotProfitEstimate.ts's estimateLotProfit, just using this
+    // application's real bid_amount instead of the IPO's price_high (which
+    // this board's row shape doesn't carry) — then run through the same
+    // computeProfitSplit everything else on this page uses, so "Expected
+    // profit" here means the same thing "Your share"/the Dashboard's
+    // "Expected profit" tile mean elsewhere: the admin's own take, not the
+    // funder's.
+    const pricePerShareApplied =
+      row.bid_amount != null && row.lots > 0 && row.lot_size > 0
+        ? row.bid_amount / (row.lots * row.lot_size)
+        : null
+    const expectedProfit =
+      gmpPercent != null && pricePerShareApplied != null && row.bid_amount != null
+        ? computeProfitSplit({
+            sellPricePerShare: pricePerShareApplied * (1 + gmpPercent / 100),
+            lotSize: row.lot_size,
+            lots: row.lots,
+            bidAmount: row.bid_amount,
+            cutPercent: row.profit_share_percent ?? 25,
+            dematHolderName: row.holder_name,
+            funderName: row.bank_account_holder_name,
+            profitPersonName,
+            splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
+          }).profitPersonShare
+        : null
     const message = renderMessageBody('ipo_allotted_funder', [
       row.bank_account_holder_name ?? 'there',
       row.company_name,
       row.holder_name,
       listingLabel(row),
+      gmpPercent != null ? `${gmpPercent}%` : '',
+      expectedProfit != null ? Math.round(expectedProfit).toLocaleString('en-IN') : '',
     ])
     sendCustomWhatsapp(row.bank_account_phone, message)
   }
