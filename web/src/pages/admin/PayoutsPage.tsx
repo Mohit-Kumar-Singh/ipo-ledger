@@ -147,7 +147,12 @@ interface SettlementPartyGroup {
   name: string
   phone: string | null
   total: number
-  ipos: { ipoName: string; amount: number }[]
+  // applicationId is only ever set for the real, confirmed side (netSettlementByParty) —
+  // it's what lets "Mark received"/"Mark sent" below log a real settlement_payments row
+  // against the right application. The GMP/live-price "Expected" groups
+  // (groupExpectedByFunder/groupExpectedByHolder) have nothing to settle yet, so they
+  // leave it undefined and get no such button.
+  ipos: { ipoName: string; amount: number; applicationId?: string }[]
 }
 
 // Net per real person, NOT per application — a person with two applications
@@ -169,7 +174,7 @@ function netSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'
     const g = byName.get(name)!
     if (!g.phone && phone) g.phone = phone
     g.total += remaining
-    g.ipos.push({ ipoName: c.ipoName, amount: remaining })
+    g.ipos.push({ ipoName: c.ipoName, amount: remaining, applicationId: c.applicationId })
   }
   return Array.from(byName.values())
 }
@@ -312,6 +317,52 @@ export function PayoutsPage() {
   } = usePayoutsData()
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  // Keyed applicationId:kind (not applicationId alone) — the same SOLD
+  // application can owe both a holder-side and a funder-side amount at
+  // once, and each has its own independent "mark settled" action here.
+  const [markingSettled, setMarkingSettled] = useState<string | null>(null)
+
+  // Logs the FULL remaining amount on one side of one application as
+  // settled — same log_settlement_payment RPC, same paid-flag derivation
+  // (settledPaidFlags) as the granular per-application form further down
+  // this page (SettlementCardView.logPayment). Deliberately the same
+  // single write path rather than a second one that just flips
+  // demat_cut_paid/funder_share_paid directly: settlementCards (and every
+  // other page that reads settlement_payments — Dashboard, FunderPayoutsPage,
+  // AllotmentBoardPage, the analytics dashboard) only ever nets against
+  // real settlement_payments rows, so a write that skipped this table would
+  // show as "paid" here but leave every one of those other views still
+  // showing the full amount outstanding forever.
+  async function markCardSettled(applicationId: string, kind: 'holder_to_admin' | 'admin_to_funder') {
+    const card = settlementCards.find((c) => c.applicationId === applicationId)
+    if (!card) return
+    const amount = kind === 'holder_to_admin' ? card.remainingFromHolder : card.remainingToFunder
+    if (amount <= SETTLED_EPSILON) return
+    const key = `${applicationId}:${kind}`
+    setMarkingSettled(key)
+    const nextFromHolder = card.remainingFromHolder - (kind === 'holder_to_admin' ? amount : 0)
+    const nextToFunder = card.remainingToFunder - (kind === 'admin_to_funder' ? amount : 0)
+    const flags = settledPaidFlags(card, nextFromHolder, nextToFunder)
+    const { error } = await supabase.rpc('log_settlement_payment', {
+      p_application_id: applicationId,
+      p_kind: kind,
+      p_amount: amount,
+      p_note: null,
+      p_idempotency_key: crypto.randomUUID(),
+      p_set_demat_cut_paid: !!flags.demat_cut_paid,
+      p_set_funder_share_paid: !!flags.funder_share_paid,
+    })
+    setMarkingSettled(null)
+    // 23505 = this exact key already landed (a retry after a timeout) —
+    // same "already saved" treatment as the granular form's own logPayment.
+    if (error && error.code !== '23505') {
+      showToast(error.message, 'critical')
+      return
+    }
+    if (!error && Object.keys(flags).length > 0) await maybeAutoArchiveIpo(card.ipoId)
+    showToast(kind === 'holder_to_admin' ? 'Marked as received.' : 'Marked as sent.', 'good')
+    invalidatePayoutsData()
+  }
   const [openIpoRangeIds, setOpenIpoRangeIds] = useState<Set<string>>(new Set())
   function toggleIpoRangeOpen(ipoId: string) {
     setOpenIpoRangeIds((s) => {
@@ -789,12 +840,18 @@ export function PayoutsPage() {
             groups={owedToFunders}
             amountColor="var(--critical-text)"
             emptyLabel="Nothing owed to any funder right now."
+            settleKind="admin_to_funder"
+            markingKey={markingSettled}
+            onMarkSettled={(applicationId) => markCardSettled(applicationId, 'admin_to_funder')}
           />
           <SettlementPartyList
             title="You need to receive"
             groups={owedFromHolders}
             amountColor="var(--good)"
             emptyLabel="Nothing outstanding from any account holder right now."
+            settleKind="holder_to_admin"
+            markingKey={markingSettled}
+            onMarkSettled={(applicationId) => markCardSettled(applicationId, 'holder_to_admin')}
           />
         </div>
       )}
@@ -910,6 +967,9 @@ function SettlementPartyList({
   amountColor,
   emptyLabel,
   isEstimate,
+  settleKind,
+  markingKey,
+  onMarkSettled,
 }: {
   title: string
   groups: SettlementPartyGroup[]
@@ -921,6 +981,12 @@ function SettlementPartyList({
   // live-price/GMP projection would be actively misleading, not just
   // imprecise wording.
   isEstimate?: boolean
+  // Which direction a per-line "mark settled" button logs, if any — omitted
+  // entirely for the "Expected — not yet sold" lists (isEstimate), which
+  // have no real applicationId-backed settlement to log against.
+  settleKind?: 'holder_to_admin' | 'admin_to_funder'
+  markingKey?: string | null
+  onMarkSettled?: (applicationId: string) => void
 }) {
   return (
     <div className="card space-y-3 p-4">
@@ -972,12 +1038,30 @@ function SettlementPartyList({
                   </span>
                 </div>
               </div>
-              <div className="mt-1 space-y-0.5 pl-9">
-                {g.ipos.map((i, idx) => (
-                  <p key={idx} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                    {firstIpoWord(i.ipoName)} · {rupees(i.amount)}
-                  </p>
-                ))}
+              <div className="mt-1 space-y-1 pl-9">
+                {g.ipos.map((i, idx) => {
+                  const canMark = settleKind && i.applicationId && onMarkSettled && i.amount > SETTLED_EPSILON
+                  const key = i.applicationId ? `${i.applicationId}:${settleKind}` : null
+                  return (
+                    <div key={idx} className="flex items-center justify-between gap-2 text-xs">
+                      <span style={{ color: 'var(--ink-muted)' }}>
+                        {firstIpoWord(i.ipoName)} · {rupees(i.amount)}
+                      </span>
+                      {canMark && (
+                        <button
+                          onClick={() => onMarkSettled!(i.applicationId!)}
+                          disabled={markingKey === key}
+                          aria-label={settleKind === 'holder_to_admin' ? 'Mark received' : 'Mark sent'}
+                          title={settleKind === 'holder_to_admin' ? 'Mark received' : 'Mark sent'}
+                          className="link-accent inline-flex shrink-0 items-center gap-1 disabled:opacity-50"
+                        >
+                          <CheckCircleFillIcon size={12} />
+                          {markingKey === key ? 'Marking…' : settleKind === 'holder_to_admin' ? 'Received' : 'Sent'}
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           ))}
