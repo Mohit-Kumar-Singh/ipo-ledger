@@ -1,3 +1,9 @@
+```
+╦ ╔═╗ ╔═╗    ╦   ╔═╗ ╔╦╗ ╔═╗ ╔═╗ ╦═╗
+║ ╠═╝ ║ ║    ║   ║╣   ║║ ║ ╦ ║╣  ╠╦╝
+╩ ╩   ╚═╝    ╩═╝ ╚═╝ ═╩╝ ╚═╝ ╚═╝ ╩╚═
+```
+
 # IPO Ledger
 
 A personal portal for tracking IPO applications made across multiple demat
