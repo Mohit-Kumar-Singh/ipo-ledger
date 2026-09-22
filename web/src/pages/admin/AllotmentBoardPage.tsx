@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -8,8 +8,8 @@ import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
-import { buildSettlementCards } from '../../lib/settlement'
-import { markSideSettled, type SettleSide } from '../../lib/settlementActions'
+import { buildSettlementCards, PAYMENT_KIND_LABELS, SETTLED_EPSILON } from '../../lib/settlement'
+import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessage } from '../../lib/partialSells'
@@ -26,6 +26,7 @@ import type {
   ApplicationStatus,
   Notification,
   SettlementPayment,
+  SettlementPaymentKind,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { InfoTooltip } from '../../components/HoverCard'
@@ -1579,6 +1580,17 @@ function SoldBreakdown({
   // (via PayoutLine's own canAct), not the read side.
   canAct: boolean
 }) {
+  // Hooks first, unconditionally — the `row.sell_price == null` early return
+  // just below must never sit above them (rules-of-hooks: this component
+  // has to call the same hooks, in the same order, on every render).
+  const queryClient = useQueryClient()
+  const [showLog, setShowLog] = useState(false)
+  const [kind, setKind] = useState<SettlementPaymentKind>('holder_to_admin')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const idempotencyKeyRef = useRef<string | null>(null)
+
   if (row.sell_price == null) return null
   const result = computeProfitSplit({
     sellPricePerShare: row.sell_price,
@@ -1592,10 +1604,67 @@ function SoldBreakdown({
     profitPersonName,
     splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
   })
-  // Same formula settlement.ts's buildSettlementCards uses for
-  // amountFromHolder — always what's actually owed back (a real receivable
-  // whether the sale was a profit or a loss), never just the cut.
+  // Same formulas settlement.ts's buildSettlementCards uses for
+  // amountFromHolder/amountToFunder — always the real settlement figures
+  // (never just the cut/share sub-amount), and the SAME two numbers the
+  // Payouts page computes for this exact application, so a payment logged
+  // here can never disagree with what that page shows.
   const amountFromHolder = result.totalSoldAmount - result.dematCutAmount
+  const amountToFunder =
+    row.account_manager_case_type === 'CASE_2'
+      ? 0
+      : result.hasFunder && !result.isFunderSelf
+        ? (row.bid_amount ?? 0) + result.funderShare
+        : 0
+
+  // Fetches this application's own settlement_payments fresh at submit time
+  // (this page doesn't otherwise track the ledger) and calls the exact same
+  // logSettlementPayment the Payouts page's own log-a-payment form uses —
+  // one write path, so "in sync with the Payouts page" isn't just true
+  // today, it can't stop being true later.
+  async function logPayment() {
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
+    const idempotencyKey = idempotencyKeyRef.current
+    setSaving(true)
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('settlement_payments')
+      .select('*')
+      .eq('application_id', row.application_id)
+    if (paymentsError) {
+      setSaving(false)
+      showToast(paymentsError.message, 'critical')
+      return
+    }
+    const paymentsByApp = new Map([[row.application_id, (paymentsData ?? []) as SettlementPayment[]]])
+    const [card] = buildSettlementCards([row], profitPersonName, paymentsByApp)
+    if (!card) {
+      setSaving(false)
+      showToast('Could not resolve this application’s settlement figures.', 'critical')
+      return
+    }
+    const { error, duplicate } = await logSettlementPayment(card, kind, amt, note.trim() || null, idempotencyKey)
+    setSaving(false)
+    if (error) {
+      showToast(error, 'critical')
+      return
+    }
+    showToast(
+      duplicate ? 'Already logged — this payment was saved on an earlier attempt.' : 'Payment logged.',
+      duplicate ? 'info' : 'good',
+    )
+    idempotencyKeyRef.current = null
+    setAmount('')
+    setNote('')
+    setShowLog(false)
+    queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    queryClient.invalidateQueries({ queryKey: queryKeys.payoutsLocal })
+  }
 
   return (
     <div className="mt-3 space-y-3 border-t pt-3 text-xs" style={{ borderColor: 'var(--border)' }}>
@@ -1629,7 +1698,17 @@ function SoldBreakdown({
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
               phone={payoutCutContact(row).phone}
               onMessage={() => sendCustomWhatsapp(payoutCutContact(row).phone!, payoutMessage(row, result, 'cut'))}
-              canAct={canAct}
+              // canAct alone (canMark: admin OR the demat account owner)
+              // used to be enough, back when this wrote a plain applications
+              // flag under RLS. It now writes through log_settlement_payment,
+              // which is unconditionally admin-only (is_admin(), same as
+              // every other settlement_payments write in the portal) — a
+              // self-service demat holder marking their OWN cut received,
+              // without the admin's own ledger entry, is exactly the kind of
+              // untracked flag flip this whole fix closes off. `&& isAdmin`
+              // keeps `canAct` genuinely read (avoids an unused-parameter
+              // error) while matching the real permission now in effect.
+              canAct={canAct && isAdmin}
             />
           )}
           {result.funderShare !== 0 && (
@@ -1648,12 +1727,74 @@ function SoldBreakdown({
                   ? () => sendCustomWhatsapp(row.bank_account_phone!, payoutMessage(row, result, 'share'))
                   : undefined
               }
-              canAct={canAct}
+              canAct={canAct && isAdmin}
             />
           )}
         </div>
       ) : (
         <p style={{ color: 'var(--good)' }}>{isAdmin ? 'No outstanding payouts — everything stays with you.' : 'No outstanding payouts.'}</p>
+      )}
+      {/* Admin-only, same as Payouts' own granular form — settlement_payments
+          writes are unconditionally admin-gated (log_settlement_payment's
+          own is_admin() check), so a non-admin canAct here would just fail. */}
+      {isAdmin && (amountFromHolder > SETTLED_EPSILON || amountToFunder > SETTLED_EPSILON) && (
+        <div className="border-t pt-2" style={{ borderColor: 'var(--border)' }}>
+          {!showLog ? (
+            <button
+              type="button"
+              onClick={() => {
+                // Default to whichever side actually has something owed —
+                // 'holder_to_admin' alone would leave the select on an
+                // option that isn't even rendered when only the funder side
+                // applies (e.g. a CASE_1 shared account with no holder cut).
+                setKind(amountFromHolder > SETTLED_EPSILON ? 'holder_to_admin' : 'admin_to_funder')
+                setShowLog(true)
+              }}
+              className="link-accent font-medium"
+            >
+              + Log a payment
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <select value={kind} onChange={(e) => setKind(e.target.value as SettlementPaymentKind)} className="input text-xs">
+                {amountFromHolder > SETTLED_EPSILON && (
+                  <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>
+                )}
+                {amountToFunder > SETTLED_EPSILON && (
+                  <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>
+                )}
+                {amountToFunder > SETTLED_EPSILON && (
+                  <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>
+                )}
+              </select>
+              <div className="flex gap-2">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  placeholder="Amount"
+                  className="input text-xs"
+                />
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-xs" />
+              </div>
+              <div className="flex gap-2">
+                <button onClick={logPayment} disabled={saving} className="btn-primary text-xs disabled:opacity-50">
+                  {saving ? 'Logging…' : 'Log payment'}
+                </button>
+                <button
+                  onClick={() => {
+                    idempotencyKeyRef.current = null
+                    setShowLog(false)
+                  }}
+                  className="btn-secondary text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </div>
   )

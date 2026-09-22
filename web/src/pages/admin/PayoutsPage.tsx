@@ -17,13 +17,11 @@ import {
   PaperAirplaneIcon,
   CheckCircleFillIcon,
 } from '@primer/octicons-react'
-import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
 import { effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
-import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import {
   buildUnrealizedProfitLines,
@@ -32,7 +30,7 @@ import {
   type buildFunderAllottedCards,
 } from '../../lib/expectedProfit'
 import { settledPaidFlags, SETTLED_EPSILON, PAYMENT_KIND_LABELS, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
-import { markSideSettled, type SettleSide } from '../../lib/settlementActions'
+import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
 import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { useCountUp } from '../../lib/useCountUp'
@@ -1167,54 +1165,20 @@ function SettlementCardView({
     if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID()
     const idempotencyKey = idempotencyKeyRef.current
 
-    // What this payment leaves outstanding, computed BEFORE the write —
-    // mirrors buildSettlementCards' own two reducers: a holder_to_funder
-    // payment counts against BOTH sides at once (it left the holder and
-    // reached the funder, it just never passed through the admin), which is
-    // why these aren't exclusive. Only the resulting true/false flags cross
-    // into SQL below — the split itself (amountFromHolder/amountToFunder)
-    // still only ever exists in computeProfitSplit on the client; see
-    // settlement.ts's own note on why that math doesn't get reimplemented
-    // in the database.
-    const nextFromHolder =
-      c.remainingFromHolder - (kind === 'holder_to_admin' || kind === 'holder_to_funder' ? amt : 0)
-    const nextToFunder =
-      c.remainingToFunder - (kind === 'admin_to_funder' || kind === 'holder_to_funder' ? amt : 0)
-    const flags = settledPaidFlags(c, nextFromHolder, nextToFunder)
-
     setSaving(true)
-    // Both the payment insert and the paid-flag update happen inside ONE
-    // Postgres transaction (migration 0087) — either both land or neither
-    // does, instead of the old two-sequential-calls version where a second-
-    // call failure could leave a real, saved payment with stale flags next
-    // to it.
-    const { error } = await supabase.rpc('log_settlement_payment', {
-      p_application_id: c.applicationId,
-      p_kind: kind,
-      p_amount: amt,
-      p_note: note.trim() || null,
-      p_idempotency_key: idempotencyKey,
-      p_set_demat_cut_paid: !!flags.demat_cut_paid,
-      p_set_funder_share_paid: !!flags.funder_share_paid,
-    })
-    if (error && error.code !== '23505') {
+    const { error, duplicate } = await logSettlementPayment(c, kind, amt, note.trim() || null, idempotencyKey)
+    if (error) {
       setSaving(false)
-      showToast(error.message, 'critical')
+      showToast(error, 'critical')
       return
     }
-    if (error) {
-      // 23505 on idempotency_key means THIS exact attempt already landed —
-      // most likely the previous click's request actually succeeded (flags
-      // included) and the "Logging…" state just never heard back before the
-      // admin retried. Not a failure: the payment and its flags are already
-      // saved, same as if this call had returned success the first time.
+    if (duplicate) {
+      // This exact attempt already landed — most likely the previous
+      // click's request actually succeeded and the "Logging…" state just
+      // never heard back before the admin retried. Not a failure: the
+      // payment and its flags are already saved, same as if this call had
+      // returned success the first time.
       showToast('Already logged — this payment was saved on an earlier attempt.', 'info')
-    } else if (Object.keys(flags).length > 0) {
-      // Settling the last side of the last unsettled row can be what makes
-      // the whole IPO archivable, same check the Allotment board runs after
-      // its own "Mark paid". Only run on a genuine fresh success — a 23505
-      // retry means this already ran on the original attempt.
-      await maybeAutoArchiveIpo(c.ipoId)
     }
 
     // Cleared only on confirmed success (real or "already logged") — the
