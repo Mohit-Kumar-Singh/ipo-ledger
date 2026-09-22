@@ -32,6 +32,7 @@ import {
   type buildFunderAllottedCards,
 } from '../../lib/expectedProfit'
 import { settledPaidFlags, SETTLED_EPSILON, PAYMENT_KIND_LABELS, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
+import { markSideSettled, type SettleSide } from '../../lib/settlementActions'
 import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { useCountUp } from '../../lib/useCountUp'
@@ -41,70 +42,80 @@ import { firstIpoWord } from '../../lib/ipoDisplayName'
 
 interface PayoutLine {
   applicationId: string
-  field: 'demat_cut_paid' | 'funder_share_paid'
-  kind: 'cut' | 'share'
+  kind: SettleSide
   recipient: string
   phone: string | null
   ipoName: string
+  // The FULL obligation for that side (SettlementCard.amountFromHolder /
+  // amountToFunder) — NOT the holder's cut or the funder's profit share
+  // alone. Before this fix this was result.dematCutAmount/funderShare,
+  // which quietly showed a much smaller number than what "Mark paid" here
+  // actually settles (and, worse, what markPaid actually WROTE): the raw
+  // applications.update() this button used to call flipped a flag whose
+  // real meaning (since migration 0078) is "the whole side is settled," not
+  // "the cut got paid" — so the number on screen and the obligation the
+  // flag actually represents had already drifted apart before the button
+  // was ever clicked.
   amount: number
   paid: boolean
   row: AllotmentBoardRow
   result: ReturnType<typeof computeProfitSplit>
 }
 
-// Same per-line split logic AllotmentBoardPage's SoldBreakdown already
-// uses, just run across every SOLD row instead of one IPO's worth — kept as
-// a plain function here rather than imported, since the source there is a
-// component-internal render step, not an exported helper.
-function buildPayoutLines(rows: AllotmentBoardRow[], profitPersonName: string): PayoutLine[] {
+// Same per-line grouping AllotmentBoardPage's SoldBreakdown shows one IPO at
+// a time, run across every SOLD row instead — but the amount/paid state now
+// comes straight from the same settlementCards (by applicationId) every
+// other section on this page reads, instead of re-deriving a second,
+// independently-computed figure from the raw demat_cut_paid/funder_share_paid
+// flags. `result` is still computed locally (not pulled off the card) purely
+// so the "Message" button below can keep sending the existing cut/share
+// WhatsApp text (payoutMessage) unchanged — that message already states the
+// full amount-to-send-back itself, so this was never the wrong number, just
+// this list's own on-screen display of it.
+function buildPayoutLines(
+  rows: AllotmentBoardRow[],
+  profitPersonName: string,
+  cardsByApp: Map<string, SettlementCard>,
+): PayoutLine[] {
   const lines: PayoutLine[] = []
   for (const r of rows) {
     if (r.sell_price == null) continue
+    const card = cardsByApp.get(r.application_id)
+    if (!card) continue
     const result = computeProfitSplit({
       sellPricePerShare: r.sell_price,
       lotSize: r.lot_size,
       lots: r.lots,
       bidAmount: r.bid_amount ?? 0,
-      // See the matching comment on Dashboard's buildPendingPayouts — a
-      // funder-only viewer isn't linked to the demat account they funded,
-      // so demat_accounts RLS silently blocks v_allotment_board's join to
-      // it for that row and profit_share_percent comes back null, which
-      // JS coerces to 0 and skips the holder's cut entirely. Admin (the
-      // only caller of this specific function today) always has full
-      // access via is_admin(), so this fallback is defensive here rather
-      // than fixing an observed bug — kept consistent with the other two
-      // call sites below, which a funder genuinely does hit now.
       cutPercent: r.profit_share_percent ?? 25,
       dematHolderName: r.holder_name,
       funderName: r.bank_account_holder_name,
       profitPersonName,
       splitWithFunder: effectiveSplitWithFunder(r, r.split_profit_with_funder),
     })
-    if (!result.isDematHolderSelf && result.dematCutAmount > 0) {
+    if (!card.isDematHolderSelf && card.amountFromHolder > SETTLED_EPSILON) {
       const cutContact = payoutCutContact(r)
       lines.push({
         applicationId: r.application_id,
-        field: 'demat_cut_paid',
-        kind: 'cut',
+        kind: 'holder_to_admin',
         recipient: cutContact.name,
         phone: cutContact.phone,
         ipoName: r.company_name,
-        amount: result.dematCutAmount,
-        paid: r.demat_cut_paid,
+        amount: card.amountFromHolder,
+        paid: card.remainingFromHolder <= SETTLED_EPSILON,
         row: r,
         result,
       })
     }
-    if (result.funderShare > 0) {
+    if (card.hasFunder && !card.isFunderSelf && card.amountToFunder > SETTLED_EPSILON) {
       lines.push({
         applicationId: r.application_id,
-        field: 'funder_share_paid',
-        kind: 'share',
+        kind: 'admin_to_funder',
         recipient: r.bank_account_holder_name ?? 'Unknown',
         phone: r.bank_account_phone,
         ipoName: r.company_name,
-        amount: result.funderShare,
-        paid: r.funder_share_paid,
+        amount: card.amountToFunder,
+        paid: card.remainingToFunder <= SETTLED_EPSILON,
         row: r,
         result,
       })
@@ -333,33 +344,18 @@ export function PayoutsPage() {
   // real settlement_payments rows, so a write that skipped this table would
   // show as "paid" here but leave every one of those other views still
   // showing the full amount outstanding forever.
-  async function markCardSettled(applicationId: string, kind: 'holder_to_admin' | 'admin_to_funder') {
+  async function markCardSettled(applicationId: string, kind: SettleSide) {
     const card = settlementCards.find((c) => c.applicationId === applicationId)
     if (!card) return
     const amount = kind === 'holder_to_admin' ? card.remainingFromHolder : card.remainingToFunder
     if (amount <= SETTLED_EPSILON) return
-    const key = `${applicationId}:${kind}`
-    setMarkingSettled(key)
-    const nextFromHolder = card.remainingFromHolder - (kind === 'holder_to_admin' ? amount : 0)
-    const nextToFunder = card.remainingToFunder - (kind === 'admin_to_funder' ? amount : 0)
-    const flags = settledPaidFlags(card, nextFromHolder, nextToFunder)
-    const { error } = await supabase.rpc('log_settlement_payment', {
-      p_application_id: applicationId,
-      p_kind: kind,
-      p_amount: amount,
-      p_note: null,
-      p_idempotency_key: crypto.randomUUID(),
-      p_set_demat_cut_paid: !!flags.demat_cut_paid,
-      p_set_funder_share_paid: !!flags.funder_share_paid,
-    })
+    setMarkingSettled(`${applicationId}:${kind}`)
+    const { error } = await markSideSettled(card, kind)
     setMarkingSettled(null)
-    // 23505 = this exact key already landed (a retry after a timeout) —
-    // same "already saved" treatment as the granular form's own logPayment.
-    if (error && error.code !== '23505') {
-      showToast(error.message, 'critical')
+    if (error) {
+      showToast(error, 'critical')
       return
     }
-    if (!error && Object.keys(flags).length > 0) await maybeAutoArchiveIpo(card.ipoId)
     showToast(kind === 'holder_to_admin' ? 'Marked as received.' : 'Marked as sent.', 'good')
     invalidatePayoutsData()
   }
@@ -374,14 +370,13 @@ export function PayoutsPage() {
   }
 
   async function markPaid(line: PayoutLine) {
-    setMarkingPaid(line.applicationId + line.field)
-    const { error } = await supabase
-      .from('applications')
-      .update({ [line.field]: true })
-      .eq('id', line.applicationId)
+    const card = settlementCards.find((c) => c.applicationId === line.applicationId)
+    if (!card) return
+    setMarkingPaid(line.applicationId + line.kind)
+    const { error } = await markSideSettled(card, line.kind)
     setMarkingPaid(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(error, 'critical')
       return
     }
     invalidatePayoutsData()
@@ -433,7 +428,8 @@ export function PayoutsPage() {
   // here with no funderName param naturally shows just their own numbers.
   if (!isAdmin) return <FunderPayoutsPage />
 
-  const allLines = buildPayoutLines(rows, profile?.full_name ?? '')
+  const cardsByApp = new Map(settlementCards.map((c) => [c.applicationId, c]))
+  const allLines = buildPayoutLines(rows, profile?.full_name ?? '', cardsByApp)
   const outstandingLines = allLines.filter((l) => !l.paid)
   const paidLines = allLines.filter((l) => l.paid)
   const searchFilter = (g: RecipientGroup) => !search.trim() || g.name.toLowerCase().includes(search.trim().toLowerCase())
@@ -1499,20 +1495,25 @@ function PayoutSection({
                 </div>
                 <div className="mt-2 space-y-1.5">
                   {g.lines.map((l) => (
-                    <div key={l.applicationId + l.field} className="flex items-center justify-between gap-2 text-xs">
+                    <div key={l.applicationId + l.kind} className="flex items-center justify-between gap-2 text-xs">
                       {/* First word only, same compact convention Dashboard's
                           own panels use (e.g. PendingMandatePanel) — the full
                           company name is already on screen elsewhere on this
                           page (Settlement — by IPO), this line is meant to
                           be scannable, not a second full listing. */}
                       <span style={{ color: 'var(--ink-muted)' }}>
-                        {firstIpoWord(l.ipoName)} · {l.kind === 'cut' ? 'cut' : 'share'} · ₹
+                        {firstIpoWord(l.ipoName)} · {l.kind === 'holder_to_admin' ? 'to receive' : 'to send'} · ₹
                         {Math.round(l.amount).toLocaleString('en-IN')}
                       </span>
                       <span className="flex shrink-0 items-center gap-2.5">
                         {l.phone && (
                           <button
-                            onClick={() => sendCustomWhatsapp(l.phone!, payoutMessage(l.row, l.result, l.kind))}
+                            onClick={() =>
+                              sendCustomWhatsapp(
+                                l.phone!,
+                                payoutMessage(l.row, l.result, l.kind === 'holder_to_admin' ? 'cut' : 'share'),
+                              )
+                            }
                             aria-label="Message"
                             title="Message"
                             className="link-accent inline-flex items-center"
@@ -1525,9 +1526,9 @@ function PayoutSection({
                         ) : (
                           <button
                             onClick={() => onMarkPaid(l)}
-                            disabled={markingPaid === l.applicationId + l.field}
-                            aria-label={markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
-                            title={markingPaid === l.applicationId + l.field ? 'Marking…' : 'Mark paid'}
+                            disabled={markingPaid === l.applicationId + l.kind}
+                            aria-label={markingPaid === l.applicationId + l.kind ? 'Marking…' : 'Mark paid'}
+                            title={markingPaid === l.applicationId + l.kind ? 'Marking…' : 'Mark paid'}
                             className="link-accent inline-flex items-center disabled:opacity-50"
                           >
                             <CheckCircleFillIcon size={14} />

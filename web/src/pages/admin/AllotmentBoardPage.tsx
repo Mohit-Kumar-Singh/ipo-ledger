@@ -8,6 +8,8 @@ import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
+import { buildSettlementCards } from '../../lib/settlement'
+import { markSideSettled, type SettleSide } from '../../lib/settlementActions'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessage } from '../../lib/partialSells'
@@ -23,6 +25,7 @@ import type {
   ApplicationSell,
   ApplicationStatus,
   Notification,
+  SettlementPayment,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { InfoTooltip } from '../../components/HoverCard'
@@ -366,15 +369,38 @@ export function AllotmentBoardPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
-  async function markPaid(applicationId: string, field: 'demat_cut_paid' | 'funder_share_paid') {
-    setMarkingPaid(applicationId + field)
-    await supabase.from('applications').update({ [field]: true }).eq('id', applicationId)
+  // Root-cause fix (see lib/settlementActions.ts's own comment): this used
+  // to write demat_cut_paid/funder_share_paid directly via a raw
+  // `.update()`, never touching the settlement_payments ledger — so the
+  // flag said "settled" while Payouts' ledger-based views kept showing the
+  // full amount outstanding forever. Now routes through the same
+  // log_settlement_payment RPC the granular payment form and Payouts page
+  // use, via a one-row settlementCard built from THIS application's own
+  // payments (fetched fresh here since this page doesn't otherwise track
+  // settlement_payments at all).
+  async function markPaid(row: AllotmentBoardRow, field: 'demat_cut_paid' | 'funder_share_paid') {
+    setMarkingPaid(row.application_id + field)
+    const { data: paymentsData, error: paymentsError } = await supabase
+      .from('settlement_payments')
+      .select('*')
+      .eq('application_id', row.application_id)
+    if (paymentsError) {
+      setMarkingPaid(null)
+      showToast(paymentsError.message, 'critical')
+      return
+    }
+    const paymentsByApp = new Map([[row.application_id, (paymentsData ?? []) as SettlementPayment[]]])
+    const [card] = buildSettlementCards([row], isAdmin ? (profile?.full_name ?? '') : '', paymentsByApp)
+    const kind: SettleSide = field === 'demat_cut_paid' ? 'holder_to_admin' : 'admin_to_funder'
+    const { error } = card ? await markSideSettled(card, kind) : { error: 'Could not resolve this application’s settlement figures.' }
     setMarkingPaid(null)
-    // This might be the last outstanding payout on the IPO — check whether
-    // everything's resolved now and archive immediately if so.
-    await maybeAutoArchiveIpo(selectedIpoId)
+    if (error) {
+      showToast(error, 'critical')
+      return
+    }
     queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    queryClient.invalidateQueries({ queryKey: queryKeys.payoutsLocal })
   }
 
   return (
@@ -704,7 +730,7 @@ function SoldPayoutsSection({
   onChangeForm: (id: string, next: SoldFormState) => void
   onSave: (row: AllotmentBoardRow) => void
   savingSold: string | null
-  onMarkPaid: (applicationId: string, field: 'demat_cut_paid' | 'funder_share_paid') => void
+  onMarkPaid: (row: AllotmentBoardRow, field: 'demat_cut_paid' | 'funder_share_paid') => void
   markingPaid: string | null
   profitPersonName: string
   // Marking ALLOTTED (or NOT_ALLOTTED) used to be a one-way door — a
@@ -996,7 +1022,7 @@ function SoldPayoutsSection({
                   <SoldBreakdown
                     row={row}
                     profitPersonName={profitPersonName}
-                    onMarkPaid={(field) => onMarkPaid(row.application_id, field)}
+                    onMarkPaid={(field) => onMarkPaid(row, field)}
                     markingPaid={markingPaid}
                     isAdmin={isAdmin}
                     canAct={canMark(row)}
@@ -1566,6 +1592,10 @@ function SoldBreakdown({
     profitPersonName,
     splitWithFunder: effectiveSplitWithFunder(row, row.split_profit_with_funder),
   })
+  // Same formula settlement.ts's buildSettlementCards uses for
+  // amountFromHolder — always what's actually owed back (a real receivable
+  // whether the sale was a profit or a loss), never just the cut.
+  const amountFromHolder = result.totalSoldAmount - result.dematCutAmount
 
   return (
     <div className="mt-3 space-y-3 border-t pt-3 text-xs" style={{ borderColor: 'var(--border)' }}>
@@ -1580,18 +1610,20 @@ function SoldBreakdown({
             from them here — this one number just isn't theirs. */}
         {isAdmin && <Stat label="Your share" value={result.profitPersonShare} signed />}
       </div>
-      {/* result.funderShare !== 0, not > 0 — on a loss it's negative (the
-          funder's own share of the loss, see profitSplit.ts), which is
-          still very much an outstanding payout (the funder gets back LESS
-          than their principal, and needs to be told exactly how much).
-          `> 0` used to hide this entire line the moment a sale went
-          negative, silently claiming "no outstanding payouts" on a sale
-          that very much still needed settling. */}
-      {(!result.isDematHolderSelf && result.dematCutAmount > 0) || result.funderShare !== 0 ? (
+      {/* amountFromHolder (totalSoldAmount − dematCutAmount), not
+          dematCutAmount alone — on a loss the cut is always exactly 0 (see
+          profitSplit.ts's "a loss is never the account holder's to share"),
+          which used to hide this entire line and its "still owed" figure
+          the moment a sale went negative, even though the holder still owes
+          back everything the sale actually returned. Same fix as the
+          funder-side one below (result.funderShare !== 0, not > 0) for the
+          identical reason: a gate/label built from the wrong sub-amount
+          instead of the real settlement figure. */}
+      {(!result.isDematHolderSelf && amountFromHolder > 0) || result.funderShare !== 0 ? (
         <div className="flex flex-col gap-2">
-          {!result.isDematHolderSelf && result.dematCutAmount > 0 && (
+          {!result.isDematHolderSelf && amountFromHolder > 0 && (
             <PayoutLine
-              label={`${payoutCutContact(row).name} — ₹${Math.round(result.dematCutAmount).toLocaleString('en-IN')} cut`}
+              label={`${payoutCutContact(row).name} — ₹${Math.round(amountFromHolder).toLocaleString('en-IN')} to receive`}
               paid={row.demat_cut_paid}
               onMarkPaid={() => onMarkPaid('demat_cut_paid')}
               marking={markingPaid === row.application_id + 'demat_cut_paid'}
