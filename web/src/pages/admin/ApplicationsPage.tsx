@@ -32,6 +32,7 @@ import type {
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { SegmentedControl } from '../../components/SegmentedControl'
+import { useIpojiInbox } from '../../lib/ipojiInbox'
 
 const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDER', 'EMPLOYEE']
 
@@ -132,6 +133,8 @@ export function ApplicationsPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingApplication, setEditingApplication] = useState<ApplicationRow | null>(null)
   const [ipojiSyncOpen, setIpojiSyncOpen] = useState(false)
+  // Scrapes the phone bookmarklet sent straight to this admin's inbox.
+  const { data: ipojiInbox } = useIpojiInbox(isAdmin)
   // ipos/demat_accounts/bank_accounts only feed the add/edit form's
   // dropdowns and the ipoji sync panel — deferred (enabled: false) until one
   // of those is actually open, same "don't fetch on every page load" intent
@@ -691,6 +694,24 @@ export function ApplicationsPage() {
           )}
         </div>
       </div>
+
+      {isAdmin && !showForm && !ipojiSyncOpen && ipojiInbox && (
+        <button
+          onClick={() => setIpojiSyncOpen(true)}
+          className="glass-tile mt-3 flex w-full items-center justify-between gap-3 rounded-2xl p-4 text-left"
+          data-tone="good"
+        >
+          <span>
+            <span className="block text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {ipojiInbox.row_count} application{ipojiInbox.row_count === 1 ? '' : 's'} received from ipoji
+            </span>
+            <span className="block text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Tap to review and import
+            </span>
+          </span>
+          <span className="btn-primary">Review</span>
+        </button>
+      )}
 
       {isAdmin && !showForm && ipojiSyncOpen && (
         <Suspense fallback={<InlineSpinner label="Loading sync panel…" />}>

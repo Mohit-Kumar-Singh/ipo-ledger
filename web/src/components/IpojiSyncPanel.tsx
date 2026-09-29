@@ -6,6 +6,9 @@ import { supabase } from '../lib/supabase'
 import { withRetry, isTransientNetworkError } from '../lib/networkRetry'
 import { upsertIpoByIdentity } from '../lib/ipoUpsert'
 import { loadPersistedState, savePersistedState } from '../lib/persistedState'
+import { useQueryClient } from '@tanstack/react-query'
+import { showToast } from '../lib/toast'
+import { useIpojiInbox, loadIpojiInboxRows, clearIpojiInbox, getOrCreateIpojiImportKey } from '../lib/ipojiInbox'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Fully automatic across every page — confirmed live (5-page real run).
@@ -398,6 +401,24 @@ const SYNC_SCRIPT = `(async () => {
   statusBox.remove();
 
   const total = Object.keys(store).length;
+
+  // Phone bookmarklet only (window.__IPOJI_INBOX is prefixed onto it by the
+  // app): send the result straight to the user's IPO Ledger inbox instead of
+  // making them copy and paste. The results box below still shows either way
+  // as a fallback if the send fails.
+  let sentToApp = '';
+  const inbox = window.__IPOJI_INBOX;
+  if (inbox && total > 0) {
+    statusBox.remove();
+    try {
+      const res = await fetch(inbox.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ key: inbox.key, rows: Object.values(store) }),
+      });
+      sentToApp = res.ok ? 'ok' : 'fail';
+    } catch (e) { sentToApp = 'fail'; }
+  }
   const statusCounts = {};
   for (const r of Object.values(store)) statusCounts[r.status] = (statusCounts[r.status] || 0) + 1;
 
@@ -442,6 +463,11 @@ const SYNC_SCRIPT = `(async () => {
         '<span class="ia-pill">\\u2713 ' + total + ' total stored</span>' +
       '</div>' +
     '</div>' +
+    (sentToApp === 'ok'
+      ? '<div style="padding:12px 22px;background:rgba(52,211,153,.14);color:#34d399;font-size:13px;font-weight:600;">\\u2713 Sent to your IPO Ledger app. Open the app and tap Review \\u2014 no copying needed.</div>'
+      : sentToApp === 'fail'
+        ? '<div style="padding:12px 22px;background:rgba(251,191,36,.14);color:#fbbf24;font-size:13px;font-weight:600;">Could not send to the app. Tap Copy all below and paste it into the app instead.</div>'
+        : '') +
     '<div style="padding:10px 22px;background:#12151f;border-bottom:1px solid rgba(148,163,184,.14);font-size:12px;color:#94a3b8;">' +
       (statusLine || 'No rows stored') +
     '</div>' +
@@ -488,7 +514,13 @@ const SYNC_SCRIPT = `(async () => {
 // CSP, confirmed, so a javascript: bookmarklet executes fine). encodeURIComponent
 // keeps the whole IIFE valid inside a single javascript: URL. Single source of
 // truth — always in lockstep with the console script above.
-const SYNC_BOOKMARKLET = 'javascript:' + encodeURIComponent(SYNC_SCRIPT)
+// The personal import key + inbox URL are prefixed as a global the script
+// reads at the end (see `window.__IPOJI_INBOX` above), so the result goes
+// straight to the app.
+function buildBookmarklet(key: string): string {
+  const inbox = JSON.stringify({ url: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ipoji-inbox`, key })
+  return 'javascript:' + encodeURIComponent(`window.__IPOJI_INBOX=${inbox};${SYNC_SCRIPT}`)
+}
 
 // Phones have no DevTools console (the computer flow can't run there) and
 // desktops have no bookmarklet-tap flow worth using when a real console is
@@ -993,6 +1025,12 @@ export function IpojiSyncPanel({
 }) {
   const [scriptCopied, setScriptCopied] = useState(false)
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false)
+  const queryClient = useQueryClient()
+  const inbox = useIpojiInbox(open).data
+  // Set while the Preview on screen came from the app inbox, so a finished
+  // import can clear it (and a failed one leaves it there to retry).
+  const [fromInbox, setFromInbox] = useState(false)
+  const [loadingInbox, setLoadingInbox] = useState(false)
   // Computed once at mount, not on every render — the device type doesn't
   // change mid-session.
   const [isPhone] = useState(isPhoneDevice)
@@ -1046,11 +1084,44 @@ export function IpojiSyncPanel({
     })
   }
 
-  async function handleParse() {
+  async function reviewInbox() {
+    if (!inbox) return
+    setLoadingInbox(true)
+    try {
+      const rows = await loadIpojiInboxRows(inbox.id)
+      const text = JSON.stringify(rows)
+      setPasteText(text)
+      setFromInbox(true)
+      await handleParse(text)
+    } catch (err) {
+      showToast(friendlyError(err, "Couldn't open the received data. Try again."), 'critical')
+    } finally {
+      setLoadingInbox(false)
+    }
+  }
+
+  async function discardInbox() {
+    await clearIpojiInbox()
+    setFromInbox(false)
+    queryClient.invalidateQueries({ queryKey: ['ipoji_inbox'] })
+  }
+
+  async function copyBookmarklet() {
+    try {
+      const key = await getOrCreateIpojiImportKey()
+      await navigator.clipboard.writeText(buildBookmarklet(key))
+      setBookmarkletCopied(true)
+      setTimeout(() => setBookmarkletCopied(false), 1500)
+    } catch (err) {
+      showToast(friendlyError(err, "Couldn't copy the bookmark. Try again."), 'critical')
+    }
+  }
+
+  async function handleParse(text: string = pasteText) {
     setResult(null)
     setCreatedIpoNames([])
     setUnmatchableIpoNames([])
-    const { rows: scraped, skippedLabels } = parseScrapedRows(pasteText)
+    const { rows: scraped, skippedLabels } = parseScrapedRows(text)
     if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
       setParsed(null)
@@ -1380,6 +1451,9 @@ export function IpojiSyncPanel({
     setResult({ created, alreadyExisted, mandateUpdated, appNumbersBackfilled, failed })
     setParsed(null)
     setPasteText('')
+    // Rows that failed stay in the inbox (safe to Review again — saved ones
+    // are skipped as duplicates); only a clean import clears it.
+    if (fromInbox && failed === 0) await discardInbox()
     if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
   }
 
@@ -1387,6 +1461,29 @@ export function IpojiSyncPanel({
 
   return (
     <div className="card mt-3 space-y-4 p-5">
+      {inbox && (
+        <div
+          className="glass-tile flex flex-wrap items-center justify-between gap-3 rounded-2xl p-4"
+          data-tone="good"
+        >
+          <div>
+            <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+              {inbox.row_count} application{inbox.row_count === 1 ? '' : 's'} received from ipoji
+            </p>
+            <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+              Sent {new Date(inbox.created_at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}. Review them before anything is saved.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={reviewInbox} disabled={loadingInbox || lookupsLoading} className="btn-primary">
+              {loadingInbox || lookupsLoading ? 'Loading…' : 'Review'}
+            </button>
+            <button onClick={discardInbox} className="btn-secondary">
+              Discard
+            </button>
+          </div>
+        </div>
+      )}
       <div>
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
@@ -1428,11 +1525,7 @@ export function IpojiSyncPanel({
                   which one applies to them. */}
               {isPhone ? (
                 <button
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(SYNC_BOOKMARKLET)
-                    setBookmarkletCopied(true)
-                    setTimeout(() => setBookmarkletCopied(false), 1500)
-                  }}
+                  onClick={copyBookmarklet}
                   className="btn-secondary"
                 >
                   {bookmarkletCopied ? 'Copied — save it as a bookmark' : 'Copy phone bookmarklet'}
@@ -1453,15 +1546,16 @@ export function IpojiSyncPanel({
                 text={
                   isPhone
                     ? 'On a phone (no console to paste into) — use the bookmarklet:\n\n' +
-                      'iPhone (Safari):\n' +
+                      'One-time setup:\n' +
                       '1. Tap "Copy phone bookmarklet" above.\n' +
-                      '2. In Safari, open any page, tap Share -> Add Bookmark -> Save.\n' +
-                      '3. Tap the book icon -> Edit -> open that bookmark, rename it "ipoji sync", clear its address, and paste (the javascript: text you copied). Done.\n' +
-                      '4. Go to ipoji.com/bids (logged in, Orders/Bids -> Current tab).\n' +
-                      '5. Open Bookmarks and tap "ipoji sync" — the script runs on the page, same as on a computer.\n' +
-                      '6. When the results box appears, long-press its text -> Select All -> Copy.\n' +
-                      '7. Come back here and paste into the box below, then press Enter.\n\n' +
-                      'Android (Chrome): same idea — copy the bookmarklet, add a bookmark, Edit it, paste the javascript: text as the URL, name it "ipoji sync". On ipoji, type "ipoji sync" in the address bar and pick it to run.\n\n' +
+                      '2. iPhone (Safari): open any page, Share -> Add Bookmark -> Save. Then Bookmarks -> Edit -> open it, rename it "ipoji sync", replace its address with the copied text.\n' +
+                      '   Android (Chrome): menu -> star to bookmark, then Bookmarks -> Edit, name it "ipoji sync" and paste the copied text as the URL.\n\n' +
+                      'Every time after that:\n' +
+                      '1. Open ipoji.com/bids (logged in, Orders/Bids -> Current tab).\n' +
+                      '2. iPhone: Bookmarks -> "ipoji sync". Android: type "ipoji sync" in the address bar and pick the bookmark.\n' +
+                      '3. Wait for it to finish. It sends the results to this app by itself.\n' +
+                      '4. Open this app: a "Review" button appears here. Tap it, check, import.\n\n' +
+                      'If sending ever fails, the results box has a "Copy all" button and you can paste here as before.\n\n' +
                       'Your ipoji login still never touches this app — the bookmarklet only reads the page you are already logged into, exactly like the computer script.'
                     : 'On the ipoji tab: open DevTools (F12), click Console, paste (Ctrl+V), press Enter. ' +
                       'The script runs by itself from there and shows progress in the corner. ' +
@@ -1501,7 +1595,7 @@ export function IpojiSyncPanel({
               </p>
             )}
             <button
-              onClick={handleParse}
+              onClick={() => handleParse()}
               disabled={!pasteText.trim() || lookupsLoading}
               className="btn-secondary mt-2"
             >
