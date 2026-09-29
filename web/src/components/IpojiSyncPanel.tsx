@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { InfoTooltip } from './HoverCard'
+import { Combobox, type ComboboxOption } from './Combobox'
 import { supabase } from '../lib/supabase'
 import { withRetry, isTransientNetworkError } from '../lib/networkRetry'
 import { upsertIpoByIdentity } from '../lib/ipoUpsert'
+import { loadPersistedState, savePersistedState } from '../lib/persistedState'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
 // Fully automatic across every page — confirmed live (5-page real run).
@@ -516,8 +518,23 @@ interface ScrapedRow {
   _debug?: string
 }
 
+// A scraped row with its demat match already resolved — that part is async
+// (PAN hashing) and doesn't depend on any manual mapping, so it's done once
+// per paste; everything else in MatchedRow is re-derived synchronously
+// whenever a mapping below changes.
+interface ParsedRow extends ScrapedRow {
+  matchedDemat: DematAccount | null
+  dematMatchedByPan: boolean
+}
+
 interface MatchedRow extends ScrapedRow {
   matchedIpo: Ipo | null
+  // True when matchedIpo came from a manual "map to existing IPO" choice
+  // (see ipoAliases) rather than the automatic name/symbol match.
+  ipoMappedByHand: boolean
+  // True when matchedBank came from a manual "map to funder" choice (see
+  // upiAliases) rather than an exact UPI match on bank_accounts.
+  bankMappedByHand: boolean
   matchedDemat: DematAccount | null
   dematMatchedByPan: boolean
   matchedBank: BankAccount | null
@@ -600,15 +617,55 @@ function nameMatches(ipojiName: string, companyName: string): boolean {
   return acr.length > 0 && (acr === n || acr.startsWith(n) || n.startsWith(acr))
 }
 
+// Every IPO the ipoji name could plausibly mean — by company name, or by
+// its NSE/BSE ticker when ipoji's shorthand is the ticker itself
+// ("ADROITIND").
+function matchIpoCandidates(ipojiName: string, ipos: Ipo[]): Ipo[] {
+  const n = normalize(ipojiName)
+  if (!n) return []
+  return ipos.filter((i) => nameMatches(ipojiName, i.company_name) || (!!i.symbol && normalize(i.symbol) === n))
+}
+
 function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
-  if (!normalize(ipojiName)) return null
   // A generic/short shorthand can substring-match more than one IPO's
   // company_name (nameMatches' `full.includes(n)` rule) — silently taking
   // the first (array-order, not intent) risked filing a bid under the wrong
-  // IPO entirely. Ambiguous now means "not found" (surfaced for manual
-  // review on the Applications page / IPOs page) rather than a guess.
-  const matches = ipos.filter((i) => nameMatches(ipojiName, i.company_name))
-  return matches.length === 1 ? matches[0] : null
+  // IPO entirely. Two narrow, deterministic tie-breaks are allowed before
+  // giving up: an exact name/ticker match beats a prefix/substring one, and
+  // a single still-active IPO beats archived (settled) ones. Anything still
+  // ambiguous after that is "not found" — surfaced in the preview's
+  // "map to existing IPO" picker rather than guessed at.
+  const matches = matchIpoCandidates(ipojiName, ipos)
+  if (matches.length <= 1) return matches[0] ?? null
+  const n = normalize(ipojiName)
+  const exact = matches.filter((i) => normalize(i.company_name) === n || (!!i.symbol && normalize(i.symbol) === n))
+  if (exact.length === 1) return exact[0]
+  const active = (exact.length > 1 ? exact : matches).filter((i) => !i.is_archived)
+  return active.length === 1 ? active[0] : null
+}
+
+// Manual mappings chosen in the preview's fail-safe pickers, remembered so
+// the same unrecognized ipoji name / UPI resolves automatically on every
+// later paste. Per-browser (localStorage), same as other remembered UI
+// state — a mapping is only a shortcut for a choice that can be made again.
+const IPO_ALIAS_KEY = 'ipojiSync.ipoAliases' // normalize(ipoji name) -> ipos.id
+const UPI_ALIAS_KEY = 'ipojiSync.upiAliases' // lowercased UPI ID -> bank_accounts.id
+const CLEAR_MAPPING = '__clear__'
+
+function upiKey(upiId: string | undefined): string {
+  return upiId?.trim().toLowerCase() ?? ''
+}
+
+// A remembered mapping only counts while its target still exists — an IPO
+// or bank account deleted since then silently falls back to auto-matching.
+function aliasedIpo(aliases: Record<string, string>, ipojiName: string, pool: Ipo[]): Ipo | null {
+  const id = aliases[normalize(ipojiName)]
+  return id ? (pool.find((i) => i.id === id) ?? null) : null
+}
+
+function aliasedBank(aliases: Record<string, string>, upiId: string | undefined, banks: BankAccount[]): BankAccount | null {
+  const id = aliases[upiKey(upiId)]
+  return id ? (banks.find((b) => b.id === id) ?? null) : null
 }
 
 function matchDematByName(applicantName: string, accounts: DematAccount[]): DematAccount | null {
@@ -940,7 +997,16 @@ export function IpojiSyncPanel({
   const [isPhone] = useState(isPhoneDevice)
   const [pasteText, setPasteText] = useState('')
   const [parseError, setParseError] = useState<string | null>(null)
-  const [rows, setRows] = useState<MatchedRow[] | null>(null)
+  // Scraped rows with their (async, mapping-independent) demat match done —
+  // the actual MatchedRow list is derived from this plus the manual
+  // mappings below, so picking a mapping re-matches instantly without
+  // re-parsing the paste.
+  const [parsed, setParsed] = useState<ParsedRow[] | null>(null)
+  // IPOs this panel created from ipoji during Preview, kept locally until the
+  // parent's refreshed `ipos` prop includes them.
+  const [createdIpos, setCreatedIpos] = useState<Ipo[]>([])
+  const [ipoAliases, setIpoAliases] = useState<Record<string, string>>(() => loadPersistedState(IPO_ALIAS_KEY, {}))
+  const [upiAliases, setUpiAliases] = useState<Record<string, string>>(() => loadPersistedState(UPI_ALIAS_KEY, {}))
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{
     created: number
@@ -954,6 +1020,31 @@ export function IpojiSyncPanel({
   const [createdIpoNames, setCreatedIpoNames] = useState<string[]>([])
   const [unmatchableIpoNames, setUnmatchableIpoNames] = useState<string[]>([])
 
+  const effectiveIpos = useMemo(
+    () => [...ipos, ...createdIpos.filter((c) => !ipos.some((i) => i.id === c.id))],
+    [ipos, createdIpos],
+  )
+
+  function setIpoAlias(ipojiName: string, ipoId: string) {
+    setIpoAliases((prev) => {
+      const next = { ...prev }
+      if (ipoId === CLEAR_MAPPING) delete next[normalize(ipojiName)]
+      else next[normalize(ipojiName)] = ipoId
+      savePersistedState(IPO_ALIAS_KEY, next)
+      return next
+    })
+  }
+
+  function setUpiAlias(upiId: string, bankId: string) {
+    setUpiAliases((prev) => {
+      const next = { ...prev }
+      if (bankId === CLEAR_MAPPING) delete next[upiKey(upiId)]
+      else next[upiKey(upiId)] = bankId
+      savePersistedState(UPI_ALIAS_KEY, next)
+      return next
+    })
+  }
+
   async function handleParse() {
     setResult(null)
     setCreatedIpoNames([])
@@ -961,7 +1052,7 @@ export function IpojiSyncPanel({
     const { rows: scraped, skippedLabels } = parseScrapedRows(pasteText)
     if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
-      setRows(null)
+      setParsed(null)
       return
     }
     setParseError(
@@ -974,104 +1065,124 @@ export function IpojiSyncPanel({
     // for real before matching runs — otherwise every application under it
     // would report an unmatched IPO forever, with no way to fix that short
     // of leaving this panel to import it by hand first. Distinct names only
-    // (one fetch-and-create per IPO, not per application row).
-    let effectiveIpos = ipos
-    const unmatchedNames = Array.from(new Set(scraped.map((r) => r.ipo).filter((name) => !matchIpo(name, ipos))))
+    // (one fetch-and-create per IPO, not per application row). A name that
+    // already has a manual mapping is never re-fetched — the mapping is the
+    // answer.
+    const unmatchedNames = Array.from(
+      new Set(
+        scraped
+          .map((r) => r.ipo)
+          .filter((name) => !aliasedIpo(ipoAliases, name, effectiveIpos) && !matchIpo(name, effectiveIpos)),
+      ),
+    )
     if (unmatchedNames.length > 0) {
       setCreatingIpos(true)
-      const created: string[] = []
+      const created: Ipo[] = []
       const unmatchable: string[] = []
       for (const name of unmatchedNames) {
         const ipo = await fetchAndCreateMissingIpo(name)
-        if (ipo) {
-          effectiveIpos = [...effectiveIpos, ipo]
-          created.push(ipo.company_name)
-        } else {
-          unmatchable.push(name)
-        }
+        if (ipo) created.push(ipo)
+        else unmatchable.push(name)
       }
       setCreatingIpos(false)
-      setCreatedIpoNames(created)
+      setCreatedIpos((prev) => [...prev, ...created])
+      setCreatedIpoNames(created.map((i) => i.company_name))
       setUnmatchableIpoNames(unmatchable)
       if (created.length > 0) onIposCreated()
     }
 
-    const matched: MatchedRow[] = await Promise.all(
+    const withDemat: ParsedRow[] = await Promise.all(
       scraped.map(async (r) => {
-        const matchedIpo = matchIpo(r.ipo, effectiveIpos)
         const { account: matchedDemat, byPan: dematMatchedByPan } = await matchDemat(r.applicant, r.panNumber, accounts)
-        const matchedBank = matchBank(r.upiId, banks)
-        const { lots, amount: amountNum, lotsGuessed } = computeLotsAndAmount(matchedIpo, r.qty, r.amount)
-        // App-number match FIRST — ipoji's own application number is the
-        // real stable identity of a bid, and has to win over a
-        // bank-account-derived key that isn't guaranteed stable run to run
-        // (matchBank() can resolve the same bid to a different
-        // bank_accounts row on a later sync — a UPI-text case difference,
-        // a newly-added bank account, etc.). Only when there's no app
-        // number to go on (or no existing row matches it) does this fall
-        // back to (ipo_id, demat_id, bank_account_id) — migration 0070's
-        // "more than one active application per account+IPO when each is
-        // funded via a different bank/UPI account" case, which ipoji
-        // reports with genuinely different app numbers per bid, not the
-        // same one resolving differently.
-        const byAppNumber = r.appNumber
-          ? existingByAppNumber.get(`${matchedIpo?.id}_${matchedDemat?.id}_${r.appNumber}`)
-          : undefined
-        // The key-based fallback (no distinct app-number record yet) used to
-        // match ANY existing row for this (ipo, demat, bank) triple — including
-        // an old CANCELLED one. That's wrong for a real, observed ipoji case:
-        // someone reapplies via the same UPI after a cancelled bid, getting a
-        // brand-new app number ipoji has never told this portal about. The
-        // fallback matched their stale cancelled row, treated the new
-        // (actually-approved) bid as "already applied," and silently dropped
-        // it — the cancelled mandate then never gets a mandate-update either,
-        // since toUpdateMandate only ever moves PENDING -> decided, not
-        // CANCELLED -> decided (that guard exists for genuine admin overrides,
-        // which a stale ipoji-sourced CANCELLED row isn't). A CANCELLED
-        // existing match is treated as "not really there" here, same
-        // reasoning the Dashboard's own applied-count uses — so this creates
-        // a fresh row for the new bid instead of swallowing it.
-        const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}`)
-        const existing =
-          matchedIpo && matchedDemat
-            ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
-            : undefined
-        // Only relevant when this row is about to create a brand-new
-        // application (no exact match above) — check whether this exact
-        // (ipo, demat) pair already has some OTHER active application on
-        // file under a different funder/app-number. Legitimate under
-        // migration 0070, but also exactly what an accidental double-apply
-        // or a matching miss looks like, so it's surfaced rather than
-        // silently imported as if it were the account's first bid here.
-        const otherActive =
-          !existing && matchedIpo && matchedDemat
-            ? (existingByIpoAndDemat.get(`${matchedIpo.id}_${matchedDemat.id}`) ?? []).find(
-                (a) => a.mandate_status !== 'CANCELLED',
-              )
-            : undefined
-        return {
-          ...r,
-          matchedIpo,
-          matchedDemat,
-          dematMatchedByPan,
-          matchedBank,
-          existingId: existing?.id ?? null,
-          existingMandate: existing?.mandate_status ?? null,
-          existingAppNumber: existing?.ipoji_app_number ?? null,
-          existingImportedFromIpoji: existing?.imported_from_ipoji ?? false,
-          existingBankAccountId: existing?.bank_account_id ?? null,
-          guessedMandate: guessMandateStatus(r.status),
-          lots,
-          lotsGuessed,
-          amountNum,
-          duplicateOfExistingId: otherActive?.id ?? null,
-          unusualStatus: !isKnownIpojiStatus(r.status),
-          newUpi: !!r.upiId && !matchedBank,
-        }
+        return { ...r, matchedDemat, dematMatchedByPan }
       }),
     )
-    setRows(matched)
+    setParsed(withDemat)
   }
+
+  const rows: MatchedRow[] | null = useMemo(() => {
+    if (!parsed) return null
+    return parsed.map((r) => {
+      const { matchedDemat, dematMatchedByPan } = r
+      // A manual mapping wins over the fuzzy name match (it's an explicit
+      // choice); for UPI it's the other way round — an exact UPI match on
+      // file is certain, the mapping only fills in when there isn't one.
+      const mappedIpo = aliasedIpo(ipoAliases, r.ipo, effectiveIpos)
+      const matchedIpo = mappedIpo ?? matchIpo(r.ipo, effectiveIpos)
+      const exactBank = matchBank(r.upiId, banks)
+      const mappedBank = exactBank ? null : aliasedBank(upiAliases, r.upiId, banks)
+      const matchedBank = exactBank ?? mappedBank
+      const { lots, amount: amountNum, lotsGuessed } = computeLotsAndAmount(matchedIpo, r.qty, r.amount)
+      // App-number match FIRST — ipoji's own application number is the
+      // real stable identity of a bid, and has to win over a
+      // bank-account-derived key that isn't guaranteed stable run to run
+      // (matchBank() can resolve the same bid to a different
+      // bank_accounts row on a later sync — a UPI-text case difference,
+      // a newly-added bank account, etc.). Only when there's no app
+      // number to go on (or no existing row matches it) does this fall
+      // back to (ipo_id, demat_id, bank_account_id) — migration 0070's
+      // "more than one active application per account+IPO when each is
+      // funded via a different bank/UPI account" case, which ipoji
+      // reports with genuinely different app numbers per bid, not the
+      // same one resolving differently.
+      const byAppNumber = r.appNumber
+        ? existingByAppNumber.get(`${matchedIpo?.id}_${matchedDemat?.id}_${r.appNumber}`)
+        : undefined
+      // The key-based fallback (no distinct app-number record yet) used to
+      // match ANY existing row for this (ipo, demat, bank) triple — including
+      // an old CANCELLED one. That's wrong for a real, observed ipoji case:
+      // someone reapplies via the same UPI after a cancelled bid, getting a
+      // brand-new app number ipoji has never told this portal about. The
+      // fallback matched their stale cancelled row, treated the new
+      // (actually-approved) bid as "already applied," and silently dropped
+      // it — the cancelled mandate then never gets a mandate-update either,
+      // since toUpdateMandate only ever moves PENDING -> decided, not
+      // CANCELLED -> decided (that guard exists for genuine admin overrides,
+      // which a stale ipoji-sourced CANCELLED row isn't). A CANCELLED
+      // existing match is treated as "not really there" here, same
+      // reasoning the Dashboard's own applied-count uses — so this creates
+      // a fresh row for the new bid instead of swallowing it.
+      const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}`)
+      const existing =
+        matchedIpo && matchedDemat
+          ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
+          : undefined
+      // Only relevant when this row is about to create a brand-new
+      // application (no exact match above) — check whether this exact
+      // (ipo, demat) pair already has some OTHER active application on
+      // file under a different funder/app-number. Legitimate under
+      // migration 0070, but also exactly what an accidental double-apply
+      // or a matching miss looks like, so it's surfaced rather than
+      // silently imported as if it were the account's first bid here.
+      const otherActive =
+        !existing && matchedIpo && matchedDemat
+          ? (existingByIpoAndDemat.get(`${matchedIpo.id}_${matchedDemat.id}`) ?? []).find(
+              (a) => a.mandate_status !== 'CANCELLED',
+            )
+          : undefined
+      return {
+        ...r,
+        matchedIpo,
+        matchedDemat,
+        dematMatchedByPan,
+        matchedBank,
+        existingId: existing?.id ?? null,
+        existingMandate: existing?.mandate_status ?? null,
+        existingAppNumber: existing?.ipoji_app_number ?? null,
+        existingImportedFromIpoji: existing?.imported_from_ipoji ?? false,
+        existingBankAccountId: existing?.bank_account_id ?? null,
+        guessedMandate: guessMandateStatus(r.status),
+        lots,
+        lotsGuessed,
+        amountNum,
+        duplicateOfExistingId: otherActive?.id ?? null,
+        unusualStatus: !isKnownIpojiStatus(r.status),
+        newUpi: !!r.upiId && !matchedBank,
+        ipoMappedByHand: !!mappedIpo,
+        bankMappedByHand: !!mappedBank,
+      }
+    })
+  }, [parsed, effectiveIpos, banks, ipoAliases, upiAliases, existingByAppNumber, existingByKey, existingByIpoAndDemat])
 
   const toCreate = (rows ?? []).filter((r) => r.matchedIpo && r.matchedDemat && !r.existingId && r.lots)
   // Only ever move PENDING -> a decided state here — never overwrite a
@@ -1191,6 +1302,26 @@ export function IpojiSyncPanel({
           }
         }),
     )
+    // An IPO can be archived while still genuinely live — the nightly sweep
+    // archives any closed IPO with zero applications, which is exactly the
+    // state one is in when its bids never matched on an earlier sync (the
+    // real Adroit case). Applications imported into it would then be hidden
+    // everywhere archived IPOs are filtered out, so the IPO is unarchived
+    // again once it actually has one. Only for IPOs that got at least one
+    // successful insert, and the same write ArchivesPage's own Unarchive
+    // button makes.
+    const archivedIpoIds = Array.from(
+      new Set(
+        toCreate
+          .filter((r, i) => r.matchedIpo!.is_archived && createOutcomes[i].ok && !createOutcomes[i].skipped)
+          .map((r) => r.matchedIpo!.id),
+      ),
+    )
+    for (const ipoId of archivedIpoIds) {
+      const { error } = await withRetry(() => supabase.from('ipos').update({ is_archived: false }).eq('id', ipoId))
+      if (error) console.error('ipoji sync — failed to unarchive IPO', ipoId, error)
+    }
+    if (archivedIpoIds.length > 0) onIposCreated()
     const mandateOutcomes = await Promise.all(
         toUpdateMandate.map(async (r) => {
           // Not set_mandate_status — this is a guess derived from ipoji's
@@ -1246,7 +1377,7 @@ export function IpojiSyncPanel({
       ),
     )
     setResult({ created, alreadyExisted, mandateUpdated, appNumbersBackfilled, failed })
-    setRows(null)
+    setParsed(null)
     setPasteText('')
     if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
   }
@@ -1388,8 +1519,8 @@ export function IpojiSyncPanel({
             )}
             {unmatchableIpoNames.length > 0 && (
               <p className="mt-2 text-xs" style={{ color: 'var(--warning-text)' }}>
-                Couldn't find {unmatchableIpoNames.join(', ')} on ipoji's current list — add it manually on the
-                IPOs page, then paste again.
+                Couldn't find {unmatchableIpoNames.join(', ')} on ipoji's current list — map it to an existing
+                IPO in the review step below (or add it on the IPOs page, then paste again).
               </p>
             )}
           </div>
@@ -1473,8 +1604,8 @@ export function IpojiSyncPanel({
                       <div className="text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
                         <p>
                           ⚠ {newUpis.length} row{newUpis.length === 1 ? '' : 's'} funded through a UPI ID not on
-                          file — will import with no funder attributed unless you add it as a bank/UPI account
-                          first:
+                          file — will import with no funder attributed unless you map it to a funder account
+                          below (or add it as a bank/UPI account first):
                         </p>
                         <ul className="mt-1 list-disc pl-4 font-normal">
                           {newUpis.map((r, i) => (
@@ -1485,6 +1616,127 @@ export function IpojiSyncPanel({
                         </ul>
                       </div>
                     )}
+                  </div>
+                )
+              })()}
+              {(() => {
+                // Fail-safe mapping: every distinct ipoji IPO name that
+                // didn't resolve on its own (no match, or more than one),
+                // and every scraped UPI with no bank/UPI account on file —
+                // plus anything already mapped by hand, so a mapping can be
+                // changed or cleared from the same place it was made.
+                const ipoNames = Array.from(
+                  new Set(rows.filter((r) => !r.matchedIpo || r.ipoMappedByHand).map((r) => r.ipo)),
+                )
+                const upiIds = Array.from(
+                  new Map(
+                    rows
+                      .filter((r) => r.upiId && (!r.matchedBank || r.bankMappedByHand))
+                      .map((r) => [upiKey(r.upiId), r.upiId!] as const),
+                  ).values(),
+                )
+                if (ipoNames.length === 0 && upiIds.length === 0) return null
+                const ipoOptions: ComboboxOption[] = [
+                  ...[...effectiveIpos]
+                    .sort(
+                      (a, b) =>
+                        Number(a.is_archived) - Number(b.is_archived) ||
+                        (b.open_date ?? '').localeCompare(a.open_date ?? ''),
+                    )
+                    .map((i) => ({
+                      value: i.id,
+                      label: `${i.company_name}${i.symbol ? ` (${i.symbol})` : ''} · opened ${i.open_date}${
+                        i.price_high != null ? ` · ₹${i.price_high}` : ''
+                      }`,
+                      group: i.is_archived ? 'Archived' : 'Active',
+                    })),
+                  { value: CLEAR_MAPPING, label: 'Clear mapping', group: 'Other' },
+                ]
+                const bankOptions: ComboboxOption[] = [
+                  ...banks.map((b) => ({
+                    value: b.id,
+                    label: `${b.account_holder_name ?? 'Unnamed'} — ${
+                      b.upi_id ?? ([b.bank_name, b.last4 && `••${b.last4}`].filter(Boolean).join(' ') || 'no UPI')
+                    }`,
+                  })),
+                  { value: CLEAR_MAPPING, label: 'Clear mapping' },
+                ]
+                const rowCount = (pred: (r: MatchedRow) => boolean) => rows.filter(pred).length
+                return (
+                  <div className="mt-3 space-y-3 rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                        Map unrecognized IPOs / UPIs
+                      </p>
+                      <InfoTooltip
+                        text={
+                          'Pick the existing IPO or funder account each unrecognized ipoji name / UPI ID belongs to. ' +
+                          'The table below updates immediately. Mappings are remembered in this browser, so the same ' +
+                          'name or UPI is recognized automatically on later pastes — pick "Clear mapping" to undo one. ' +
+                          'Importing into an archived IPO unarchives it, so its applications show up again.'
+                        }
+                      />
+                    </div>
+                    {ipoNames.map((name) => {
+                      const mapped = aliasedIpo(ipoAliases, name, effectiveIpos)
+                      const candidates = matchIpoCandidates(name, effectiveIpos)
+                      return (
+                        <div key={`ipo-${name}`} className="grid gap-1 sm:grid-cols-[1fr_22rem] sm:items-center sm:gap-3">
+                          <div className="text-xs">
+                            <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                              IPO "{name}"
+                            </span>{' '}
+                            <span style={{ color: 'var(--ink-muted)' }}>
+                              ({rowCount((r) => r.ipo === name)} row{rowCount((r) => r.ipo === name) === 1 ? '' : 's'})
+                            </span>
+                            {!mapped && (
+                              <p style={{ color: 'var(--warning-text)' }}>
+                                {candidates.length > 1
+                                  ? `Matches ${candidates.length} IPOs (${candidates.map((c) => c.company_name).join(', ')}) — pick one.`
+                                  : 'No IPO in the portal matches this name — pick one.'}
+                              </p>
+                            )}
+                          </div>
+                          <Combobox
+                            options={ipoOptions}
+                            value={mapped?.id ?? ''}
+                            onChange={(v) => setIpoAlias(name, v)}
+                            placeholder="Map to existing IPO…"
+                            searchPlaceholder="Search IPOs…"
+                            aria-label={`Map ipoji IPO ${name}`}
+                          />
+                        </div>
+                      )
+                    })}
+                    {upiIds.map((upi) => {
+                      const mapped = aliasedBank(upiAliases, upi, banks)
+                      const count = rowCount((r) => upiKey(r.upiId) === upiKey(upi))
+                      return (
+                        <div key={`upi-${upi}`} className="grid gap-1 sm:grid-cols-[1fr_22rem] sm:items-center sm:gap-3">
+                          <div className="text-xs">
+                            <span className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+                              UPI {upi}
+                            </span>{' '}
+                            <span style={{ color: 'var(--ink-muted)' }}>
+                              ({count} row{count === 1 ? '' : 's'})
+                            </span>
+                            {!mapped && (
+                              <p style={{ color: 'var(--warning-text)' }}>
+                                Not on any funder account — pick one, or leave it to import with no funder.
+                              </p>
+                            )}
+                          </div>
+                          <Combobox
+                            options={bankOptions}
+                            value={mapped?.id ?? ''}
+                            onChange={(v) => setUpiAlias(upi, v)}
+                            placeholder="Map to funder account…"
+                            searchPlaceholder="Search funders / UPIs…"
+                            aria-label={`Map UPI ${upi}`}
+                          />
+                        </div>
+                      )
+                    })}
                   </div>
                 )
               })()}
@@ -1513,7 +1765,23 @@ export function IpojiSyncPanel({
                       <tr key={i} className="border-t" style={{ borderColor: 'var(--border)' }}>
                         <td className="p-1.5">{r.ipo}</td>
                         <td className="p-1.5">
-                          {r.matchedIpo ? r.matchedIpo.company_name : <span style={{ color: 'var(--critical-text)' }}>not found</span>}
+                          {r.matchedIpo ? (
+                            <>
+                              {r.matchedIpo.company_name}
+                              {r.ipoMappedByHand && <span style={{ color: 'var(--accent)' }}> (mapped)</span>}
+                              {r.matchedIpo.is_archived && (
+                                <span
+                                  title="Archived — importing an application unarchives it."
+                                  style={{ color: 'var(--ink-muted)' }}
+                                >
+                                  {' '}
+                                  (archived)
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{ color: 'var(--critical-text)' }}>not found — map above</span>
+                          )}
                         </td>
                         <td className="p-1.5">{r.applicant}</td>
                         <td className="p-1.5">
@@ -1562,7 +1830,15 @@ export function IpojiSyncPanel({
                               —{r._debug ? ' ⓘ' : ''}
                             </span>
                           ) : r.matchedBank ? (
-                            r.matchedBank.account_holder_name ?? r.upiId
+                            <>
+                              {r.matchedBank.account_holder_name ?? r.upiId}
+                              {r.bankMappedByHand && (
+                                <span title={r.upiId} style={{ color: 'var(--accent)' }}>
+                                  {' '}
+                                  (mapped)
+                                </span>
+                              )}
+                            </>
                           ) : (
                             <span title={r.upiId} style={{ color: 'var(--warning-text)' }}>
                               ⚠ no funder account for {r.upiId}
@@ -1622,7 +1898,7 @@ export function IpojiSyncPanel({
                 // page's paste can go straight in.
                 <button
                   onClick={() => {
-                    setRows(null)
+                    setParsed(null)
                     setPasteText('')
                   }}
                   className="btn-secondary mt-3"
