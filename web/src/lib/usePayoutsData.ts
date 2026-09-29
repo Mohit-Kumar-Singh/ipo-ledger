@@ -3,6 +3,7 @@
 // PayoutsPage, RLS-scoped to just their own data for a funder on either
 // page), so this is one hook instead of two independently-maintained copies
 // that could silently drift apart on the math.
+import { friendlyError } from './friendlyError'
 import { useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from './supabase'
@@ -80,7 +81,7 @@ export function usePayoutsData() {
         // they never see that log.
         supabase.from('profiles').select('id, full_name'),
       ])
-      if (paymentsRes.error) showToast(`Couldn't load settlement payments: ${paymentsRes.error.message}`, 'warning')
+      if (paymentsRes.error) showToast(friendlyError(paymentsRes.error, `Couldn't load settlement payments.`), 'warning')
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
       const profileNamesById: Record<string, string> = {}
@@ -88,14 +89,14 @@ export function usePayoutsData() {
         if (p.full_name) profileNamesById[p.id] = p.full_name
       }
 
-      if (allRowsRes.error) showToast(`Couldn't load applications for analytics: ${allRowsRes.error.message}`, 'warning')
+      if (allRowsRes.error) showToast(friendlyError(allRowsRes.error, `Couldn't load applications for analytics.`), 'warning')
       // See lib/hydrateDemat.ts — a funder-only viewer's demat embed is
       // RLS-blocked, and the `?? 25` cut fallback would silently compute
       // their figures off a made-up percentage. No-ops for admin.
       const allRows = await hydrateDematAccounts((allRowsRes.data ?? []) as unknown as ProfitProjectionRow[])
 
       if (expectedRes.error) {
-        showToast(`Couldn't load expected payouts: ${expectedRes.error.message}`, 'warning')
+        showToast(friendlyError(expectedRes.error, `Couldn't load expected payouts.`), 'warning')
         return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>(), profileNamesById }
       }
       const expectedRowsBaseAll = await hydrateDematAccounts(
@@ -143,7 +144,7 @@ export function usePayoutsData() {
   const case2ManagerIds = localPayoutsQuery.data?.case2ManagerIds ?? EMPTY_CASE2_IDS
   const profileNamesById = localPayoutsQuery.data?.profileNamesById ?? EMPTY_PROFILE_NAMES
   const loading = boardQuery.isPending || localPayoutsQuery.isPending
-  const loadError = localPayoutsQuery.error instanceof Error ? localPayoutsQuery.error.message : null
+  const loadError = localPayoutsQuery.error ? friendlyError(localPayoutsQuery.error) : null
 
   function invalidatePayoutsData() {
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })

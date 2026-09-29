@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircleIcon, LawIcon, PersonIcon } from '@primer/octicons-react'
@@ -77,7 +78,7 @@ export function UsersPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: userId }).eq('id', dematId)
     setBusyId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     await refreshAccounts()
@@ -89,7 +90,7 @@ export function UsersPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: null }).eq('id', dematId)
     setBusyId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     await refreshAccounts()
@@ -100,7 +101,7 @@ export function UsersPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: userId }).eq('id', bankId)
     setBusyId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     await refreshAccounts()
@@ -112,7 +113,7 @@ export function UsersPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: null }).eq('id', bankId)
     setBusyId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     await refreshAccounts()

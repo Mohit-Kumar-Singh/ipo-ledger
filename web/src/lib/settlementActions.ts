@@ -15,6 +15,7 @@
 // via the log_settlement_payment RPC (same atomic payment-row-insert +
 // flag-update transaction the granular per-application form already used),
 // so the two can never drift apart again.
+import { friendlyError } from './friendlyError'
 import { supabase } from './supabase'
 import { maybeAutoArchiveIpo } from './autoArchive'
 import { settledPaidFlags, SETTLED_EPSILON, type SettlementCard } from './settlement'
@@ -53,7 +54,7 @@ export async function logSettlementPayment(
   })
   // 23505 = this exact idempotency key already landed (a retry after a
   // timeout) — not a failure, the payment and its flags are already saved.
-  if (error && error.code !== '23505') return { error: error.message, duplicate: false }
+  if (error && error.code !== '23505') return { error: friendlyError(error), duplicate: false }
   if (!error && Object.keys(flags).length > 0) await maybeAutoArchiveIpo(card.ipoId)
   return { error: null, duplicate: !!error }
 }

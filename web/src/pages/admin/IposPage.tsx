@@ -1,3 +1,4 @@
+import { friendlyError, friendlyErrorOrNull } from '../../lib/friendlyError'
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -387,7 +388,7 @@ export function IposPage() {
       showToast(
         error.code === '23503'
           ? "Can't delete one or more of these — they still have applications on record. Delete those applications first, or delete IPOs one at a time to see which."
-          : error.message,
+          : friendlyError(error),
         'critical',
       )
       return
@@ -403,7 +404,7 @@ export function IposPage() {
       showToast(
         error.code === '23503'
           ? `Can't delete ${ipo.company_name} — it still has applications on record. Delete those applications first.`
-          : error.message,
+          : friendlyError(error),
         'critical',
       )
       return
@@ -425,7 +426,7 @@ export function IposPage() {
     }
     const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -1045,7 +1046,7 @@ function AddIpoForm({ existing, onCancel, onDone }: { existing?: Ipo; onCancel?:
     // Editing a known row updates it directly by id; otherwise fall back to
     // the name-based upsert (used by manual "Add" and the import flow).
     const { error } = existing
-      ? { error: (await supabase.from('ipos').update(payload).eq('id', existing.id)).error?.message ?? null }
+      ? { error: friendlyErrorOrNull((await supabase.from('ipos').update(payload).eq('id', existing.id)).error) }
       : await upsertIpoByIdentity(payload)
 
     setSubmitting(false)

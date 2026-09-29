@@ -13,6 +13,7 @@
 // directly by visiting /payouts itself (PayoutsPage renders this same
 // component with no param, and v_allotment_board is already RLS-scoped to
 // just their own data, so no filtering is needed for that case).
+import { friendlyError } from '../../lib/friendlyError'
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
@@ -331,7 +332,7 @@ function BulkSettleControl({
       setOpen(false)
       setNote('')
     } catch (e) {
-      showToast(e instanceof Error ? e.message : 'Failed to log settlement.', 'critical')
+      showToast(friendlyError(e, "Couldn't record that payment. Please try again."), 'critical')
     } finally {
       setSaving(false)
       // Refresh regardless — on a partial failure some payments did land and
@@ -482,7 +483,7 @@ function PaymentLogRow({
     })
     setBusy(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     showToast('Payment updated.', 'good')
@@ -501,7 +502,7 @@ function PaymentLogRow({
     })
     setBusy(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     showToast('Payment deleted.', 'good')

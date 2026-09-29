@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { Fragment, Suspense, lazy, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import * as Popover from '@radix-ui/react-popover'
@@ -305,7 +306,7 @@ export function ApplicationsPage() {
   const resolvedBankInfo = applicationsQuery.data?.resolvedBankInfo ?? EMPTY_BANK_INFO
   const mandateMarkerNames = applicationsQuery.data?.mandateMarkerNames ?? EMPTY_MARKER_NAMES
   const loading = applicationsQuery.isPending
-  const loadError = applicationsQuery.error instanceof Error ? applicationsQuery.error.message : null
+  const loadError = applicationsQuery.error ? friendlyError(applicationsQuery.error) : null
 
   function loadApplications() {
     queryClient.invalidateQueries({ queryKey: applicationsQueryKey })
@@ -402,7 +403,7 @@ export function ApplicationsPage() {
       return
     const { error } = await supabase.from('applications').delete().eq('id', id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     loadApplications()
@@ -1630,7 +1631,7 @@ function NewApplicationForm({
         .eq('id', existing.id)
       if (error) {
         setSubmitting(false)
-        setError(error.message)
+        setError(friendlyError(error))
         return
       }
 
@@ -1647,7 +1648,7 @@ function NewApplicationForm({
         })
         if (mandateError) {
           setSubmitting(false)
-          setError(mandateError.message)
+          setError(friendlyError(mandateError))
           return
         }
       }
@@ -1681,7 +1682,7 @@ function NewApplicationForm({
       const names = failed
         .map((f) => {
           const name = accounts.find((a) => a.id === f.id)?.holder_name ?? f.id
-          return f.error?.code === '23505' ? `${name} (already applied)` : `${name} (${f.error?.message})`
+          return f.error?.code === '23505' ? `${name} (already applied)` : `${name} (${friendlyError(f.error)})`
         })
         .join(', ')
       const succeeded = results.length - failed.length

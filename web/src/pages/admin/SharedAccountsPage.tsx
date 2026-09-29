@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PeopleIcon, LinkIcon } from '@primer/octicons-react'
@@ -84,7 +85,7 @@ export function SharedAccountsPage() {
     await supabase.from('demat_accounts').update({ account_manager_id: null }).eq('account_manager_id', id)
     const { error } = await supabase.from('account_managers').delete().eq('id', id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -101,7 +102,7 @@ export function SharedAccountsPage() {
       .update({ account_manager_id: managerId, profit_share_percent: cutPercent })
       .eq('id', demat.id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -110,7 +111,7 @@ export function SharedAccountsPage() {
   async function unassign(demat: DematAccount) {
     const { error } = await supabase.from('demat_accounts').update({ account_manager_id: null }).eq('id', demat.id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -442,7 +443,7 @@ function ManagerForm({
       : await supabase.from('account_managers').insert(payload)
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return
     }
     onDone()

@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
@@ -225,7 +226,7 @@ export function AllotmentBoardPage() {
   // Error instance, not on every re-render while the error persists.
   useEffect(() => {
     if (boardQuery.error) {
-      showToast(`Couldn't load the allotment board: ${boardQuery.error.message}`, 'critical')
+      showToast(friendlyError(boardQuery.error, `Couldn't load the allotment board.`), 'critical')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardQuery.error])
@@ -387,7 +388,7 @@ export function AllotmentBoardPage() {
       .eq('application_id', row.application_id)
     if (paymentsError) {
       setMarkingPaid(null)
-      showToast(paymentsError.message, 'critical')
+      showToast(friendlyError(paymentsError), 'critical')
       return
     }
     const paymentsByApp = new Map([[row.application_id, (paymentsData ?? []) as SettlementPayment[]]])
@@ -1250,7 +1251,7 @@ function PartialSells({
         })
     setBusy(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     resetForm()
@@ -1265,7 +1266,7 @@ function PartialSells({
     if (!ok) return
     const { error } = await supabase.rpc('delete_application_sell', { p_id: t.id })
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     await refresh()
@@ -1637,7 +1638,7 @@ function SoldBreakdown({
       .eq('application_id', row.application_id)
     if (paymentsError) {
       setSaving(false)
-      showToast(paymentsError.message, 'critical')
+      showToast(friendlyError(paymentsError), 'critical')
       return
     }
     const paymentsByApp = new Map([[row.application_id, (paymentsData ?? []) as SettlementPayment[]]])

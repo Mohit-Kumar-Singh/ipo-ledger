@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { LawIcon, LinkIcon } from '@primer/octicons-react'
@@ -61,7 +62,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: userId }).eq('id', bankAccountId)
     setLinking(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -72,7 +73,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').update({ linked_user_id: null }).eq('id', bankAccountId)
     setLinking(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -153,7 +154,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
     if (error) {
       showToast(
-        error.code === '23503' ? "Can't remove this account — applications or requests still reference it." : error.message,
+        error.code === '23503' ? "Can't remove this account — applications or requests still reference it." : friendlyError(error),
         'critical',
       )
       return
@@ -192,7 +193,7 @@ export function BankAccountsPage() {
     const { error } = await supabase.from('bank_accounts').delete().in('id', ids)
     if (error) {
       showToast(
-        error.code === '23503' ? "Can't remove one or more of these — applications or requests still reference them." : error.message,
+        error.code === '23503' ? "Can't remove one or more of these — applications or requests still reference them." : friendlyError(error),
         'critical',
       )
       return
@@ -482,7 +483,7 @@ function BankForm({
 
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return
     }
     onDone()
@@ -579,7 +580,7 @@ function UpiOnlyEdit({ bank, onSaved }: { bank: BankAccount; onSaved: () => void
     })
     setSaving(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return
     }
     setEditing(false)

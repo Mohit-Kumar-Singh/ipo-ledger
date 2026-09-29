@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -95,7 +96,7 @@ export function HoldingsPage() {
       {holdingsQuery.isPending && <InlineSpinner />}
       {holdingsQuery.error instanceof Error && (
         <p className="text-sm" style={{ color: 'var(--critical)' }}>
-          Couldn't load holdings: {holdingsQuery.error.message}
+          Couldn't load holdings: {friendlyError(holdingsQuery.error)}
         </p>
       )}
 

@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/friendlyError'
 import { useMemo, useState } from 'react'
 import { InfoTooltip } from './HoverCard'
 import { Combobox, type ComboboxOption } from './Combobox'
@@ -1372,7 +1373,7 @@ export function IpojiSyncPanel({
         : []
       ).concat(
         allFailures.map((o) =>
-          `${o.label}: ${isTransientNetworkError(o.error) ? 'connection dropped — not saved, safe to retry' : (o.error?.message ?? 'unknown error')}`,
+          `${o.label}: ${isTransientNetworkError(o.error) ? 'connection dropped — not saved, safe to retry' : friendlyError(o.error)}`,
         ),
       ),
     )

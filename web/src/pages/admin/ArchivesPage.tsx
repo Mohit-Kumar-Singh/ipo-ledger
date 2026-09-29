@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useMemo, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { UndoIcon } from '@primer/octicons-react'
@@ -104,7 +105,7 @@ export function ArchivesPage() {
     const { error } = await supabase.from('ipos').update({ is_archived: false }).eq('id', ipo.id)
     setUnarchiving(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setJustUnarchived(ipo)
@@ -116,7 +117,7 @@ export function ArchivesPage() {
     const { error } = await supabase.from('ipos').update({ is_archived: true }).eq('id', ipo.id)
     setReArchiving(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setJustUnarchived(null)

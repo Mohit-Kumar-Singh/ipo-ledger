@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
@@ -128,7 +129,7 @@ export function SellReminderComposer({
         .insert(toInsert)
         .select('id, status, to_phone, template_name, variables')
       if (error) {
-        showToast(`Couldn't queue reminders: ${error.message}`, 'critical')
+        showToast(friendlyError(error, `Couldn't queue reminders.`), 'critical')
         setPreparing(false)
         return
       }
@@ -158,7 +159,7 @@ export function SellReminderComposer({
     if (!path) return
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300)
     if (error || !data?.signedUrl) {
-      showToast(`Couldn't open PDF: ${error?.message ?? 'no signed URL'}`, 'critical')
+      showToast(friendlyError(error, "Couldn't open that file."), 'critical')
       return
     }
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')

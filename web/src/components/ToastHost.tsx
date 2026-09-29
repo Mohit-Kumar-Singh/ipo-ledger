@@ -54,7 +54,7 @@ const toneMeta: Record<string, { variant: LabelVariant; label: string }> = {
   info: { variant: 'accent', label: 'Note' },
   warning: { variant: 'attention', label: 'Heads up' },
   good: { variant: 'success', label: 'Done' },
-  critical: { variant: 'danger', label: 'Error' },
+  critical: { variant: 'danger', label: "Couldn't do that" },
 }
 
 /** Pops up a card for (a) notifications actually dispatched (SENT, SIMULATED

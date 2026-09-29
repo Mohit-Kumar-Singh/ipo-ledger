@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/friendlyError'
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -50,7 +51,7 @@ export function LinkedAccountsPage() {
     const { error } = await supabase.rpc('unlink_demat_account', { p_demat_id: id })
     setUnlinkingDematId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     loadLinkedAccounts()
@@ -62,7 +63,7 @@ export function LinkedAccountsPage() {
     const { error } = await supabase.rpc('unlink_bank_account', { p_bank_account_id: id })
     setUnlinkingBankId(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     loadLinkedAccounts()

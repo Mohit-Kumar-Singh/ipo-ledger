@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
@@ -80,7 +81,7 @@ export function AccountsPage() {
   const accounts = useMemo(() => [...(accountsQuery.data ?? [])].sort(byHolderName), [accountsQuery.data])
   const [linkableMembers, setLinkableMembers] = useState<Profile[]>([])
   const loading = accountsQuery.isPending
-  const loadError = accountsQuery.error instanceof Error ? accountsQuery.error.message : null
+  const loadError = accountsQuery.error ? friendlyError(accountsQuery.error) : null
   const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
@@ -121,7 +122,7 @@ export function AccountsPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: userId }).eq('id', dematId)
     setLinking(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -132,7 +133,7 @@ export function AccountsPage() {
     const { error } = await supabase.from('demat_accounts').update({ linked_user_id: null }).eq('id', dematId)
     setLinking(null)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     load()
@@ -195,7 +196,7 @@ export function AccountsPage() {
       showToast(
         error.code === '23503'
           ? `Can't delete ${name} — they have applications or messages on record. Delete those first.`
-          : error.message,
+          : friendlyError(error),
         'critical',
       )
       return

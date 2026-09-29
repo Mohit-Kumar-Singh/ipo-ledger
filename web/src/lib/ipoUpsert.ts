@@ -6,6 +6,7 @@
 // drifting apart is exactly how the underlying bug went unfixed in one
 // place after being fixed in the other; this is now the one place browser
 // code decides "is this candidate an IPO we already have."
+import { friendlyError, friendlyErrorOrNull } from './friendlyError'
 import { supabase } from './supabase'
 import { findExistingIpoMatch, type ExistingIpoRef } from './ipoIdentity'
 import { withoutEmptyEnrichment } from './ipoUpdatePayload'
@@ -54,7 +55,7 @@ export async function upsertIpoByIdentity(
   const existing = await findExisting(slug, company_name)
   if (existing) {
     const { data, error } = await supabase.from('ipos').update(withoutEmptyEnrichment(normalizedPayload)).eq('id', existing.id).select('*').single()
-    return { error: error?.message ?? null, ipo: (data as Ipo) ?? null }
+    return { error: friendlyErrorOrNull(error), ipo: (data as Ipo) ?? null }
   }
 
   const { data: inserted, error: insertError } = await supabase.from('ipos').insert(normalizedPayload).select('*').single()
@@ -74,8 +75,8 @@ export async function upsertIpoByIdentity(
         .eq('id', retryExisting.id)
         .select('*')
         .single()
-      return { error: error?.message ?? null, ipo: (data as Ipo) ?? null }
+      return { error: friendlyErrorOrNull(error), ipo: (data as Ipo) ?? null }
     }
   }
-  return { error: insertError.message, ipo: null }
+  return { error: friendlyError(insertError), ipo: null }
 }

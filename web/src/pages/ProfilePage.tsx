@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/friendlyError'
 import { useEffect, useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -101,7 +102,7 @@ export function ProfilePage() {
     })
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return false
     }
     await refreshProfile()

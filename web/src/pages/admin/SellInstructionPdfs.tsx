@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileIcon, ChevronDownIcon } from '@primer/octicons-react'
@@ -57,7 +58,7 @@ export function SellInstructionPdfsSection() {
   // distinct Error instance, not on every re-render while it persists.
   useEffect(() => {
     if (sellPdfsQuery.error) {
-      showToast(`Couldn't load sell-instruction PDFs: ${(sellPdfsQuery.error as Error).message}`, 'critical')
+      showToast(friendlyError(sellPdfsQuery.error, `Couldn't load sell-instruction PDFs.`), 'critical')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sellPdfsQuery.error])
@@ -88,7 +89,7 @@ export function SellInstructionPdfsSection() {
       .from(BUCKET)
       .upload(path, file, { upsert: true, contentType: file.type })
     if (upErr) {
-      showToast(`Upload failed: ${upErr.message}`, 'critical')
+      showToast(friendlyError(upErr, `Upload failed.`), 'critical')
       setBusy(null)
       return
     }
@@ -102,7 +103,7 @@ export function SellInstructionPdfsSection() {
       { onConflict: 'platform' },
     )
     if (rowErr) {
-      showToast(`Saved the file but couldn't record it: ${rowErr.message}`, 'critical')
+      showToast(friendlyError(rowErr, `Saved the file but couldn't record it.`), 'critical')
     } else {
       showToast(`${PLATFORM_LABELS[platform]} sell-instruction file updated.`, 'good')
     }
@@ -118,7 +119,7 @@ export function SellInstructionPdfsSection() {
     setBusy(platform)
     await supabase.storage.from(BUCKET).remove([row.storage_path])
     const { error } = await supabase.from('sell_instruction_pdfs').delete().eq('platform', platform)
-    if (error) showToast(`Couldn't remove: ${error.message}`, 'critical')
+    if (error) showToast(friendlyError(error, `Couldn't remove.`), 'critical')
     else showToast(`${PLATFORM_LABELS[platform]} sell-instruction file removed.`, 'good')
     setBusy(null)
     load()
@@ -129,7 +130,7 @@ export function SellInstructionPdfsSection() {
     if (!row) return
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(row.storage_path, 300)
     if (error || !data?.signedUrl) {
-      showToast(`Couldn't open: ${error?.message ?? 'no signed URL'}`, 'critical')
+      showToast(friendlyError(error, "Couldn't open that file."), 'critical')
       return
     }
     window.open(data.signedUrl, '_blank', 'noopener,noreferrer')

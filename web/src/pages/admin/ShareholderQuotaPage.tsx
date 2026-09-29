@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { memo, useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckIcon, PencilIcon, TrashIcon, XIcon } from '@primer/octicons-react'
@@ -214,7 +215,7 @@ export function ShareholderQuotaPage() {
     })
     setSavingCompany(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setNewName('')
@@ -407,7 +408,7 @@ const CompanyCard = memo(function CompanyCard({
       .eq('id', company.id)
     setSaving(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setEditing(false)
@@ -437,7 +438,7 @@ const CompanyCard = memo(function CompanyCard({
       return
     const { error } = await supabase.from('parent_companies').delete().eq('id', company.id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     onChanged()
@@ -671,7 +672,7 @@ function IpoLinksEditor({
     const { error } = await supabase.from('parent_companies').update({ watched_ipo_names: names }).eq('id', company.id)
     setSaving(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     onChanged()
@@ -707,7 +708,7 @@ function IpoLinksEditor({
   async function unlinkIpo(ipoId: string) {
     const { error } = await supabase.from('ipos').update({ parent_company_id: null }).eq('id', ipoId)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     onChanged()
@@ -724,7 +725,7 @@ function IpoLinksEditor({
     const { error: linkError } = await supabase.from('ipos').update({ parent_company_id: company.id }).eq('id', ipoId)
     if (linkError) {
       setSaving(false)
-      showToast(linkError.message, 'critical')
+      showToast(friendlyError(linkError), 'critical')
       return
     }
     const { error } = await supabase
@@ -733,7 +734,7 @@ function IpoLinksEditor({
       .eq('id', company.id)
     setSaving(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     onChanged()
@@ -845,7 +846,7 @@ const HoldingRow = memo(function HoldingRow({
       .eq('id', holding.id)
     setSubmitting(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setSelling(false)
@@ -861,7 +862,7 @@ const HoldingRow = memo(function HoldingRow({
       .eq('id', holding.id)
     setSubmitting(false)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     setEditingPrice(false)
@@ -872,7 +873,7 @@ const HoldingRow = memo(function HoldingRow({
     if (!(await confirmDialog(`Delete this holding for ${holderName}?`, { tone: 'critical', confirmLabel: 'Delete' }))) return
     const { error } = await supabase.from('parent_company_holdings').delete().eq('id', holding.id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(friendlyError(error), 'critical')
       return
     }
     onChanged()
@@ -1019,7 +1020,7 @@ function AddHoldingForm({
     })
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return
     }
     onDone()

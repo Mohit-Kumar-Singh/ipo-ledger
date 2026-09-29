@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PaperAirplaneIcon, ChevronDownIcon } from '@primer/octicons-react'
@@ -626,7 +627,7 @@ export function NotificationsPage() {
   const soldCards = notificationsQuery.data?.soldCards ?? []
   const myNotifications = notificationsQuery.data?.myNotifications ?? []
   const loading = notificationsQuery.isPending
-  const fundersError = notificationsQuery.error instanceof Error ? notificationsQuery.error.message : null
+  const fundersError = notificationsQuery.error ? friendlyError(notificationsQuery.error) : null
 
   function load() {
     queryClient.invalidateQueries({ queryKey: notificationsQueryKey })

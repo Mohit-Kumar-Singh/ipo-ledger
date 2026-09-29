@@ -1,3 +1,4 @@
+import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
@@ -438,7 +439,7 @@ export function DashboardPage() {
       // documents. Anything else is a genuine error and keeps the key for
       // a real retry.
       if (error.code !== '23505') {
-        showToast(error.message, 'critical')
+        showToast(friendlyError(error), 'critical')
         return
       }
     }

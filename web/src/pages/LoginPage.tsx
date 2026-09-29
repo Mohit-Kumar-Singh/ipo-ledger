@@ -1,3 +1,4 @@
+import { friendlyError } from '../lib/friendlyError'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -159,7 +160,7 @@ function EmailSignInForm() {
     setSubmitting(true)
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setSubmitting(false)
-    if (error) setError(error.message)
+    if (error) setError(friendlyError(error))
   }
 
   return (
@@ -226,7 +227,7 @@ function EmailRegisterForm() {
     })
     setSubmitting(false)
     if (error) {
-      setError(error.message)
+      setError(friendlyError(error))
       return
     }
     if (!data.session) {
