@@ -643,7 +643,7 @@ export function NotificationsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           Notifications
         </h1>
       </div>

@@ -408,7 +408,7 @@ export function AllotmentBoardPage() {
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-2">
-        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title flex items-center gap-1.5" style={{ color: 'var(--ink-primary)' }}>
           Allotment board
           <InfoTooltip text="Mark results one row at a time. Only IPOs whose allotment is already out are listed below." />
         </h1>
@@ -502,7 +502,7 @@ export function AllotmentBoardPage() {
         <AccountListSection count={sortedRows.length}>
         {rows.length > 0 && (
           <div className="relative mb-3">
-            <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+            <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 z-10 -translate-y-1/2" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}

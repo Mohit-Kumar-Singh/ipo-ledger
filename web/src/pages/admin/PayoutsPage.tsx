@@ -521,7 +521,7 @@ export function PayoutsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Payouts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -703,8 +703,8 @@ export function PayoutsPage() {
             tables, capital utilization, insights) dropped from this
             range-filtered view. Those numbers still exist in
             lib/payoutAnalytics.ts if a future ask brings them back. */}
-        <div className="card p-5">
-          <p className="text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+        <div className="card glass-tile p-5" data-tone={analytics.summary.totalProfit >= 0 ? 'good' : 'critical'}>
+          <p className="section-label">
             {range.label} · Total profit
           </p>
           <div className="mt-1 flex flex-wrap items-baseline gap-3">
@@ -712,7 +712,7 @@ export function PayoutsPage() {
                 loss is never the account holder's to share" fix) should
                 read as red, not the flat green this always used before. */}
             <p
-              className="font-mono-ipo text-4xl font-bold"
+              className="font-mono-ipo text-4xl font-bold tracking-tight"
               style={{ color: analytics.summary.totalProfit >= 0 ? 'var(--good)' : 'var(--critical)' }}
             >
               {rupees(animatedTotalProfit)}
@@ -742,7 +742,7 @@ export function PayoutsPage() {
                 <div
                   key={r.ipoId}
                   className="card p-3"
-                  style={isAllotted ? { borderColor: 'var(--good)', background: 'var(--hover-surface)' } : undefined}
+                  style={isAllotted ? { borderColor: 'color-mix(in srgb, var(--good) 45%, var(--glass-border))', background: 'color-mix(in srgb, var(--good) 9%, var(--glass-bg))' } : undefined}
                 >
                   <button
                     type="button"
@@ -908,7 +908,7 @@ export function PayoutsPage() {
 
       {rows.length > 0 && (
         <div className="relative">
-          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 z-10 -translate-y-1/2" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}

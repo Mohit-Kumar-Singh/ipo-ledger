@@ -85,7 +85,7 @@ export function HoldingsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           Open positions
         </h1>
         <p className="mt-1 text-sm" style={{ color: 'var(--ink-muted)' }}>

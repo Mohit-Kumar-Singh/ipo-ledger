@@ -92,7 +92,7 @@ export function PanAccessLogPage() {
   return (
     <div className="mx-auto max-w-md space-y-4 lg:max-w-2xl">
       <div>
-        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title flex items-center gap-1.5" style={{ color: 'var(--ink-primary)' }}>
           PAN access log
           <InfoTooltip text={`Every time a PAN is decrypted (Accounts/Allotment board "Reveal PAN"), it's logged here — who, whose PAN, and when. Grouped by day, most recent first.`} />
         </h1>

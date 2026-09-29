@@ -123,7 +123,7 @@ export function SharedAccountsPage() {
   if (loading) {
     return (
       <div className="space-y-5">
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           Shared accounts
         </h1>
         <InlineSpinner />
@@ -134,7 +134,7 @@ export function SharedAccountsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           Shared accounts
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>

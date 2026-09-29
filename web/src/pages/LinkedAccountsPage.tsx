@@ -89,7 +89,7 @@ export function LinkedAccountsPage() {
   return (
     <div className="mx-auto max-w-md space-y-4 lg:max-w-2xl">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           Linked accounts
         </h1>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>

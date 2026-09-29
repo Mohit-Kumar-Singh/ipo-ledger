@@ -218,7 +218,7 @@ export function AccountsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Demat accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -251,7 +251,7 @@ export function AccountsPage() {
 
       {accounts.length > 0 && (
         <div className="relative">
-          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 z-10 -translate-y-1/2" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}

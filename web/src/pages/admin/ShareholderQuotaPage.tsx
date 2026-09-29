@@ -236,7 +236,7 @@ export function ShareholderQuotaPage() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-1.5 text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title flex items-center gap-1.5" style={{ color: 'var(--ink-primary)' }}>
           Shareholder Quota
           <InfoTooltip text="Parent companies your accounts already hold shares in — pick one on an IPO's edit page to unlock its shareholder-quota eligibility." />
         </h1>
@@ -247,7 +247,7 @@ export function ShareholderQuotaPage() {
           onClick={() => setShowAddCompany((s) => !s)}
           aria-label={showAddCompany ? 'Cancel' : 'Add company'}
           title={showAddCompany ? 'Cancel' : 'Add company'}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+          className="icon-btn"
           style={{ color: 'var(--ink-secondary)' }}
         >
           {showAddCompany ? <X size={16} /> : <Plus size={16} />}

@@ -114,11 +114,11 @@ export function FunderPayoutsPage() {
     <div className="space-y-5">
       <div className="flex items-center gap-2">
         {isAdmin && (
-          <Link to="/payouts" aria-label="Back to Payouts" className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]" style={{ color: 'var(--ink-muted)' }}>
+          <Link to="/payouts" aria-label="Back to Payouts" className="icon-btn" style={{ color: 'var(--ink-muted)' }}>
             <ChevronLeftIcon size={16} />
           </Link>
         )}
-        <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
           {displayName}
         </h1>
       </div>

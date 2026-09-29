@@ -608,7 +608,7 @@ export function ApplicationsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Applications
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -631,7 +631,7 @@ export function ApplicationsPage() {
                   aria-label="Search applications"
                   aria-expanded={searchOpen}
                   title="Search"
-                  className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  className="icon-btn"
                   style={{ color: searchOpen ? 'var(--ink-primary)' : 'var(--ink-muted)' }}
                 >
                   <SearchIcon size={16} />
@@ -644,7 +644,7 @@ export function ApplicationsPage() {
                 onClick={() => openForm()}
                 aria-label="New application"
                 title="New application"
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                className="icon-btn"
                 style={{ color: 'var(--ink-secondary)' }}
               >
                 <Plus size={16} />
@@ -660,7 +660,7 @@ export function ApplicationsPage() {
                   onClick={() => setIpojiSyncOpen((v) => !v)}
                   aria-label={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
                   title={ipojiSyncOpen ? 'Close ipoji sync' : 'Sync from ipoji'}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  className="icon-btn"
                   style={{ color: 'var(--ink-secondary)' }}
                 >
                   {ipojiSyncOpen ? <X size={16} /> : <img src="/ipoji-logo.png" alt="ipoji" width={22} height={22} />}
@@ -680,7 +680,7 @@ export function ApplicationsPage() {
                   href="ipojisyncbot://run"
                   aria-label="Run local ipoji sync bot"
                   title="Run the local ipoji sync bot — only works on a machine set up for it, see scripts/ipoji-sync-bot/README.md"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                  className="icon-btn"
                   style={{ color: 'var(--ink-secondary)' }}
                 >
                   <Bot size={16} />
@@ -715,13 +715,13 @@ export function ApplicationsPage() {
 
       {!showForm && searchOpen && visibleApplications.length > 0 && (
         <div className="relative max-w-sm">
-          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+          <SearchIcon size={15} fill="var(--ink-muted)" className="pointer-events-none absolute top-1/2 left-3 z-10 -translate-y-1/2" />
           <input
             autoFocus
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search by holder, IPO, or funder…"
-            className="input pl-9"
+            className="input rounded-full pl-9"
           />
         </div>
       )}
@@ -860,8 +860,7 @@ export function ApplicationsPage() {
                   type="button"
                   onClick={() => toggleGroupCollapsed(ipoId)}
                   aria-expanded={!isCollapsed}
-                  className="flex min-w-0 items-center gap-1.5 text-sm font-semibold hover:underline"
-                  style={{ color: 'var(--ink-secondary)' }}
+                  className="section-label flex min-w-0 items-center gap-1.5 py-1"
                 >
                   <span className="shrink-0">{isCollapsed ? '▸' : '▾'}</span>
                   <span className="truncate">{firstIpoWord(ipoName)}</span>

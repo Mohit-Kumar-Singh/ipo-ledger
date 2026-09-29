@@ -206,7 +206,7 @@ export function BankAccountsPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Bank / UPI accounts
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>

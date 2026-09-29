@@ -101,6 +101,22 @@ must never reach a screen again.
   `if (isAdmin)` branches around a fetch as if that were the security
   boundary, and don't assume a UI element being hidden means the underlying
   action is blocked (write actions still need their own RLS check).
+- **iOS glass design system** (v1.238–1.241) — one material across the app:
+  frosted translucent surfaces, hairline edges, soft depth, iOS system colors
+  for tone (`--ios-blue/green/orange/red/purple/gray`), spring press
+  feedback. Use the shared classes instead of styling from scratch: `.card`
+  (glass panel), `.glass-card` + `.glass-tile` + `.glass-icon` (dashboard
+  tiles), `.icon-badge-<tone>` (gradient app-icon tile, white glyph),
+  `.icon-btn` (round glass header action), `.page-title` (iOS large title —
+  every page `<h1>`), `.section-label` (small-caps group header),
+  `.segmented`, `.input`, `.btn-primary/secondary/danger`, `.ios-alert`,
+  `.glass-tabbar`, `.ios-toast`. Numbers use `.font-mono-ipo`, which is now
+  system sans with tabular figures. Borders default to the `--separator`
+  hairline, so `divide-y` needs no color. A glass field/panel blurs whatever
+  is BEHIND it — an icon overlaid on an `.input` needs `z-10` or it gets
+  blurred away. Never fade a glass surface with ancestor `opacity` (Chrome
+  drops the blur mid-fade) — animate `transform` only. `prefers-reduced-
+  transparency` falls back to solid fills automatically.
 - **No UI component library** — hand-rolled Tailwind v4 classes (`.card`,
   `.btn-primary`, `.badge`, `.input`) plus CSS custom properties for
   light/dark theming (`--ink-primary`, `--accent`, `--border`, etc., see

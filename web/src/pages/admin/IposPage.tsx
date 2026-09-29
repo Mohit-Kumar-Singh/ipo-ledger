@@ -448,7 +448,7 @@ export function IposPage() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             IPOs
           </h1>
           <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
@@ -523,7 +523,7 @@ export function IposPage() {
               }}
               aria-label={showAddForm ? 'Cancel' : 'Add IPO'}
               title={showAddForm ? 'Cancel' : 'Add IPO'}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+              className="icon-btn"
               style={{ color: 'var(--ink-secondary)' }}
             >
               {showAddForm ? <X size={16} /> : <Plus size={16} />}

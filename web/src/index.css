@@ -69,7 +69,7 @@ body {
      `pointer: coarse` touch block below to 1.25rem, same as .card's own
      touch-only radius bump — .aura reads this same variable so it can
      never drift out of sync with whatever .card's radius actually is. */
-  --card-radius: 0.75rem;
+  --card-radius: 1.25rem;
 
   /* GitHub's actual light palette (Primer primitives) — every token below is
      kept under its ORIGINAL name so every existing page (which already
@@ -179,6 +179,19 @@ body {
   --ios-green: #34c759;
   --ios-orange: #ff9500;
   --ios-red: #ff3b30;
+  --ios-purple: #af52de;
+  --ios-gray: #8e8e93;
+  /* Cards on list/detail pages use a lighter blur than the dashboard's hero
+     glass — there can be dozens on one page. */
+  --card-blur: blur(16px) saturate(1.5);
+  /* iOS "fill" colors for inset controls: text fields, gray buttons, the
+     segmented-control track and its raised thumb. */
+  --field-bg: rgba(255, 255, 255, 0.72);
+  --field-border: rgba(60, 60, 67, 0.2);
+  --btn-glass-bg: rgba(120, 120, 128, 0.12);
+  --btn-glass-hover: rgba(120, 120, 128, 0.2);
+  --seg-thumb: #ffffff;
+  --separator: rgba(60, 60, 67, 0.16);
 
   /* Soft ambient tints behind the app so the glass has something to refract
      in light mode too (dark mode has its own, stronger set below). */
@@ -316,6 +329,14 @@ body {
   --ios-green: #30d158;
   --ios-orange: #ff9f0a;
   --ios-red: #ff453a;
+  --ios-purple: #bf5af2;
+  --ios-gray: #98989d;
+  --field-bg: rgba(255, 255, 255, 0.06);
+  --field-border: rgba(255, 255, 255, 0.14);
+  --btn-glass-bg: rgba(255, 255, 255, 0.1);
+  --btn-glass-hover: rgba(255, 255, 255, 0.17);
+  --seg-thumb: rgba(255, 255, 255, 0.18);
+  --separator: rgba(255, 255, 255, 0.1);
 
   /* Ambient background blobs behind the whole app (AppShell) — large,
      heavily blurred, slow-floating radial tints. Transparent in light mode
@@ -338,8 +359,13 @@ body {
    GMP figures, issue sizes, stage dates, dashboard stat tiles, chart
    legends. Everything else falls back to the body's own Inter. */
 .font-mono-ipo {
-  font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  /* Was IBM Plex Mono; now the system sans with tabular figures — iOS shows
+     numbers in its own UI face with fixed-width digits so columns still line
+     up, without the code-editor look. The class name stays so no call site
+     changes. */
+  font-family: inherit;
   font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
 table {
@@ -876,20 +902,41 @@ table {
 
 /* GitHub/Primer-style flat controls: 6px radius, 1px borders, no lift/glow
    on hover — just a subtle background/border darken, matching github.com. */
+/* Tailwind v4 borders default to currentColor, so every divide-y / border
+   without an explicit color drew a line in the TEXT color — near-white in
+   dark mode. iOS separators are hairlines: one quiet token for all of them.
+   (Elements that set their own border-color are unaffected.) */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--separator);
+  }
+}
+
 @layer components {
   .input {
-    @apply w-full rounded-md border px-3 py-2 text-sm outline-none;
-    border-color: var(--border-strong);
-    background: var(--surface);
+    @apply w-full border px-3.5 py-2.5 text-sm outline-none;
+    border-radius: 0.85rem;
+    border-color: var(--field-border);
+    background: var(--field-bg);
     color: var(--ink-primary);
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.06);
+    -webkit-backdrop-filter: blur(10px) saturate(1.4);
+    backdrop-filter: blur(10px) saturate(1.4);
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      background-color 0.15s ease;
   }
   .input::placeholder {
     color: var(--ink-muted);
   }
   .input:focus {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-tint);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent);
   }
 
   /* Squircle-ish radius (was rounded-md/6px — GitHub-flat) + a hand-tuned
@@ -899,60 +946,99 @@ table {
      see AppShell). slight overshoot on the way in reads as springy without
      a library; :active press-scale is the tactile "liquid" feedback iOS
      controls have that a color-only hover never gave these. */
-  .btn-primary {
-    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: var(--btn-primary-bg);
-    border-color: rgba(31, 35, 40, 0.15);
-    box-shadow: var(--shadow-sm);
-    transition: background-color 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* iOS-style buttons: filled controls get a soft top-lit gradient, a hairline
+     highlight and a tone-tinted shadow; the press is a spring scale-down.
+     Secondary is iOS's gray "fill" button. */
+  .btn-primary,
+  .btn-warning,
+  .btn-danger {
+    --btn-tone: var(--btn-primary-bg);
+    @apply border-0 px-3.5 py-2 text-sm font-semibold text-white disabled:opacity-50;
+    border-radius: 0.85rem;
+    letter-spacing: -0.01em;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--btn-tone) 84%, #fff), var(--btn-tone));
+    box-shadow:
+      0 1px 2px color-mix(in srgb, var(--btn-tone) 45%, transparent),
+      0 4px 10px color-mix(in srgb, var(--btn-tone) 22%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+    transition:
+      filter 0.15s ease,
+      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .btn-primary:hover:not(:disabled) {
-    background: var(--btn-primary-hover);
+  .btn-warning {
+    --btn-tone: var(--warning);
   }
-  .btn-primary:active:not(:disabled) {
+  .btn-danger {
+    --btn-tone: var(--critical);
+  }
+  .btn-primary:hover:not(:disabled),
+  .btn-warning:hover:not(:disabled),
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.06);
+  }
+  .btn-primary:active:not(:disabled),
+  .btn-warning:active:not(:disabled),
+  .btn-danger:active:not(:disabled) {
     transform: scale(0.96);
+    filter: brightness(0.95);
   }
 
   .btn-secondary {
-    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-medium disabled:opacity-50;
-    border-color: var(--border-strong);
+    @apply border-0 px-3.5 py-2 text-sm font-medium disabled:opacity-50;
+    border-radius: 0.85rem;
     color: var(--ink-primary);
-    background: var(--hover-surface);
-    transition: background-color 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background: var(--btn-glass-bg);
+    transition:
+      background-color 0.15s ease,
+      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .btn-secondary:hover:not(:disabled) {
-    background: var(--border);
+    background: var(--btn-glass-hover);
   }
   .btn-secondary:active:not(:disabled) {
     transform: scale(0.96);
   }
 
-  .btn-warning {
-    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: var(--warning);
-    border-color: rgba(0, 0, 0, 0.15);
-    box-shadow: var(--shadow-sm);
-    transition: filter 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Round glass icon button — the header actions (search / new / sync). */
+  .icon-btn {
+    display: flex;
+    height: 2.25rem;
+    width: 2.25rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    color: var(--ink-secondary);
+    background: var(--btn-glass-bg);
+    transition:
+      background-color 0.15s ease,
+      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .btn-warning:hover:not(:disabled) {
-    filter: brightness(0.92);
+  .icon-btn:hover {
+    background: var(--btn-glass-hover);
   }
-  .btn-warning:active:not(:disabled) {
-    transform: scale(0.96);
+  .icon-btn:active {
+    transform: scale(0.9);
   }
 
-  .btn-danger {
-    @apply rounded-[0.7rem] border px-3 py-2 text-sm font-semibold text-white disabled:opacity-50;
-    background: var(--critical);
-    border-color: rgba(0, 0, 0, 0.15);
-    box-shadow: var(--shadow-sm);
-    transition: filter 0.15s ease, transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* iOS large title + grouped-list section label. */
+  .page-title {
+    font-size: 1.75rem;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.03em;
   }
-  .btn-danger:hover:not(:disabled) {
-    filter: brightness(0.92);
+  @media (min-width: 640px) {
+    .page-title {
+      font-size: 2rem;
+    }
   }
-  .btn-danger:active:not(:disabled) {
-    transform: scale(0.96);
+  .section-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
   }
 
   .link-accent {
@@ -971,20 +1057,18 @@ table {
   .card {
     @apply border;
     border-radius: var(--card-radius);
-    border-color: var(--border-strong);
-    background: var(--surface);
-    /* Faint top highlight — a glass-edge cue even on the flat, unblurred
-       surface this still is in light mode / on desktop; barely visible
-       against a light background, reads as a soft rim in dark mode. Doesn't
-       compete with border-color since it's an inset shadow, not a border. */
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-    transition:
-      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
-      box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    border-color: var(--glass-border);
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: var(--card-blur);
+    backdrop-filter: var(--card-blur);
+    box-shadow: var(--glass-shadow);
+    transition: box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1);
   }
+  /* No lift on hover for plain cards (often big list containers — a whole
+     panel jumping up reads as a glitch); the shadow deepens instead. The
+     interactive tiles/rows (.tile-hover, .row-card) keep their lift. */
   .card:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    box-shadow: var(--glass-shadow-hover);
   }
 
   /* Good-news treatment for the allotted cards on Notifications — was a
@@ -998,9 +1082,11 @@ table {
   .allotted-card {
     @apply border;
     border-radius: var(--card-radius);
-    border-color: color-mix(in srgb, var(--good) 30%, var(--border-strong));
-    background: color-mix(in srgb, var(--good) 7%, var(--surface));
-    box-shadow: var(--shadow-sm);
+    border-color: color-mix(in srgb, var(--good) 35%, var(--glass-border));
+    background: color-mix(in srgb, var(--good) 9%, var(--glass-bg));
+    -webkit-backdrop-filter: var(--card-blur);
+    backdrop-filter: var(--card-blur);
+    box-shadow: var(--glass-shadow);
   }
 
   /* Depth-on-hover for the Dashboard stat tiles — lifts + deepens the
@@ -1148,39 +1234,43 @@ table {
 
   /* Colored rounded-square icon tile — the folder/stat-tile icon look */
   .icon-badge {
-    @apply flex shrink-0 items-center justify-center rounded-md;
+    --badge-tone: var(--ios-gray);
+    @apply flex shrink-0 items-center justify-center;
     width: 2.75rem;
     height: 2.75rem;
+    /* Percentage radius so the squircle scales with the tile's own size
+       (call sites set width/height inline from 1.5rem to 2.75rem). */
+    border-radius: 28%;
+    color: #fff;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--badge-tone) 76%, #fff), var(--badge-tone));
+    box-shadow:
+      0 1px 3px color-mix(in srgb, var(--badge-tone) 40%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
   }
   .icon-badge-info {
-    background: var(--accent-tint);
-    color: var(--accent);
+    --badge-tone: var(--ios-blue);
   }
   .icon-badge-good {
-    background: var(--good-tint);
-    color: var(--good);
+    --badge-tone: var(--ios-green);
   }
   .icon-badge-warning {
-    background: var(--warning-tint);
-    color: var(--warning);
+    --badge-tone: var(--ios-orange);
   }
   .icon-badge-critical {
-    background: var(--critical-tint);
-    color: var(--critical);
+    --badge-tone: var(--ios-red);
   }
   .icon-badge-violet {
-    background: var(--violet-tint);
-    color: var(--violet);
+    --badge-tone: var(--ios-purple);
   }
   .icon-badge-neutral {
-    background: var(--hover-surface);
-    color: var(--ink-secondary);
+    --badge-tone: var(--ios-gray);
   }
 
   /* Sidebar nav item — GitHub settings-sidebar style: flat selected bg, no
      gradient/glow, thin accent-colored left edge on the active item. */
   .sidebar-link {
-    @apply flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] font-medium;
+    @apply flex items-center gap-2.5 px-3 py-2 text-[13px] font-medium;
+    border-radius: 0.8rem;
     color: var(--header-fg-muted);
     transition: background-color 0.15s ease, color 0.15s ease;
   }
@@ -1189,7 +1279,10 @@ table {
     color: var(--header-fg);
   }
   .sidebar-link-active {
-    background: var(--accent-tint);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    box-shadow:
+      0 0 0 0.5px color-mix(in srgb, var(--accent) 30%, transparent),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
     color: var(--accent);
     font-weight: 600;
   }
@@ -1217,109 +1310,72 @@ table {
      filter) — active segment gets a solid light fill, inactive segments
      stay transparent. Used for e.g. the Applications sort-by control. */
   .segmented {
-    @apply inline-flex overflow-hidden rounded-full border p-0.5;
-    border-color: var(--border-strong);
-    background: var(--hover-surface);
+    @apply inline-flex overflow-hidden rounded-full p-0.5;
+    background: var(--btn-glass-bg);
   }
   .segmented-item {
-    @apply rounded-full px-3 py-1 text-xs font-medium transition-colors;
-    color: var(--ink-muted);
+    @apply rounded-full px-3.5 py-1.5 text-xs font-medium;
+    color: var(--ink-secondary);
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease;
   }
   .segmented-item-active {
-    background: var(--surface);
+    background: var(--seg-thumb);
     color: var(--ink-primary);
-    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+    box-shadow:
+      0 1px 3px rgba(0, 0, 0, 0.14),
+      0 0 0 0.5px rgba(0, 0, 0, 0.05);
+  }
+
+  /* iOS alert / action sheet (ConfirmDialogHost). */
+  .ios-alert {
+    background: var(--mat-chrome-bg);
+    background-image: var(--mat-sheen);
+    -webkit-backdrop-filter: var(--mat-blur);
+    backdrop-filter: var(--mat-blur);
+    border: 0.5px solid var(--mat-chrome-border);
+    box-shadow: var(--mat-chrome-shadow);
+    border-radius: 1.5rem;
   }
 }
 
-/* Touch-device control sizing — iOS-glass flavour. On phones/tablets the
-   GitHub-compact desktop controls read as either too small to tap or (once
-   given a 44px floor) too chunky and wrappy. This lands them in between:
-   ~40px tall, tighter padding, 13px text, and a softer pill radius so they
-   feel like iOS controls rather than dense web buttons. Gated on
-   `pointer: coarse`, so the desktop density is completely untouched. */
+/* Touch-device control sizing — ~40px tall tap targets and 13px text so the
+   compact desktop controls don't feel fiddly under a thumb. Gated on
+   `pointer: coarse`, so desktop density is untouched. (The glass surfaces,
+   fields and buttons themselves are the same on every device now — see
+   .card / .input / .btn-* above.) */
 @media (pointer: coarse) {
-  /* :root, not .card — .aura (IposPage's hot-GMP ring) wraps .card as its
-     PARENT, so it needs this variable redefined somewhere that's an
-     ancestor of both of them, not on .card itself (a custom property set
-     on a descendant never reaches a sibling/ancestor). */
-  :root {
-    --card-radius: 1.25rem;
-  }
   .btn-primary,
   .btn-secondary,
   .btn-warning,
   .btn-danger {
     min-height: 40px;
-    padding: 0.4rem 0.85rem;
+    padding: 0.4rem 0.9rem;
     font-size: 13px;
-    border-radius: 0.75rem;
   }
   .input,
   select.input {
     min-height: 40px;
-    border-radius: 0.7rem;
   }
-  /* Secondary buttons pick up the same translucent-glass material as the tab
-     bar — a frosted fill instead of the flat grey, matching the app's glass
-     surfaces on touch. */
-  .btn-secondary {
-    background: color-mix(in srgb, var(--hover-surface) 55%, transparent);
-    backdrop-filter: blur(10px) saturate(1.5);
-    -webkit-backdrop-filter: blur(10px) saturate(1.5);
-    border-color: var(--glass-border);
-  }
+}
 
-  /* Light-mode glass material, touch-only — light mode's --glass-* tokens
-     are a deliberate no-op on desktop (see :root's comment: falls back to a
-     flat, solid --surface card, same recipe .card already uses everywhere).
-     That's still true at any desktop width; this block only fires under
-     `pointer: coarse` (phones/tablets), so desktop light mode is completely
-     unaffected. Values chosen to sit on the light --page/--surface pair the
-     way the dark-theme glass tokens already sit on --page/#04060c: a soft
-     white translucency + light blur, not the dark theme's near-black glass. */
-  :root:not([data-theme='dark']) {
-    --glass-bg: rgba(255, 255, 255, 0.6);
-    --glass-border: rgba(255, 255, 255, 0.7);
-    --glass-blur: blur(18px) saturate(1.6);
-    --glass-shadow: 0 4px 16px rgba(31, 35, 40, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
-    --glass-shadow-hover: 0 10px 28px rgba(31, 35, 40, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
-    /* Same three ambient blobs the dark theme already floats behind the
-       shell (AppShell's .bg-blob divs) — transparent by default in light
-       mode (see :root above) so they render as nothing on desktop; these
-       touch-only values give phone/tablet light mode the same soft ambient
-       glow dark mode already has, at a much lower alpha so it stays quiet
-       behind white content. */
-    --blob-1: oklch(0.75 0.09 230 / 0.16);
-    --blob-2: oklch(0.8 0.1 155 / 0.14);
-    --blob-3: oklch(0.82 0.09 80 / 0.12);
-  }
-
-  /* Baseline .card (every list/detail page site-wide, not just Dashboard's
-     own .glass-card) picks up the same glass material + larger iOS-style
-     radius on touch, in both themes — dark mode already had real --glass-*
-     values; light mode gets them from the block above. Desktop keeps the
-     flat 6px .card untouched (this block is pointer:coarse-gated). */
-  .card {
-    border-radius: var(--card-radius);
-    background: var(--glass-bg);
-    border-color: var(--glass-border);
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--glass-shadow);
-  }
-  .card:hover {
-    box-shadow: var(--glass-shadow-hover);
-  }
-
-  /* Inputs get a light frosted fill on touch too, matching .btn-secondary
-     above — flat --surface still used on desktop. */
-  .input,
-  select.input {
-    background: color-mix(in srgb, var(--surface) 70%, transparent);
-    backdrop-filter: blur(8px) saturate(1.4);
-    -webkit-backdrop-filter: blur(8px) saturate(1.4);
-  }
+/* Tables (Allotment board, Archives, PAN log, sync preview): iOS list feel —
+   small-caps muted header, hairline row separators, soft row highlight. */
+table thead th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+table tbody tr {
+  transition: background-color 0.15s ease;
+}
+table tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 /* iOS "Reduce Transparency" / no backdrop-filter support: give every glass
@@ -1329,6 +1385,10 @@ table {
   .glass-tabbar,
   .glass-card,
   .row-card,
+  .card,
+  .allotted-card,
+  .input,
+  .ios-alert,
   .ios-toast {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -1339,7 +1399,9 @@ table {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-tabbar,
   .glass-card,
-  .row-card {
+  .row-card,
+  .card,
+  .ios-alert {
     background-color: var(--surface);
   }
 }

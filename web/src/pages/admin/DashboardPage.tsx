@@ -1016,7 +1016,7 @@ export function DashboardPage() {
     <div className="space-y-8">
       <div>
         <div className="flex items-center justify-between gap-2">
-          <h1 className="text-xl font-semibold tracking-tight" style={{ color: 'var(--ink-primary)' }}>
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Dashboard
           </h1>
           {/* Quick jumps — full IPO list, and (admin only, same gate the
@@ -1027,7 +1027,7 @@ export function DashboardPage() {
               to="/ipos"
               aria-label="Go to IPOs"
               title="Go to IPOs"
-              className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+              className="icon-btn"
               style={{ color: 'var(--ink-muted)' }}
             >
               <GraphIcon size={16} />
@@ -1037,7 +1037,7 @@ export function DashboardPage() {
                 to="/payouts"
                 aria-label="Go to Payouts"
                 title="Go to Payouts"
-                className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+                className="icon-btn"
                 style={{ color: 'var(--ink-muted)' }}
               >
                 <IndianRupee size={16} />
