@@ -25,8 +25,18 @@
 //     10x-in-a-day large, so this catches "guessed the wrong company's
 //     ticker" (a random unrelated stock price) without needing name
 //     verification it can't get.
+//
+// Both strategies accept a BSE-only listing (Yahoo exchange "BSE", ".BO")
+// when there's no NSE one — NSE Ltd's own IPO can't list on NSE, so it only
+// exists as NSE.BO. NSE is still preferred whenever both exist. The stored
+// symbol is the bare ticker either way; stockPrice.ts tries .NS then .BO.
+import { EXCHANGE_SUFFIXES, fetchChartQuote } from './stockPrice.ts'
+
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
+
+// Yahoo's exchange codes for NSE and BSE, in preference order.
+const YAHOO_EXCHANGES = ['NSI', 'BSE'] as const
 
 interface YahooQuote {
   symbol?: string
@@ -57,14 +67,17 @@ async function searchByName(companyName: string): Promise<string | null> {
   const quotes: YahooQuote[] = Array.isArray(data?.quotes) ? data.quotes : []
 
   const target = normalize(companyName)
-  const match = quotes.find(
-    (q) =>
-      q.exchange === 'NSI' &&
-      q.quoteType === 'EQUITY' &&
-      !!q.symbol &&
-      (normalize(q.longname ?? '') === target || normalize(q.shortname ?? '') === target),
-  )
-  return match?.symbol?.replace(/\.NS$/, '') ?? null
+  for (const exchange of YAHOO_EXCHANGES) {
+    const match = quotes.find(
+      (q) =>
+        q.exchange === exchange &&
+        q.quoteType === 'EQUITY' &&
+        !!q.symbol &&
+        (normalize(q.longname ?? '') === target || normalize(q.shortname ?? '') === target),
+    )
+    if (match?.symbol) return match.symbol.replace(/\.(NS|BO)$/, '')
+  }
+  return null
 }
 
 // Real listing-day pops/drops on a decent-GMP small-cap commonly run
@@ -75,20 +88,16 @@ const MIN_PLAUSIBLE_RATIO = 0.3
 const MAX_PLAUSIBLE_RATIO = 3
 
 async function tryTicker(ticker: string, priceHigh: number | null): Promise<string | null> {
-  const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}.NS`, {
-    headers: { 'User-Agent': USER_AGENT },
-  })
-  if (!res.ok) return null
-  const data = await res.json()
-  if (data?.chart?.error) return null
-  const meta = data?.chart?.result?.[0]?.meta
-  const price = meta?.regularMarketPrice
-  if (typeof price !== 'number' || meta?.exchangeName !== 'NSI') return null
-  if (priceHigh != null && priceHigh > 0) {
-    const ratio = price / priceHigh
-    if (ratio < MIN_PLAUSIBLE_RATIO || ratio > MAX_PLAUSIBLE_RATIO) return null
+  for (const [i, suffix] of EXCHANGE_SUFFIXES.entries()) {
+    const quote = await fetchChartQuote(`${ticker}${suffix}`).catch(() => null)
+    if (!quote || quote.exchangeName !== YAHOO_EXCHANGES[i]) continue
+    if (priceHigh != null && priceHigh > 0) {
+      const ratio = quote.price / priceHigh
+      if (ratio < MIN_PLAUSIBLE_RATIO || ratio > MAX_PLAUSIBLE_RATIO) continue
+    }
+    return ticker
   }
-  return ticker
+  return null
 }
 
 function tickerCandidates(companyName: string): string[] {
