@@ -101,11 +101,61 @@ export function BankAccountsPage() {
     })
   }
 
+  // How many applications still point at each of these accounts (as the
+  // funding account OR the manual funder override) — the database refuses to
+  // delete any account that's referenced (applications_bank_account_id_fkey /
+  // funder_override_id), so checking first lets the page explain why instead
+  // of surfacing the raw Postgres foreign-key error.
+  async function applicationCounts(ids: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>()
+    if (ids.length === 0) return counts
+    const list = ids.join(',')
+    const { data } = await supabase
+      .from('applications')
+      .select('bank_account_id, funder_override_id')
+      .or(`bank_account_id.in.(${list}),funder_override_id.in.(${list})`)
+    for (const row of data ?? []) {
+      for (const id of new Set([row.bank_account_id, row.funder_override_id])) {
+        if (id && ids.includes(id)) counts.set(id, (counts.get(id) ?? 0) + 1)
+      }
+    }
+    return counts
+  }
+
+  // Two accounts saved with the same UPI ID are almost always an accidental
+  // duplicate — only one of them usually has the applications attached, and
+  // it's the OTHER (unused) one that should be deleted.
+  function sameUpiSiblings(b: BankAccount): BankAccount[] {
+    const key = b.upi_id?.trim().toLowerCase()
+    if (!key) return []
+    return banks.filter((o) => o.id !== b.id && o.upi_id?.trim().toLowerCase() === key)
+  }
+
   async function deleteBank(id: string) {
+    const bank = banks.find((b) => b.id === id)
+    const siblings = bank ? sameUpiSiblings(bank) : []
+    const counts = await applicationCounts([id, ...siblings.map((s) => s.id)])
+    const inUse = counts.get(id) ?? 0
+    if (inUse > 0) {
+      const unusedDuplicates = siblings.filter((s) => !counts.get(s.id))
+      showToast(
+        `Can't remove ${bank?.account_holder_name ?? 'this account'} — ${inUse} application${inUse === 1 ? '' : 's'} still use it.` +
+          (unusedDuplicates.length > 0
+            ? ` It has a duplicate with the same UPI and no applications (${unusedDuplicates
+                .map((d) => d.account_holder_name ?? 'unnamed')
+                .join(', ')}) — delete that one instead.`
+            : ' Re-point those applications to another account first.'),
+        'critical',
+      )
+      return
+    }
     if (!(await confirmDialog('Remove this bank/UPI account?', { tone: 'critical', confirmLabel: 'Remove' }))) return
     const { error } = await supabase.from('bank_accounts').delete().eq('id', id)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(
+        error.code === '23503' ? "Can't remove this account — applications or requests still reference it." : error.message,
+        'critical',
+      )
       return
     }
     load()
@@ -126,10 +176,25 @@ export function BankAccountsPage() {
 
   async function bulkDelete() {
     if (selected.size === 0) return
+    const ids = Array.from(selected)
+    const counts = await applicationCounts(ids)
+    const blocked = banks.filter((b) => selected.has(b.id) && (counts.get(b.id) ?? 0) > 0)
+    if (blocked.length > 0) {
+      showToast(
+        `Can't remove ${blocked
+          .map((b) => `${b.account_holder_name ?? 'unnamed'} (${counts.get(b.id)} application${counts.get(b.id) === 1 ? '' : 's'})`)
+          .join(', ')} — still in use. Deselect ${blocked.length === 1 ? 'it' : 'them'} and try again; nothing was removed.`,
+        'critical',
+      )
+      return
+    }
     if (!(await confirmDialog(`Remove ${selected.size} bank/UPI account(s)?`, { tone: 'critical', confirmLabel: 'Remove' }))) return
-    const { error } = await supabase.from('bank_accounts').delete().in('id', Array.from(selected))
+    const { error } = await supabase.from('bank_accounts').delete().in('id', ids)
     if (error) {
-      showToast(error.message, 'critical')
+      showToast(
+        error.code === '23503' ? "Can't remove one or more of these — applications or requests still reference them." : error.message,
+        'critical',
+      )
       return
     }
     setSelected(new Set())
@@ -248,6 +313,14 @@ export function BankAccountsPage() {
                 {b.bank_name && <span style={{ color: 'var(--ink-muted)' }}>{b.bank_name}</span>}
                 {b.phone_e164 && <span style={{ color: 'var(--ink-muted)' }}>{b.phone_e164}</span>}
                 {b.is_default && <span className="badge badge-info">default</span>}
+                {sameUpiSiblings(b).length > 0 && (
+                  <span
+                    className="badge badge-warning"
+                    title="Another account has this same UPI ID — likely a duplicate. Delete the one with no applications."
+                  >
+                    duplicate UPI
+                  </span>
+                )}
                 {isAdmin && b.linked_user_id && (
                   <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--good)' }}>
                     <LinkIcon size={12} />
@@ -353,6 +426,8 @@ function BankForm({
   }
 
   const phoneValid = /^[0-9]{10}$/.test(phoneDigits)
+  // Same shared cache the page itself reads — no extra request.
+  const allBanks = useBankAccounts().data ?? []
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -360,6 +435,25 @@ function BankForm({
 
     if (!phoneValid) {
       setError('Phone number is required and must be exactly 10 digits.')
+      return
+    }
+
+    // A second account with the same UPI ID is almost always an accidental
+    // duplicate (the real case: one funder saved twice, applications on only
+    // one of them, then the unused copy couldn't be told apart) — confirm
+    // instead of silently creating it. Still allowed: one UPI can
+    // legitimately be shared, e.g. saved under two holder names.
+    const upiKey = upi.trim().toLowerCase()
+    const duplicate = upiKey
+      ? allBanks.find((b) => b.id !== existing?.id && b.upi_id?.trim().toLowerCase() === upiKey)
+      : undefined
+    if (
+      duplicate &&
+      !(await confirmDialog(
+        `${duplicate.account_holder_name ?? 'Another account'} already uses the UPI ID ${upi.trim()}. Save this as a second account anyway?`,
+        { tone: 'critical', confirmLabel: 'Save anyway' },
+      ))
+    ) {
       return
     }
 

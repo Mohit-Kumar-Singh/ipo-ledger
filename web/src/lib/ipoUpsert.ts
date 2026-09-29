@@ -8,6 +8,7 @@
 // code decides "is this candidate an IPO we already have."
 import { supabase } from './supabase'
 import { findExistingIpoMatch, type ExistingIpoRef } from './ipoIdentity'
+import { withoutEmptyEnrichment } from './ipoUpdatePayload'
 import type { Ipo } from '../types/database'
 
 export interface IpoUpsertPayload extends Record<string, unknown> {
@@ -52,7 +53,7 @@ export async function upsertIpoByIdentity(
 
   const existing = await findExisting(slug, company_name)
   if (existing) {
-    const { data, error } = await supabase.from('ipos').update(normalizedPayload).eq('id', existing.id).select('*').single()
+    const { data, error } = await supabase.from('ipos').update(withoutEmptyEnrichment(normalizedPayload)).eq('id', existing.id).select('*').single()
     return { error: error?.message ?? null, ipo: (data as Ipo) ?? null }
   }
 
@@ -69,7 +70,7 @@ export async function upsertIpoByIdentity(
     if (retryExisting) {
       const { data, error } = await supabase
         .from('ipos')
-        .update(normalizedPayload)
+        .update(withoutEmptyEnrichment(normalizedPayload))
         .eq('id', retryExisting.id)
         .select('*')
         .single()

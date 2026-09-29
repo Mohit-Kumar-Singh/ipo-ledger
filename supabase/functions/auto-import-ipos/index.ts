@@ -40,17 +40,32 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET')!
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
 
-// 7% floor — matches web/src/pages/admin/IposPage.tsx's MIN_SYNC_GMP_PERCENT
-// (the manual quick-sync/import-panel path). Missing/unparseable GMP text is
-// left eligible; this only excludes a GMP ipoji has actually published as
-// low, not one it hasn't reported yet.
-const MIN_SYNC_GMP_PERCENT = 7
+// 10% floor — matches web/src/pages/admin/IposPage.tsx's MIN_SYNC_GMP_PERCENT
+// (the manual quick-sync/import-panel path), which was raised from 7% to 10%
+// while this copy stayed at 7% — so the cron kept auto-importing IPOs the
+// manual paths deliberately exclude. Keep the two in sync. Missing/unparseable
+// GMP text is left eligible; this only excludes a GMP ipoji has actually
+// published as low, not one it hasn't reported yet.
+const MIN_SYNC_GMP_PERCENT = 10
 
 function isEligible(c: Candidate): boolean {
   if (c.open_date == null || c.close_date == null || c.lot_size == null) return false
   const gmpPercent = parseGmpPercent(c.gmp)
   if (gmpPercent != null && gmpPercent < MIN_SYNC_GMP_PERCENT) return false
   return true
+}
+
+// Ported from web/src/lib/ipoUpdatePayload.ts (see its comment): fields ipoji
+// only sometimes reports must not be overwritten with blanks on an UPDATE —
+// a failed detail fetch above leaves them null/'OTHER', which is right for a
+// brand-new row but would wipe a known listing date / registrar every 4h.
+function withoutEmptyEnrichment<T extends Record<string, unknown>>(payload: T): Partial<T> {
+  const out: Record<string, unknown> = { ...payload }
+  for (const key of ['allotment_date', 'listing_date', 'issue_size', 'retail_issue_size', 'retail_subscription_rate']) {
+    if (out[key] == null || out[key] === '') delete out[key]
+  }
+  if (out.registrar === 'OTHER') delete out.registrar
+  return out as Partial<T>
 }
 
 // Collapses stray whitespace ipoji's markup can introduce — e.g. a trailing
@@ -156,7 +171,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   const existing = await findExisting(ipoji_slug, company_name)
 
   if (existing) {
-    const { error } = await admin.from('ipos').update(payload).eq('id', existing.id)
+    const { error } = await admin.from('ipos').update(withoutEmptyEnrichment(payload)).eq('id', existing.id)
     return error ? 'failed' : 'saved'
   }
 
@@ -170,7 +185,7 @@ async function upsertCandidate(c: Candidate): Promise<'saved' | 'failed'> {
   if (insertError.code === '23505') {
     const retryExisting = await findExisting(ipoji_slug, company_name)
     if (retryExisting) {
-      const { error } = await admin.from('ipos').update(payload).eq('id', retryExisting.id)
+      const { error } = await admin.from('ipos').update(withoutEmptyEnrichment(payload)).eq('id', retryExisting.id)
       return error ? 'failed' : 'saved'
     }
   }
