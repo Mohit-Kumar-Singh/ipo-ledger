@@ -1,43 +1,53 @@
-import { useEffect, useState } from 'react'
-import { XIcon } from '@primer/octicons-react'
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { AlertIcon, CheckIcon, InfoIcon, XIcon } from '@primer/octicons-react'
 import { supabase } from '../lib/supabase'
-import { onToast } from '../lib/toast'
+import { onToast, type ToastTone } from '../lib/toast'
 import { useAuth } from '../contexts/AuthContext'
 import { renderMessageBody } from '../lib/notificationTemplates'
-import { Panel } from './Panel'
 import type { Notification } from '../types/database'
-
-// Same tone names Primer's <Label variant> used — kept as the vocabulary
-// this file already speaks, mapped onto this app's own .badge-* classes
-// instead of importing @primer/react for one small pill.
-type LabelVariant = 'accent' | 'attention' | 'success' | 'danger' | 'secondary'
-const LABEL_BADGE_CLASS: Record<LabelVariant, string> = {
-  accent: 'badge-info',
-  attention: 'badge-warning',
-  success: 'badge-good',
-  danger: 'badge-critical',
-  secondary: 'badge-neutral',
-}
 
 interface RenderedToast {
   id: string
-  labelVariant: LabelVariant
+  tone: ToastTone
+  // Small caps line above the heading (what kind of event this is) — only
+  // used when there's a separate `title`, e.g. "WhatsApp sent" over "To +91…".
   labelText: string
   title?: string
   message: string
+  ttlMs: number
 }
 
+const TONE_ICON: Record<ToastTone, typeof CheckIcon> = {
+  info: InfoIcon,
+  good: CheckIcon,
+  warning: AlertIcon,
+  critical: XIcon,
+}
+
+// Heading for a plain showToast() message — worded for a person, not a log
+// (see lib/friendlyError.ts): "Couldn't do that", not "Error".
+const TONE_LABEL: Record<ToastTone, string> = {
+  info: 'Note',
+  warning: 'Heads up',
+  good: 'Done',
+  critical: "Couldn't do that",
+}
+
+// Failures stay a little longer — they carry something to read and act on.
+const DEFAULT_TTL_MS = 5000
+const CRITICAL_TTL_MS = 7500
+
 function notificationToast(n: Notification): RenderedToast {
-  const meta =
+  const meta: { label: string; tone: ToastTone } =
     n.status === 'SIMULATED'
-      ? ({ label: 'Simulated WhatsApp (no Meta setup yet)', variant: 'attention' } as const)
+      ? { label: 'Simulated WhatsApp (no Meta setup yet)', tone: 'warning' }
       : n.status === 'FAILED'
-        ? ({ label: 'WhatsApp send failed', variant: 'danger' } as const)
-        : ({ label: 'WhatsApp sent', variant: 'success' } as const)
+        ? { label: 'WhatsApp send failed', tone: 'critical' }
+        : { label: 'WhatsApp sent', tone: 'good' }
   const params = (n.variables as { params?: string[] } | null)?.params ?? []
   return {
     id: `${n.id}-${n.status}-${Date.now()}`,
-    labelVariant: meta.variant,
+    tone: meta.tone,
     labelText: meta.label,
     title: `To ${n.to_phone}`,
     // Was a separately hand-maintained TEMPLATE_PREVIEWS dict duplicating
@@ -47,20 +57,143 @@ function notificationToast(n: Notification): RenderedToast {
     // line added to renderMessageBody. Calling the real function means this
     // preview can't drift from what's actually sent again.
     message: renderMessageBody(n.template_name, params),
+    ttlMs: meta.tone === 'critical' ? CRITICAL_TTL_MS : DEFAULT_TTL_MS,
   }
 }
 
-const toneMeta: Record<string, { variant: LabelVariant; label: string }> = {
-  info: { variant: 'accent', label: 'Note' },
-  warning: { variant: 'attention', label: 'Heads up' },
-  good: { variant: 'success', label: 'Done' },
-  critical: { variant: 'danger', label: "Couldn't do that" },
+// One iOS-style notification banner. Tap it, press Esc/Enter, or swipe it up to
+// dismiss; it stays on screen while a finger or the mouse is on it and picks
+// its countdown back up afterwards, like a real banner.
+function ToastCard({
+  toast,
+  leaving,
+  onDismiss,
+}: {
+  toast: RenderedToast
+  leaving: boolean
+  onDismiss: (id: string) => void
+}) {
+  const Icon = TONE_ICON[toast.tone]
+  const [dragY, setDragY] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const [hovered, setHovered] = useState(false)
+  const startY = useRef<number | null>(null)
+  const remainingMs = useRef(toast.ttlMs)
+  const paused = dragging || hovered
+
+  useEffect(() => {
+    if (paused || leaving) return
+    const startedAt = Date.now()
+    const timer = setTimeout(() => onDismiss(toast.id), remainingMs.current)
+    return () => {
+      clearTimeout(timer)
+      // Left early (hover/press): keep whatever time was left, but never less
+      // than 1.5s so it doesn't vanish the instant the finger lifts.
+      remainingMs.current = Math.max(1500, remainingMs.current - (Date.now() - startedAt))
+    }
+  }, [paused, leaving, onDismiss, toast.id])
+
+  function onPointerDown(e: PointerEvent<HTMLDivElement>) {
+    startY.current = e.clientY
+    setDragging(true)
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId)
+    } catch {
+      // capture is a nicety (keeps the drag tracking off-element), not required
+    }
+  }
+
+  function onPointerMove(e: PointerEvent<HTMLDivElement>) {
+    if (startY.current == null) return
+    const dy = e.clientY - startY.current
+    // Free upward, rubber-banded downward — same resistance iOS gives a
+    // banner you try to pull the wrong way.
+    setDragY(dy < 0 ? dy : dy * 0.12)
+  }
+
+  function endDrag(dismissAllowed: boolean) {
+    const dy = dragY
+    startY.current = null
+    setDragging(false)
+    // A small movement is a tap; a decent upward flick is a swipe. Both dismiss.
+    if (dismissAllowed && (Math.abs(dy) < 6 || dy < -36)) onDismiss(toast.id)
+    else setDragY(0)
+  }
+
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onDismiss(toast.id)
+    }
+  }
+
+  return (
+    <div
+      className={`pointer-events-auto w-full max-w-[26rem] ${leaving ? 'animate-ios-toast-out' : 'animate-ios-toast-in'}`}
+    >
+      <div
+        role={toast.tone === 'critical' ? 'alert' : 'status'}
+        tabIndex={0}
+        aria-label={`${toast.title ?? toast.labelText}. ${toast.message} Press Enter to dismiss.`}
+        data-tone={toast.tone}
+        className="ios-toast"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={() => endDrag(true)}
+        onPointerCancel={() => endDrag(false)}
+        onPointerEnter={(e) => e.pointerType === 'mouse' && setHovered(true)}
+        onPointerLeave={(e) => e.pointerType === 'mouse' && setHovered(false)}
+        onKeyDown={onKeyDown}
+        style={{
+          transform: `translateY(${dragY}px)`,
+          opacity: dragY < 0 ? Math.max(0.35, 1 + dragY / 220) : 1,
+          transition: dragging ? 'none' : 'transform 0.28s cubic-bezier(0.2, 0.9, 0.3, 1), opacity 0.28s ease',
+        }}
+      >
+        <div className="flex items-start gap-3 px-3.5 pt-3 pb-2">
+          <span className="ios-toast-icon" aria-hidden="true">
+            <Icon size={18} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-2">
+              {toast.title ? (
+                <span
+                  className="truncate text-[11px] font-semibold tracking-wide uppercase"
+                  style={{ color: 'var(--toast-body)' }}
+                >
+                  {toast.labelText}
+                </span>
+              ) : (
+                <span className="truncate text-[15px] font-semibold" style={{ color: 'var(--toast-title)' }}>
+                  {toast.labelText}
+                </span>
+              )}
+              <span className="shrink-0 text-xs" style={{ color: 'var(--toast-body)', opacity: 0.75 }}>
+                now
+              </span>
+            </div>
+            {toast.title && (
+              <p className="mt-0.5 truncate text-[15px] font-semibold" style={{ color: 'var(--toast-title)' }}>
+                {toast.title}
+              </p>
+            )}
+            <p className="mt-0.5 text-[14px] leading-snug whitespace-pre-line" style={{ color: 'var(--toast-body)' }}>
+              {toast.message}
+            </p>
+          </div>
+        </div>
+        <div className="flex justify-center pb-1.5">
+          <span className="ios-toast-grabber" />
+        </div>
+      </div>
+    </div>
+  )
 }
 
-/** Pops up a card for (a) notifications actually dispatched (SENT, SIMULATED
- *  or FAILED — not merely QUEUED, since sending is a separate explicit
- *  action) and (b) any one-off app toast fired via lib/toast's showToast()
- *  (e.g. a low-GMP warning when adding an IPO). RLS scopes which
+/** Pops up an iOS-style glass banner for (a) notifications actually dispatched
+ *  (SENT, SIMULATED or FAILED — not merely QUEUED, since sending is a separate
+ *  explicit action) and (b) any one-off app toast fired via lib/toast's
+ *  showToast() (e.g. a low-GMP warning when adding an IPO). RLS scopes which
  *  notification rows each viewer receives here. */
 export function ToastHost() {
   const { profile } = useAuth()
@@ -69,9 +202,10 @@ export function ToastHost() {
   const [leavingIds, setLeavingIds] = useState<Set<string>>(new Set())
 
   // Plays the exit animation before actually removing the toast, instead of
-  // snapping it out of the list instantly.
-  function removeToast(id: string) {
-    setLeavingIds((s) => new Set(s).add(id))
+  // snapping it out of the list instantly. Stable identity (only setters) so
+  // each card's countdown effect doesn't restart on every host render.
+  const removeToast = useCallback((id: string) => {
+    setLeavingIds((s) => (s.has(id) ? s : new Set(s).add(id)))
     setTimeout(() => {
       setToasts((t) => t.filter((x) => x.id !== id))
       setLeavingIds((s) => {
@@ -79,12 +213,11 @@ export function ToastHost() {
         next.delete(id)
         return next
       })
-    }, 200)
-  }
+    }, 240)
+  }, [])
 
-  function pushToast(toast: RenderedToast, ttlMs: number) {
+  function pushToast(toast: RenderedToast) {
     setToasts((t) => [...t, toast])
-    setTimeout(() => removeToast(toast.id), ttlMs)
   }
 
   // A new demat/bank link request used to get a permanent "pending link
@@ -99,15 +232,13 @@ export function ToastHost() {
       const { data, error } = await supabase.rpc('resolve_profile_names', { p_ids: [memberId] })
       if (error) console.error('announceLinkRequest: resolve_profile_names failed', error)
       const name = (data as { id: string; full_name: string }[] | null)?.[0]?.full_name ?? 'Someone'
-      pushToast(
-        {
-          id: `link-request-${kind}-${memberId}-${Date.now()}`,
-          labelVariant: 'accent',
-          labelText: 'New link request',
-          message: `${name} requested to link a ${kind === 'demat' ? 'demat' : 'bank/UPI'} account — review on your Profile.`,
-        },
-        5000,
-      )
+      pushToast({
+        id: `link-request-${kind}-${memberId}-${Date.now()}`,
+        tone: 'info',
+        labelText: 'New link request',
+        message: `${name} requested to link a ${kind === 'demat' ? 'demat' : 'bank/UPI'} account — review on your Profile.`,
+        ttlMs: DEFAULT_TTL_MS,
+      })
     }
 
     const linkChannel = supabase
@@ -127,7 +258,7 @@ export function ToastHost() {
   useEffect(() => {
     function pushNotification(notification: Notification) {
       if (notification.status === 'QUEUED') return
-      pushToast(notificationToast(notification), 5000)
+      pushToast(notificationToast(notification))
     }
 
     const channel = supabase
@@ -155,15 +286,13 @@ export function ToastHost() {
       .subscribe()
 
     const unsubscribeToasts = onToast((toast) => {
-      const meta = toneMeta[toast.tone] ?? toneMeta.info
-      const rendered: RenderedToast = {
+      pushToast({
         id: toast.id,
-        labelVariant: meta.variant,
-        labelText: meta.label,
+        tone: toast.tone,
+        labelText: TONE_LABEL[toast.tone],
         message: toast.message,
-      }
-      setToasts((t) => [...t, rendered])
-      setTimeout(() => removeToast(rendered.id), 5000)
+        ttlMs: toast.tone === 'critical' ? CRITICAL_TTL_MS : DEFAULT_TTL_MS,
+      })
     })
 
     return () => {
@@ -172,50 +301,20 @@ export function ToastHost() {
     }
   }, [])
 
-  function dismiss(id: string) {
-    removeToast(id)
-  }
-
   if (toasts.length === 0) return null
 
   return (
-    // .safe-top adds env(safe-area-inset-top) (mobile: floored at 0.75rem
-    // even with no real notch — see its own comment in index.css) ON TOP of
-    // the existing top-4 offset, so a toast on phone actually clears the
-    // status bar's clock/battery icons instead of sitting right under them.
-    // Was a bare `fixed top-4` with no safe-area handling at all — fine on
-    // desktop (no status bar to collide with), but AppShell's own header/
-    // main already needed this exact fix for the same reason.
-    <div className="safe-top fixed top-4 right-4 z-50 flex w-full max-w-sm flex-col gap-2">
+    // Top-center like iOS. .safe-top adds env(safe-area-inset-top) (mobile:
+    // floored at 0.75rem even with no real notch — see its own comment in
+    // index.css) so a banner on a phone clears the status bar / Dynamic
+    // Island instead of sitting under it. pointer-events-none on the strip
+    // so it never blocks taps on the page beside/between banners.
+    <div
+      className="safe-top pointer-events-none fixed inset-x-0 top-1 z-50 flex flex-col items-center gap-2 px-3"
+      aria-live="polite"
+    >
       {toasts.map((t) => (
-        <Panel
-          key={t.id}
-          className={`p-4 ${leavingIds.has(t.id) ? 'animate-toast-out' : 'animate-toast-in'}`}
-          // Was var(--shadow-floating-large) — same never-defined-token bug
-          // AppShell's own aside shadow had, silently rendering no shadow at all.
-          style={{ boxShadow: 'var(--shadow-lg)' }}
-        >
-          <div className="flex items-start justify-between gap-2">
-            <span className={`badge ${LABEL_BADGE_CLASS[t.labelVariant]}`}>{t.labelText}</span>
-            <button
-              type="button"
-              onClick={() => dismiss(t.id)}
-              aria-label="Dismiss"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              <XIcon size={14} />
-            </button>
-          </div>
-          {t.title && (
-            <p className="mt-2 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
-              {t.title}
-            </p>
-          )}
-          <p className="mt-1 text-sm" style={{ color: 'var(--ink-primary)' }}>
-            {t.message}
-          </p>
-        </Panel>
+        <ToastCard key={t.id} toast={t} leaving={leavingIds.has(t.id)} onDismiss={removeToast} />
       ))}
     </div>
   )
