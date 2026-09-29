@@ -10,7 +10,6 @@ import {
   GraphIcon,
   LinkIcon,
 } from '@primer/octicons-react'
-import { IndianRupee } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchIpos, fetchDematAccounts, fetchAllotmentBoardAll, queryKeys } from '../../lib/queries'
@@ -1019,9 +1018,8 @@ export function DashboardPage() {
           <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Dashboard
           </h1>
-          {/* Quick jumps — full IPO list, and (admin only, same gate the
-              sidebar nav uses) Payouts, which used to sit as its own icon on
-              the Allotment board before moving here per feedback. */}
+          {/* Quick jump to the full IPO list. (Payouts used to have a shortcut
+              here too; it's a bottom-bar tab now, so the button was dropped.) */}
           <div className="flex items-center gap-1">
             <Link
               to="/ipos"
@@ -1032,17 +1030,6 @@ export function DashboardPage() {
             >
               <GraphIcon size={16} />
             </Link>
-            {isAdmin && (
-              <Link
-                to="/payouts"
-                aria-label="Go to Payouts"
-                title="Go to Payouts"
-                className="icon-btn"
-                style={{ color: 'var(--ink-muted)' }}
-              >
-                <IndianRupee size={16} />
-              </Link>
-            )}
           </div>
         </div>
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>

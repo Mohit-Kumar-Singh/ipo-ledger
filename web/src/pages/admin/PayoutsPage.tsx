@@ -35,7 +35,6 @@ import { markSideSettled, logSettlementPayment, type SettleSide } from '../../li
 import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { SegmentedControl } from '../../components/SegmentedControl'
-import { useCountUp } from '../../lib/useCountUp'
 import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
 import { formatShortDate } from '../../lib/formatDate'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
@@ -415,12 +414,10 @@ export function PayoutsPage() {
       ),
     [allRows, boardQuery.data, payments, range, profitPersonName, case2ManagerIds, livePriceBySymbol, listingCutoff],
   )
-  // Counts up from 0 on mount/change instead of snapping straight to the
-  // number — useCountUp itself no-ops (renders the real value immediately)
-  // while analytics is still the empty-array default, so there's nothing to
-  // animate FROM until real data exists — the loading skeleton below covers
-  // that gap instead.
-  const animatedTotalProfit = useCountUp(analytics.summary.totalProfit)
+  // Deliberately NOT animated (no count-up): the total used to climb from 0
+  // to its value on every open and again whenever a second data load moved
+  // it, which read as old/wrong numbers settling. The skeleton covers loading;
+  // once data is shown, the figure is the real one.
 
   // A funder-only viewer gets the same detail page an admin drills into
   // from the Funders list below — v_allotment_board/the ALLOTTED-with-embeds
@@ -715,7 +712,7 @@ export function PayoutsPage() {
               className="font-mono-ipo text-4xl font-bold tracking-tight"
               style={{ color: analytics.summary.totalProfit >= 0 ? 'var(--good)' : 'var(--critical)' }}
             >
-              {rupees(animatedTotalProfit)}
+              {rupees(analytics.summary.totalProfit)}
             </p>
             <span className={`badge ${analytics.summary.roi >= 0 ? 'badge-good' : 'badge-critical'}`}>
               {analytics.summary.roi.toFixed(2)}% ROI

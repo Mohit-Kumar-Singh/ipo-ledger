@@ -4,7 +4,7 @@
 // page), so this is one hook instead of two independently-maintained copies
 // that could silently drift apart on the math.
 import { friendlyError } from './friendlyError'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from './supabase'
 import { useAllotmentBoardAll, queryKeys } from './queries'
@@ -37,7 +37,10 @@ export function usePayoutsData() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const queryClient = useQueryClient()
-  const boardQuery = useAllotmentBoardAll()
+  const boardQuery = useAllotmentBoardAll({ alwaysRefetchOnMount: true })
+  // When this page opened. Cached data older than this is from an EARLIER
+  // visit and must not be shown as if it were current — see `loading` below.
+  const openedAt = useRef(Date.now())
   // NOT filtered by ipo_is_archived — archiving is a housekeeping action
   // for the active-tracking pages (Dashboard, Applications, Allotment
   // board), never a "this money never happened" action. A SOLD application
@@ -49,6 +52,9 @@ export function usePayoutsData() {
 
   const localPayoutsQuery = useQuery<LocalPayoutsData>({
     queryKey: queryKeys.payoutsLocal,
+    // Every open of a payout page refetches, even inside the app-wide 60s
+    // staleTime — this is a money ledger, not a list that's fine a minute old.
+    refetchOnMount: 'always',
     queryFn: async () => {
       const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
         supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
@@ -143,7 +149,19 @@ export function usePayoutsData() {
   const allRows = localPayoutsQuery.data?.allRows ?? EMPTY_PROJECTION_ROWS
   const case2ManagerIds = localPayoutsQuery.data?.case2ManagerIds ?? EMPTY_CASE2_IDS
   const profileNamesById = localPayoutsQuery.data?.profileNamesById ?? EMPTY_PROFILE_NAMES
-  const loading = boardQuery.isPending || localPayoutsQuery.isPending
+  // Cached data from a previous visit (Dashboard/Allotment already fetched
+  // the board; a return visit finds payoutsLocal cached) used to render
+  // immediately and then jump to the real figures when the refetch landed —
+  // the "older numbers, then they change" flash. Keep the skeleton up until
+  // both queries have a result from THIS visit. Once they have, later
+  // background refreshes (focus, realtime, logging a payment) update in place
+  // without flashing the skeleton again. A failed refetch stops fetching
+  // without updating, which ends the wait and falls back to what's cached
+  // (the error toast/banner says why).
+  const awaitingFreshData =
+    (boardQuery.isFetching && boardQuery.dataUpdatedAt < openedAt.current) ||
+    (localPayoutsQuery.isFetching && localPayoutsQuery.dataUpdatedAt < openedAt.current)
+  const loading = boardQuery.isPending || localPayoutsQuery.isPending || awaitingFreshData
   const loadError = localPayoutsQuery.error ? friendlyError(localPayoutsQuery.error) : null
 
   function invalidatePayoutsData() {

@@ -115,8 +115,16 @@ export function useBankAccounts(enabled = true): UseQueryResult<BankAccount[]> {
 // allotted/sold/paid), and paired with a realtime invalidate in
 // components/RealtimeCacheSync.tsx so a change from any page refreshes this
 // for every page currently reading it, not just the one that made the change.
-export function useAllotmentBoardAll(): UseQueryResult<AllotmentBoardRow[]> {
-  return useQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 })
+export function useAllotmentBoardAll(options?: { alwaysRefetchOnMount?: boolean }): UseQueryResult<AllotmentBoardRow[]> {
+  return useQuery({
+    queryKey: queryKeys.allotmentBoard,
+    queryFn: fetchAllotmentBoardAll,
+    staleTime: 15_000,
+    // Pages that show money (Payouts) ask for a fresh fetch every time they
+    // open, whatever the cache holds; everyone else keeps the shared
+    // stale-while-revalidate behavior.
+    refetchOnMount: options?.alwaysRefetchOnMount ? 'always' : true,
+  })
 }
 
 export function useParentCompanies(enabled = true): UseQueryResult<ParentCompany[]> {
