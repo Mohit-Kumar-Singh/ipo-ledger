@@ -31,6 +31,7 @@ import type {
   Ipo,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { SegmentedControl } from '../../components/SegmentedControl'
 
 const categories: ApplicationCategory[] = ['RETAIL', 'SHNI', 'BHNI', 'SHAREHOLDER', 'EMPLOYEE']
 
@@ -744,39 +745,30 @@ export function ApplicationsPage() {
         // unchanged for tablet/desktop.
         <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
           <span className="shrink-0">Sort within each IPO by</span>
-          <div className="segmented scrollbar-none max-w-full overflow-x-auto">
-            {(
-              [
-                ['recent', 'Recent'],
-                ['funder', 'Funded'],
-                ['upi', 'UPI ID'],
-                ['cancelled', `Canceled (${cancelledCount})`],
-                // A FILTER, not a sort — PENDING only, still awaiting a
-                // decision. CANCELLED is deliberately excluded — that's
-                // already its own "Canceled" filter above, and mixing it
-                // in here would surface mandates nothing further can be
-                // done about alongside the ones that actually need action.
-                ['not_approved', `Not approved (${notApprovedCount})`],
-                // A FILTER, not a sort — see groupedApplications — restricted
-                // to rows never confirmed against ipoji at all, for spotting
-                // ones created by mistake and cleaning them up.
-                ['not_on_ipoji', `Not on ipoji (${notOnIpojiCount})`],
-                // Another filter — more than one active application for the
-                // same account+IPO (now allowed when each is funded via a
-                // different bank/UPI account, migration 0070).
-                ['duplicates', `Duplicate (${duplicatesCount})`],
-              ] as [SortMode, string][]
-            ).map(([mode, label]) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setSortMode(mode)}
-                className={`segmented-item shrink-0 whitespace-nowrap ${sortMode === mode ? 'segmented-item-active' : ''}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl<SortMode>
+            ariaLabel="Sort or filter applications"
+            value={sortMode}
+            onChange={setSortMode}
+            options={[
+              { value: 'recent', label: 'Recent' },
+              { value: 'funder', label: 'Funded' },
+              { value: 'upi', label: 'UPI ID' },
+              // The last four are FILTERS, not sorts (housekeeping views for
+              // an admin) — the counts say how many rows each would show.
+              // CANCELLED is deliberately not part of "Not approved": that's
+              // PENDING only, still awaiting a decision, so it never mixes in
+              // mandates nothing further can be done about.
+              { value: 'cancelled', label: 'Canceled', count: cancelledCount },
+              { value: 'not_approved', label: 'Not approved', count: notApprovedCount },
+              // Rows never confirmed against ipoji at all — for spotting ones
+              // created by mistake and cleaning them up.
+              { value: 'not_on_ipoji', label: 'Not on ipoji', count: notOnIpojiCount },
+              // More than one active application for the same account+IPO
+              // (allowed when each is funded via a different bank/UPI
+              // account, migration 0070).
+              { value: 'duplicates', label: 'Duplicate', count: duplicatesCount },
+            ]}
+          />
         </div>
       )}
 

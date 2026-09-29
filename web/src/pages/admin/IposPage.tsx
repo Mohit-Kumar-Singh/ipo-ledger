@@ -17,6 +17,8 @@ import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { Combobox } from '../../components/Combobox'
+import { SegmentedControl } from '../../components/SegmentedControl'
+import { loadPersistedState, savePersistedState } from '../../lib/persistedState'
 
 const LOW_GMP_THRESHOLD = 10
 
@@ -162,6 +164,14 @@ async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T)
   }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return results
+}
+
+type IpoTab = 'live' | 'upcoming' | 'closed'
+
+const EMPTY_TAB_TEXT: Record<IpoTab, string> = {
+  live: 'No IPOs are open for bidding right now.',
+  upcoming: 'Nothing upcoming yet — sync from ipoji to pick up new listings.',
+  closed: 'No closed IPOs yet.',
 }
 
 export function IposPage() {
@@ -375,8 +385,12 @@ export function IposPage() {
     })
   }
 
+  // Scoped to the IPOs in the selected Live/Upcoming/Closed tab — "Select all"
+  // followed by "Delete" must never reach IPOs that aren't on screen (it
+  // used to include archived ones too).
   function toggleSelectAllIpos() {
-    setSelectedIpos((s) => (s.size === ipos.length ? new Set() : new Set(ipos.map((i) => i.id))))
+    const ids = tabIpos.map((i) => i.id)
+    setSelectedIpos((s) => (ids.length > 0 && ids.every((id) => s.has(id)) ? new Set() : new Set(ids)))
   }
 
   async function bulkDeleteIpos() {
@@ -443,6 +457,19 @@ export function IposPage() {
   const liveIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Open')
   const upcomingIpos = visibleIpos.filter((i) => deriveStatus(i).label === 'Upcoming')
   const closedIpos = visibleIpos.filter((i) => !['Open', 'Upcoming'].includes(deriveStatus(i).label))
+  // One list at a time, chosen with the segmented bar. Until the user picks
+  // one, open on the first tab that has anything (Live, else Upcoming, else
+  // Closed); once they pick, that choice is remembered on this device.
+  const [tabPref, setTabPref] = useState<IpoTab | null>(() => loadPersistedState<IpoTab | null>('ipos.tab', null))
+  const tabLists: Record<IpoTab, Ipo[]> = { live: liveIpos, upcoming: upcomingIpos, closed: closedIpos }
+  const activeTab: IpoTab = tabPref ?? (liveIpos.length > 0 ? 'live' : upcomingIpos.length > 0 ? 'upcoming' : 'closed')
+  const tabIpos = tabLists[activeTab]
+  function selectTab(tab: IpoTab) {
+    setTabPref(tab)
+    savePersistedState('ipos.tab', tab)
+    // A selection made on one tab shouldn't silently follow you to another.
+    setSelectedIpos(new Set())
+  }
 
   return (
     <div className="space-y-5">
@@ -472,14 +499,17 @@ export function IposPage() {
                 cramming a checkbox row + "N selected" delete link into the
                 already-tight phone header. Individual delete (the trash
                 icon on each card) still covers single-IPO removal on phone. */}
-            {visibleIpos.length > 0 && (
+            {tabIpos.length > 0 && (
               <div className="hidden items-center gap-3 sm:flex">
                 <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
                   <input
                     type="checkbox"
-                    checked={selectedIpos.size > 0 && selectedIpos.size === visibleIpos.length}
+                    checked={selectedIpos.size > 0 && tabIpos.every((i) => selectedIpos.has(i.id))}
                     ref={(el) => {
-                      if (el) el.indeterminate = selectedIpos.size > 0 && selectedIpos.size < visibleIpos.length
+                      if (el) {
+                        const some = tabIpos.some((i) => selectedIpos.has(i.id))
+                        el.indeterminate = some && !tabIpos.every((i) => selectedIpos.has(i.id))
+                      }
                     }}
                     onChange={toggleSelectAllIpos}
                   />
@@ -636,62 +666,41 @@ export function IposPage() {
             </p>
           ) : (
             <>
-              {/* Three explicit sections, top to bottom — live first (what
-                  you'd actually act on today), then upcoming (worth knowing
-                  about soon), then closed (bidding's over, nothing left to
-                  do but wait/record — the least time-sensitive of the
-                  three). Every section past the first gets the same
-                  divider-with-label treatment; the label itself (unlike the
-                  old single "Closed" divider) is now always shown so it's
-                  never ambiguous which section is which. */}
-              {([
-                ['Live', liveIpos, false],
-                ['Upcoming', upcomingIpos, true],
-                ['Closed', closedIpos, true],
-              ] as const).map(
-                ([label, list, withDivider]) =>
-                  list.length > 0 && (
-                    <div key={label} className="space-y-4">
-                      {withDivider ? (
-                        <div className="flex items-center gap-3 py-1" aria-hidden>
-                          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-                          <span
-                            className="text-xs font-medium tracking-wide uppercase"
-                            style={{ color: 'var(--ink-muted)' }}
-                          >
-                            {label}
-                          </span>
-                          <div className="h-px flex-1" style={{ background: 'var(--border)' }} />
-                        </div>
-                      ) : (
-                        <span
-                          className="block text-xs font-medium tracking-wide uppercase"
-                          style={{ color: 'var(--ink-muted)' }}
-                        >
-                          {label}
-                        </span>
-                      )}
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                        {list.map((ipo) => (
-                          <IpoCard
-                            key={ipo.id}
-                            ipo={ipo}
-                            isAdmin={isAdmin}
-                            selected={selectedIpos.has(ipo.id)}
-                            onToggleSelected={() => toggleIpoSelected(ipo.id)}
-                            onEdit={() => {
-                              setEditingIpo(ipo)
-                              setShowAddForm(false)
-                              setShowImport(false)
-                            }}
-                            onDelete={() => deleteIpo(ipo)}
-                            onArchive={() => setArchived(ipo, true)}
-                            parentPrice={ipo.parent_company_symbol ? parentPrices[ipo.parent_company_symbol] : undefined}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  ),
+              <SegmentedControl<IpoTab>
+                fill
+                ariaLabel="Show IPOs"
+                value={activeTab}
+                onChange={selectTab}
+                options={[
+                  { value: 'live', label: 'Live', count: liveIpos.length },
+                  { value: 'upcoming', label: 'Upcoming', count: upcomingIpos.length },
+                  { value: 'closed', label: 'Closed', count: closedIpos.length },
+                ]}
+              />
+              {tabIpos.length === 0 ? (
+                <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  {EMPTY_TAB_TEXT[activeTab]}
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {tabIpos.map((ipo) => (
+                    <IpoCard
+                      key={ipo.id}
+                      ipo={ipo}
+                      isAdmin={isAdmin}
+                      selected={selectedIpos.has(ipo.id)}
+                      onToggleSelected={() => toggleIpoSelected(ipo.id)}
+                      onEdit={() => {
+                        setEditingIpo(ipo)
+                        setShowAddForm(false)
+                        setShowImport(false)
+                      }}
+                      onDelete={() => deleteIpo(ipo)}
+                      onArchive={() => setArchived(ipo, true)}
+                      parentPrice={ipo.parent_company_symbol ? parentPrices[ipo.parent_company_symbol] : undefined}
+                    />
+                  ))}
+                </div>
               )}
             </>
           )}

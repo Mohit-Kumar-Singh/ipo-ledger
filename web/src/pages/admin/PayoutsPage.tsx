@@ -34,6 +34,7 @@ import { settledPaidFlags, SETTLED_EPSILON, PAYMENT_KIND_LABELS, type Settlement
 import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
 import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
+import { SegmentedControl } from '../../components/SegmentedControl'
 import { useCountUp } from '../../lib/useCountUp'
 import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
 import { formatShortDate } from '../../lib/formatDate'
@@ -663,27 +664,19 @@ export function PayoutsPage() {
       <div className="space-y-5">
         <div className="flex flex-col items-start gap-2 text-sm sm:flex-row sm:items-center" style={{ color: 'var(--ink-muted)' }}>
           <span className="shrink-0">Range</span>
-          <div className="segmented scrollbar-none max-w-full overflow-x-auto">
-            {(
-              [
-                ['this_month', 'This month'],
-                ['last_month', 'Last month'],
-                ['last_3_months', 'Last 3 months'],
-                ['this_year', 'This year'],
-                ['all_time', 'All time'],
-                ['custom', 'Custom'],
-              ] as [DateRangePreset, string][]
-            ).map(([preset, label]) => (
-              <button
-                key={preset}
-                type="button"
-                onClick={() => setRangePreset(preset)}
-                className={`segmented-item shrink-0 whitespace-nowrap ${rangePreset === preset ? 'segmented-item-active' : ''}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl<DateRangePreset>
+            ariaLabel="Date range"
+            value={rangePreset}
+            onChange={setRangePreset}
+            options={[
+              { value: 'this_month', label: 'This month' },
+              { value: 'last_month', label: 'Last month' },
+              { value: 'last_3_months', label: 'Last 3 months' },
+              { value: 'this_year', label: 'This year' },
+              { value: 'all_time', label: 'All time' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+          />
           {rangePreset === 'custom' && (
             <div className="flex items-center gap-1.5">
               <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)} className="input text-xs" />
