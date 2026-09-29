@@ -495,7 +495,7 @@ export function AppShell() {
           // Extra bottom padding on phone/tablet so the fixed bottom tab bar
           // (~4rem + home-indicator inset) never covers the last of the page.
           // Removed at lg where the tab bar is hidden (lg:pb-8 above).
-          style={{ paddingBottom: 'calc(4.5rem + env(safe-area-inset-bottom))' }}
+          style={{ paddingBottom: 'calc(5.75rem + env(safe-area-inset-bottom))' }}
         >
           {/* Phone/tablet only (PullToRefresh no-ops itself on hover-capable
               devices) — a full reload, not a per-page refetch hook, since
@@ -515,10 +515,15 @@ export function AppShell() {
           pill itself intercepts taps. Profile is the 5th tab (its avatar);
           everything not on the bar lives on the Profile page. */}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 lg:hidden"
-        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-30 flex justify-center px-3 pt-8 lg:hidden"
+        style={{
+          paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)',
+          // Scroll-edge fade: content dims out behind the floating bar
+          // instead of running straight into it (iOS does the same).
+          background: 'linear-gradient(to top, color-mix(in srgb, var(--page) 82%, transparent), transparent)',
+        }}
       >
-        <nav className="glass-tabbar pointer-events-auto flex w-full max-w-md items-stretch rounded-[1.75rem] p-1.5">
+        <nav className="glass-tabbar pointer-events-auto flex w-full max-w-md items-stretch rounded-[2rem] p-1.5">
           {BOTTOM_TABS.map((t) => {
             const Icon = t.icon
             const isActive = t.to === '/' ? location.pathname === '/' : location.pathname.startsWith(t.to)
@@ -532,8 +537,8 @@ export function AppShell() {
                 aria-current={isActive ? 'page' : undefined}
                 aria-label={t.label}
                 title={t.label}
-                className="relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2"
-                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
+                className="relative flex flex-1 flex-col items-center justify-center gap-1 rounded-[1.5rem] py-1.5"
+                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.5rem' }}
               >
                 {/* Shared layoutId — Framer Motion morphs this single pill
                     between whichever tab is active instead of each tab
@@ -543,7 +548,7 @@ export function AppShell() {
                 {isActive && (
                   <motion.div
                     layoutId="bottom-tab-indicator"
-                    className="glass-tab-active absolute inset-0 rounded-[1.25rem]"
+                    className="glass-tab-active absolute inset-0 rounded-[1.5rem]"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
@@ -561,6 +566,9 @@ export function AppShell() {
                     />
                   )}
                 </motion.div>
+                <span className="glass-tab-label relative z-10" style={{ fontWeight: isActive ? 600 : 500 }}>
+                  {t.label}
+                </span>
               </NavLink>
             )
           })}
@@ -574,13 +582,13 @@ export function AppShell() {
                 aria-current={isActive ? 'page' : undefined}
                 aria-label="Profile"
                 title="Profile"
-                className="relative flex flex-1 items-center justify-center rounded-[1.25rem] py-2"
-                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3rem' }}
+                className="relative flex flex-1 flex-col items-center justify-center gap-1 rounded-[1.5rem] py-1.5"
+                style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.5rem' }}
               >
                 {isActive && (
                   <motion.div
                     layoutId="bottom-tab-indicator"
-                    className="glass-tab-active absolute inset-0 rounded-[1.25rem]"
+                    className="glass-tab-active absolute inset-0 rounded-[1.5rem]"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
@@ -610,6 +618,9 @@ export function AppShell() {
                     />
                   )}
                 </motion.div>
+                <span className="glass-tab-label relative z-10" style={{ fontWeight: isActive ? 600 : 500 }}>
+                  Profile
+                </span>
               </NavLink>
             )
           })()}

@@ -1309,14 +1309,6 @@ export function StatTile({
     good: 'var(--good)',
     critical: 'var(--critical)',
   }[tone]
-  // --shadow-glow-* is `none` in light mode, a real soft glow in dark
-  // (KOVAREX retheme) — same class, no per-theme branching here.
-  const toneGlow = {
-    info: 'var(--shadow-glow-accent)',
-    warning: 'var(--shadow-glow-warning)',
-    good: 'var(--shadow-glow-primary)',
-    critical: 'var(--shadow-glow-critical)',
-  }[tone]
   const animated = useCountUp(value)
   // Icon + label share one row (was icon, then label, then value stacked
   // three-high) — the icon badge doesn't need a whole row to itself when
@@ -1325,20 +1317,20 @@ export function StatTile({
   // height with a gap removed.
   const inner = (
     <>
-      <div className="mb-1 flex items-center gap-1.5">
-        <div
-          className={`icon-badge icon-badge-${tone} shrink-0`}
-          style={{ width: '1.5rem', height: '1.5rem', borderRadius: '0.4rem', boxShadow: toneGlow }}
-        >
-          <Icon size={12} />
+      <div className="mb-1.5 flex items-center gap-2">
+        {/* iOS app-icon tile: gradient fill in the tone color, white glyph. */}
+        <div className="glass-icon">
+          <Icon size={14} />
         </div>
-        <p className="min-w-0 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+        <p className="min-w-0 truncate text-[11.5px] font-medium" style={{ color: 'var(--ink-muted)' }}>
           {label}
         </p>
       </div>
+      {/* System sans with tabular figures (not the mono face) — the iOS
+          treatment for a headline number: big, tight, aligned digits. */}
       <p
-        className="font-mono-ipo truncate text-xl font-bold tracking-tight"
-        style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums' }}
+        className="truncate text-[26px] leading-tight font-bold tracking-tight"
+        style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}
       >
         {format ? format(animated) : animated}
       </p>
@@ -1346,11 +1338,13 @@ export function StatTile({
   )
 
   const tile = to ? (
-    <Link to={to} className="glass-card tile-hover stagger-item flex flex-col p-2.5">
+    <Link to={to} data-tone={tone} className="glass-card glass-tile tile-hover stagger-item flex flex-col p-3">
       {inner}
     </Link>
   ) : (
-    <div className="glass-card tile-hover stagger-item flex flex-col p-2.5">{inner}</div>
+    <div data-tone={tone} className="glass-card glass-tile tile-hover stagger-item flex flex-col p-3">
+      {inner}
+    </div>
   )
 
   if (!panel) return tile
