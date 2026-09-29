@@ -86,11 +86,19 @@ async function searchByName(companyName: string): Promise<string | null> {
 // belongs to some unrelated stock trading at a wildly different price."
 const MIN_PLAUSIBLE_RATIO = 0.3
 const MAX_PLAUSIBLE_RATIO = 3
+// A guessed ticker (first word of the company name) can equal an unrelated,
+// long-listed stock at a similar price. The IPO we're resolving listed within
+// days, so its first trade is recent; an old stock's isn't. Unknown first-trade
+// date is treated as NOT matching — a missed auto-resolve just falls back to
+// the manual symbol prompt, whereas a wrong symbol silently corrupts profit math.
+const MAX_LISTING_AGE_DAYS = 45
 
 async function tryTicker(ticker: string, priceHigh: number | null): Promise<string | null> {
   for (const [i, suffix] of EXCHANGE_SUFFIXES.entries()) {
     const quote = await fetchChartQuote(`${ticker}${suffix}`).catch(() => null)
     if (!quote || quote.exchangeName !== YAHOO_EXCHANGES[i]) continue
+    const ageDays = quote.firstTradeDate == null ? Infinity : (Date.now() / 1000 - quote.firstTradeDate) / 86400
+    if (ageDays > MAX_LISTING_AGE_DAYS) continue
     if (priceHigh != null && priceHigh > 0) {
       const ratio = quote.price / priceHigh
       if (ratio < MIN_PLAUSIBLE_RATIO || ratio > MAX_PLAUSIBLE_RATIO) continue

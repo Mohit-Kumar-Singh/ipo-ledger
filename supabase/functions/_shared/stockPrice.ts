@@ -17,6 +17,10 @@ export const EXCHANGE_SUFFIXES = ['.NS', '.BO'] as const
 export interface ChartQuote {
   price: number
   exchangeName: string | null
+  // Epoch seconds of the stock's first ever trade (Yahoo meta.firstTradeDate)
+  // — lets the symbol resolver tell a fresh listing from an old stock that
+  // merely shares a ticker guess.
+  firstTradeDate: number | null
 }
 
 // One chart-endpoint probe for a fully-suffixed Yahoo ticker. null means
@@ -33,7 +37,11 @@ export async function fetchChartQuote(yahooTicker: string): Promise<ChartQuote |
   const meta = data?.chart?.result?.[0]?.meta
   const price = meta?.regularMarketPrice
   if (typeof price !== 'number') return null
-  return { price, exchangeName: typeof meta?.exchangeName === 'string' ? meta.exchangeName : null }
+  return {
+    price,
+    exchangeName: typeof meta?.exchangeName === 'string' ? meta.exchangeName : null,
+    firstTradeDate: typeof meta?.firstTradeDate === 'number' ? meta.firstTradeDate : null,
+  }
 }
 
 // `symbol` is the bare ticker stored in ipos.symbol / parent_company_symbol

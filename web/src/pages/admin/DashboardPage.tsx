@@ -1297,6 +1297,12 @@ export function StatTile({
     critical: 'var(--critical)',
   }[tone]
   const animated = useCountUp(value)
+  // Size from the FINAL formatted value (not the mid-count-up one, which would
+  // make the font jump as digits are added). A phone tile has ~141px of room:
+  // 26px fits 9 characters, 21px 11, 17px the rest. Without this a 10-lakh
+  // figure was cut to "₹10,00,0…" by `truncate`, i.e. a misreadable amount.
+  const finalText = format ? format(value) : String(value)
+  const valueSize = finalText.length <= 9 ? 'text-[26px]' : finalText.length <= 11 ? 'text-[21px]' : 'text-[17px]'
   // Icon + label share one row (was icon, then label, then value stacked
   // three-high) — the icon badge doesn't need a whole row to itself when
   // the label text next to it is exactly as short. One fewer row means the
@@ -1316,7 +1322,7 @@ export function StatTile({
       {/* System sans with tabular figures (not the mono face) — the iOS
           treatment for a headline number: big, tight, aligned digits. */}
       <p
-        className="truncate text-[26px] leading-tight font-bold tracking-tight"
+        className={`truncate ${valueSize} leading-tight font-bold tracking-tight`}
         style={{ color: value > 0 ? toneColor : 'var(--ink-primary)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.02em' }}
       >
         {format ? format(animated) : animated}
