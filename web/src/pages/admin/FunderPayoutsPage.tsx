@@ -35,7 +35,7 @@ import {
 } from '../../lib/settlement'
 import { IpoSettlementCard } from './PayoutsPage'
 import { InlineSpinner } from '../../components/PageSpinner'
-import { ChevronLeftIcon } from '@primer/octicons-react'
+import { BellIcon, ChevronLeftIcon } from '@primer/octicons-react'
 import type { SettlementPayment, SettlementPaymentKind } from '../../types/database'
 
 export function FunderPayoutsPage() {
@@ -112,15 +112,25 @@ export function FunderPayoutsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-2">
-        {isAdmin && (
-          <Link to="/payouts" aria-label="Back to Payouts" className="icon-btn" style={{ color: 'var(--ink-muted)' }}>
-            <ChevronLeftIcon size={16} />
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          {isAdmin && (
+            <Link to="/payouts" aria-label="Back to Payouts" className="icon-btn" style={{ color: 'var(--ink-muted)' }}>
+              <ChevronLeftIcon size={16} />
+            </Link>
+          )}
+          <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
+            {displayName}
+          </h1>
+        </div>
+        {/* Notifications used to be a bottom-bar tab; a funder's own Payouts
+            page (no :funderName in the URL) is where the bell lives now. Not
+            shown on an admin's drill-down into one funder. */}
+        {!funderNameParam && (
+          <Link to="/notifications" aria-label="Notifications" title="Notifications" className="icon-btn shrink-0">
+            <BellIcon size={16} />
           </Link>
         )}
-        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
-          {displayName}
-        </h1>
       </div>
 
       {loadError && (

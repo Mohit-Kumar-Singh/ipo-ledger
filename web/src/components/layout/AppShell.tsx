@@ -62,11 +62,14 @@ const links = [
 // destinations always one thumb-tap away, with a fifth "More" tab opening
 // the full sidebar (the rest of the links + Profile, theme, sign-out). Short
 // labels so five fit across a 375px screen. Desktop (lg+) keeps the sidebar.
+// Payouts holds the slot Alerts used to: Notifications moved to the Profile
+// page's Explore list and to a bell in the Payouts page header (the sidebar
+// on desktop still lists both).
 const BOTTOM_TABS = [
   { to: '/', label: 'Home', icon: HomeIcon },
   { to: '/allotment', label: 'Allotment', icon: ChecklistIcon },
   { to: '/applications', label: 'Apps', icon: FileIcon },
-  { to: '/notifications', label: 'Alerts', icon: BellIcon },
+  { to: '/payouts', label: 'Payouts', icon: CreditCardIcon },
 ]
 
 export function AppShell() {

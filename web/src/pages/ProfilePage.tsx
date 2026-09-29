@@ -3,7 +3,7 @@ import { useEffect, useState, type ComponentType } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ChevronRightIcon,
-  CreditCardIcon,
+  BellIcon,
   LawIcon,
   LinkIcon,
   ArchiveIcon,
@@ -341,7 +341,7 @@ export function ProfilePage() {
         <nav className="flex flex-col p-1.5 pt-0.5">
           {[
             { to: '/bank-accounts', label: 'Bank / UPI accounts', desc: 'Manage funding sources', icon: LawIcon, tone: 'good', show: true },
-            { to: '/payouts', label: 'Payouts', desc: 'Funding & payout ledger', icon: CreditCardIcon, tone: 'violet', show: isAdmin },
+            { to: '/notifications', label: 'Notifications', desc: 'Messages & allotment updates', icon: BellIcon, tone: 'warning', show: true },
             { to: '/archives', label: 'Archives', desc: 'Closed IPO history', icon: ArchiveIcon, tone: 'neutral', show: true },
           ]
             .filter((l) => l.show)

@@ -13,6 +13,7 @@ import {
   ChevronDownIcon,
   SearchIcon,
   ClockIcon,
+  BellIcon,
   ChecklistIcon,
   PaperAirplaneIcon,
   CheckCircleFillIcon,
@@ -520,7 +521,7 @@ export function PayoutsPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="order-1 min-w-0 flex-1">
           <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
             Payouts
           </h1>
@@ -529,6 +530,12 @@ export function PayoutsPage() {
             {outstandingLines.length > 0 && ` (₹${Math.round(outstandingTotal).toLocaleString('en-IN')})`}.
           </p>
         </div>
+        {/* Notifications live here now (they used to be a bottom-bar tab).
+            Top-right on phone next to the title; after the totals card on
+            wider screens — hence the order-* swap with that card below. */}
+        <Link to="/notifications" aria-label="Notifications" title="Notifications" className="icon-btn order-2 sm:order-3">
+          <BellIcon size={16} />
+        </Link>
         {/* Adjacent to the header text, not its own full-width row — the
             overall picture across every sold application at a glance. These
             are the LIVE remaining figures (after settlement_payments), not
@@ -543,7 +550,7 @@ export function PayoutsPage() {
           // mobile instead of wrapping it onto a second row. w-full sm:w-auto
           // lets the card take the full row on mobile — same fix pattern as
           // UsersPage's own mobile-overflow fix.
-          <div className="card grid w-full grid-cols-2 gap-x-4 gap-y-3 px-4 py-2.5 text-sm sm:flex sm:w-auto sm:items-center">
+          <div className="card order-3 grid w-full grid-cols-2 gap-x-4 gap-y-3 px-4 py-2.5 text-sm sm:order-2 sm:flex sm:w-auto sm:items-center">
             <div>
               <p className="text-[11px]" style={{ color: 'var(--ink-muted)' }}>
                 Still owed to you
