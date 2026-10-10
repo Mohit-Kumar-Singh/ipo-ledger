@@ -212,6 +212,25 @@ export interface SettlementPayment {
   idempotency_key: string | null
 }
 
+// A money movement not tied to any specific application — migration 0104.
+// Nets into the Payouts page's per-person totals the same way a
+// settlement_payment does (see lib/settlement.ts's netSettlementByParty):
+// 'from_person' the same direction as holder_to_admin, 'to_person' the same
+// as admin_to_funder. Admin-only via plain RLS (no RPC — there's no
+// paid-flag or archive state to keep in sync), audited into
+// financial_change_log by a trigger rather than per-call-site inserts.
+export type ManualTransactionDirection = 'from_person' | 'to_person'
+
+export interface ManualTransaction {
+  id: string
+  person_name: string
+  direction: ManualTransactionDirection
+  amount: number
+  note: string | null
+  created_by: string | null
+  created_at: string
+}
+
 // One partial-sell tranche against an application — migration 0096. Entered
 // in shares (not lots). Triggers keep the parent application's status /
 // sell_price in sync. Written only via the add/update/delete_application_sell

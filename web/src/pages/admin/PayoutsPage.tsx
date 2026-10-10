@@ -6,7 +6,7 @@
 // running ledger: what's still owed, to whom, and (once marked) a paid
 // history — so nothing has to be reconstructed by memory or by clicking
 // through every settled IPO one at a time.
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FunderPayoutsPage } from './FunderPayoutsPage'
 import {
@@ -17,6 +17,8 @@ import {
   ChecklistIcon,
   PaperAirplaneIcon,
   CheckCircleFillIcon,
+  PlusCircleIcon,
+  XIcon,
 } from '@primer/octicons-react'
 import { showToast } from '../../lib/toast'
 import { friendlyError } from '../../lib/friendlyError'
@@ -26,6 +28,7 @@ import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
 import { effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
+import { sameIdentity } from '../../lib/applicationAttribution'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import {
   buildUnrealizedProfitLines,
@@ -43,7 +46,13 @@ import {
   type IpoSettlementGroup,
 } from '../../lib/settlement'
 import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
-import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
+import type {
+  AllotmentBoardRow,
+  SettlementPayment,
+  SettlementPaymentKind,
+  ManualTransaction,
+  ManualTransactionDirection,
+} from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { SegmentedControl } from '../../components/SegmentedControl'
 import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
@@ -183,7 +192,23 @@ interface SettlementPartyGroup {
 // the same way). Returns everyone with a nonzero net; callers split
 // positive (still owed) from negative (overpaid, see the overpayments
 // array below) themselves.
-function netSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'): SettlementPartyGroup[] {
+//
+// manualAdjustByName folds in manual_transactions (migration 0104) that
+// aren't tied to any application at all — a bulk repayment, an advance, a
+// debt that was never logged against a specific IPO. Each entry is an
+// amount to SUBTRACT from this person's total on THIS side (reduces what
+// they owe / increases what's already square, same direction a real
+// settlement_payment on this side would). Matched against an existing
+// card-derived name with sameIdentity (the same casual-name tolerance used
+// everywhere else in this app — "Mohit" vs "Mohit Kumar Singh"), or added
+// as a brand-new standalone entry when this person has no IPO relationship
+// on this side at all — e.g. a plain debt that was never attached to any
+// sold application.
+function netSettlementByParty(
+  cards: SettlementCard[],
+  side: 'funder' | 'holder',
+  manualAdjustByName?: Map<string, number>,
+): SettlementPartyGroup[] {
   const byName = new Map<string, SettlementPartyGroup>()
   for (const c of cards) {
     const name = side === 'funder' ? c.funderName : c.holderName
@@ -196,6 +221,16 @@ function netSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'
     if (!g.phone && phone) g.phone = phone
     g.total += remaining
     g.ipos.push({ ipoName: c.ipoName, amount: remaining, applicationId: c.applicationId })
+  }
+  if (manualAdjustByName) {
+    for (const [personName, adjust] of manualAdjustByName) {
+      if (Math.abs(adjust) <= SETTLED_EPSILON) continue
+      const existing = Array.from(byName.values()).find((g) => sameIdentity(g.name, personName))
+      const g = existing ?? { name: personName, phone: null, total: 0, ipos: [] }
+      if (!existing) byName.set(personName, g)
+      g.total -= adjust
+      g.ipos.push({ ipoName: 'Manual entry', amount: -adjust })
+    }
   }
   return Array.from(byName.values())
 }
@@ -325,6 +360,7 @@ export function PayoutsPage() {
     rows,
     allRows,
     payments,
+    manualTransactions,
     expectedCards,
     livePriceBySymbol,
     case2ManagerIds,
@@ -339,6 +375,9 @@ export function PayoutsPage() {
   } = usePayoutsData()
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  // The "+ Log a transaction" card (icon next to the bell) — a money
+  // movement between the admin and anyone, not tied to any application.
+  const [showManualForm, setShowManualForm] = useState(false)
   // Keyed applicationId:kind (not applicationId alone) — the same SOLD
   // application can owe both a holder-side and a funder-side amount at
   // once, and each has its own independent "mark settled" action here.
@@ -452,8 +491,18 @@ export function PayoutsPage() {
   // Netted PER PERSON first (netSettlementByParty), not per application —
   // summing Math.max(0, ...) per card lost a person's own overpaid
   // application entirely instead of it reducing what they're still owed.
-  const funderNets = netSettlementByParty(settlementCards, 'funder')
-  const holderNets = netSettlementByParty(settlementCards, 'holder')
+  // Manual transactions (migration 0104) net into the same per-person totals
+  // as the real IPO settlement figures — 'from_person' the same direction as
+  // a holder_to_admin payment (reduces what that person still owes), 'to_person'
+  // the same as admin_to_funder (reduces what's still owed to them).
+  const manualHolderAdjust = new Map<string, number>()
+  const manualFunderAdjust = new Map<string, number>()
+  for (const t of manualTransactions) {
+    const target = t.direction === 'from_person' ? manualHolderAdjust : manualFunderAdjust
+    target.set(t.person_name, (target.get(t.person_name) ?? 0) + t.amount)
+  }
+  const funderNets = netSettlementByParty(settlementCards, 'funder', manualFunderAdjust)
+  const holderNets = netSettlementByParty(settlementCards, 'holder', manualHolderAdjust)
   const totalStillFromHolder = holderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
   const totalStillToFunder = funderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
@@ -528,8 +577,24 @@ export function PayoutsPage() {
     overpayments.push({ key: `${g.name}-holder`, name: g.name, ipoName: soleUnbalancedIpo(g), amount: -g.total, direction: 'from holder' })
   }
 
+  // Suggestions for the "Log a transaction" person field — every name
+  // already known from a real IPO relationship, so the common case (a
+  // manual entry for someone who's also a holder/funder elsewhere) doesn't
+  // risk a typo that sameIdentity then fails to match.
+  const knownNames = Array.from(
+    new Set(settlementCards.flatMap((c) => [c.holderName, c.funderName].filter((n): n is string => !!n))),
+  ).sort()
+  const manualTransactionsSorted = [...manualTransactions].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+
   return (
     <div className="space-y-6">
+      {showManualForm && (
+        <LogTransactionCard
+          knownNames={knownNames}
+          onClose={() => setShowManualForm(false)}
+          onLogged={invalidatePayoutsData}
+        />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="order-1 min-w-0 flex-1">
           <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
@@ -540,6 +605,20 @@ export function PayoutsPage() {
             {outstandingLines.length > 0 && ` (₹${Math.round(outstandingTotal).toLocaleString('en-IN')})`}.
           </p>
         </div>
+        {/* Log an ad-hoc money movement — anyone, not tied to any
+            application (a bulk repayment, an advance, a debt that never had
+            a sold application to hang it on). Nets straight into the same
+            per-person totals below (netSettlementByParty's manualAdjustByName).
+            Sits right next to Notifications, same icon-btn treatment. */}
+        <button
+          type="button"
+          onClick={() => setShowManualForm(true)}
+          aria-label="Log a transaction"
+          title="Log a transaction"
+          className="icon-btn order-2 sm:order-3"
+        >
+          <PlusCircleIcon size={16} />
+        </button>
         {/* Notifications live here now (they used to be a bottom-bar tab).
             Top-right on phone next to the title; after the totals card on
             wider screens — hence the order-* swap with that card below. */}
@@ -630,6 +709,24 @@ export function PayoutsPage() {
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Every manual transaction (migration 0104) — the detail behind the
+          adjustment folded into the totals above and into each person's own
+          card further down. Editable/removable per row; the full list is
+          always visible here regardless of person, since it's the one
+          place these aren't tied to any specific IPO settlement card. */}
+      {manualTransactionsSorted.length > 0 && (
+        <div className="card p-4 text-sm">
+          <p className="mb-2 text-xs font-medium tracking-wide uppercase" style={{ color: 'var(--ink-muted)' }}>
+            Manual transactions ({manualTransactionsSorted.length})
+          </p>
+          <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
+            {manualTransactionsSorted.map((t) => (
+              <ManualTransactionRow key={t.id} t={t} onChanged={invalidatePayoutsData} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -1255,6 +1352,274 @@ export function PaymentLogRow({
               placeholder="Note (optional)"
               className="input text-xs"
             />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={saveEdit} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// The "+ Log a transaction" card — an icon-triggered overlay (same
+// backdrop + .ios-alert shape ConfirmDialogHost uses) for a money movement
+// between the admin and anyone, with no application behind it at all. Not
+// gated by readOnly/isAdmin at the component level — it's only ever
+// rendered from PayoutsPage's own admin-only branch (FunderPayoutsPage
+// returns a separate, funder-facing component entirely for a non-admin).
+function LogTransactionCard({
+  knownNames,
+  onClose,
+  onLogged,
+}: {
+  knownNames: string[]
+  onClose: () => void
+  onLogged: () => void
+}) {
+  const [personName, setPersonName] = useState('')
+  const [direction, setDirection] = useState<ManualTransactionDirection>('from_person')
+  const [amount, setAmount] = useState('')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function submit() {
+    if (!personName.trim()) {
+      showToast('Enter a name.', 'warning')
+      return
+    }
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    setSaving(true)
+    const { error } = await supabase.from('manual_transactions').insert({
+      person_name: personName.trim(),
+      direction,
+      amount: amt,
+      note: note.trim() || null,
+    })
+    setSaving(false)
+    if (error) {
+      showToast(friendlyError(error), 'critical')
+      return
+    }
+    showToast('Transaction logged.', 'good')
+    onLogged()
+    onClose()
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div
+        className="absolute inset-0"
+        style={{ background: 'rgba(0,0,0,0.35)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }}
+        onClick={onClose}
+      />
+      <div role="dialog" aria-modal="true" className="ios-alert animate-page-in relative w-full max-w-sm space-y-4 p-5">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[15px] font-semibold" style={{ color: 'var(--ink-primary)' }}>
+            Log a transaction
+          </p>
+          <button type="button" onClick={onClose} aria-label="Close" className="icon-btn">
+            <XIcon size={14} />
+          </button>
+        </div>
+        <div className="space-y-2">
+          <input
+            list="manual-transaction-names"
+            value={personName}
+            onChange={(e) => setPersonName(e.target.value)}
+            placeholder="Person's name"
+            className="input text-sm"
+            autoFocus
+          />
+          <datalist id="manual-transaction-names">
+            {knownNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+          <SegmentedControl
+            options={[
+              { value: 'from_person', label: 'They sent me' },
+              { value: 'to_person', label: 'I sent them' },
+            ]}
+            value={direction}
+            onChange={setDirection}
+            ariaLabel="Direction"
+            fill
+          />
+          <input
+            type="number"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="Amount"
+            className="input text-sm"
+          />
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-sm" />
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={saving} className="btn-secondary disabled:opacity-50">
+            Cancel
+          </button>
+          <button type="button" onClick={submit} disabled={saving} className="btn-primary disabled:opacity-50">
+            {saving ? 'Logging…' : 'Log'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// One row in the "Manual transactions" list — same view/edit/confirmDelete
+// shape as PaymentLogRow, simplified: no card/flagsFor math, since a manual
+// transaction has no paid-flag or archive state to recompute. Editing or
+// deleting just changes the row; the merged totals above re-derive from
+// manualTransactions on the next invalidatePayoutsData refresh.
+function ManualTransactionRow({ t, onChanged }: { t: ManualTransaction; onChanged: () => void }) {
+  const [mode, setMode] = useState<'view' | 'edit' | 'confirmDelete'>('view')
+  const [personName, setPersonName] = useState(t.person_name)
+  const [direction, setDirection] = useState<ManualTransactionDirection>(t.direction)
+  const [amount, setAmount] = useState(String(Math.round(t.amount)))
+  const [note, setNote] = useState(t.note ?? '')
+  const [busy, setBusy] = useState(false)
+
+  const dateLabel = new Date(t.created_at).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+  })
+
+  function resetForm() {
+    setPersonName(t.person_name)
+    setDirection(t.direction)
+    setAmount(String(Math.round(t.amount)))
+    setNote(t.note ?? '')
+  }
+
+  async function saveEdit() {
+    if (!personName.trim()) {
+      showToast('Enter a name.', 'warning')
+      return
+    }
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    setBusy(true)
+    const { error } = await supabase
+      .from('manual_transactions')
+      .update({ person_name: personName.trim(), direction, amount: amt, note: note.trim() || null })
+      .eq('id', t.id)
+    setBusy(false)
+    if (error) {
+      showToast(friendlyError(error), 'critical')
+      return
+    }
+    showToast('Transaction updated.', 'good')
+    setMode('view')
+    onChanged()
+  }
+
+  async function confirmDelete() {
+    setBusy(true)
+    const { error } = await supabase.from('manual_transactions').delete().eq('id', t.id)
+    setBusy(false)
+    if (error) {
+      showToast(friendlyError(error), 'critical')
+      return
+    }
+    showToast('Transaction deleted.', 'good')
+    onChanged()
+  }
+
+  return (
+    <div className="py-2 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <span style={{ color: 'var(--ink-primary)' }}>
+          {t.direction === 'from_person' ? `${t.person_name} → you` : `you → ${t.person_name}`}
+        </span>
+        <span className="font-mono-ipo shrink-0" style={{ color: 'var(--ink-primary)' }}>
+          {rupees(t.amount)}
+        </span>
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+        <span>{dateLabel}</span>
+        {t.note && <span>· {t.note}</span>}
+      </div>
+
+      {mode === 'view' && (
+        <div className="mt-1 flex gap-3">
+          <button
+            onClick={() => {
+              resetForm()
+              setMode('edit')
+            }}
+            className="link-accent text-xs font-medium"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setMode('confirmDelete')}
+            className="text-xs font-medium hover:underline"
+            style={{ color: 'var(--critical-text)' }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
+      {mode === 'confirmDelete' && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span style={{ color: 'var(--ink-secondary)' }}>Delete this {rupees(t.amount)} entry?</span>
+          <button onClick={confirmDelete} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
+            {busy ? 'Deleting…' : 'Delete'}
+          </button>
+          <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {mode === 'edit' && (
+        <div className="mt-2 space-y-2">
+          <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Person" className="input text-xs" />
+          <SegmentedControl
+            options={[
+              { value: 'from_person', label: 'They sent me' },
+              { value: 'to_person', label: 'I sent them' },
+            ]}
+            value={direction}
+            onChange={setDirection}
+            ariaLabel="Direction"
+            fill
+          />
+          <div className="flex gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              className="input text-xs"
+            />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Note (optional)" className="input text-xs" />
           </div>
           <div className="flex gap-2">
             <button onClick={saveEdit} disabled={busy} className="btn-primary text-xs disabled:opacity-50">

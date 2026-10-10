@@ -15,15 +15,17 @@ import { nowIst } from './ipoStatus'
 import { buildFunderAllottedCards, type ProfitProjectionRow, type ListingCutoff } from './expectedProfit'
 import { buildSettlementCards, groupCardsByIpo } from './settlement'
 import { hydrateDematAccounts } from './hydrateDemat'
-import type { SettlementPayment } from '../types/database'
+import type { SettlementPayment, ManualTransaction } from '../types/database'
 
 const EMPTY_PROJECTION_ROWS: ProfitProjectionRow[] = []
 const EMPTY_LIVE_PRICES: Record<string, number | null> = {}
 const EMPTY_CASE2_IDS: Set<string> = new Set()
 const EMPTY_PAYMENTS: SettlementPayment[] = []
+const EMPTY_MANUAL_TRANSACTIONS: ManualTransaction[] = []
 
 interface LocalPayoutsData {
   payments: SettlementPayment[]
+  manualTransactions: ManualTransaction[]
   expectedCards: ReturnType<typeof buildFunderAllottedCards>
   livePriceBySymbol: Record<string, number | null>
   allRows: ProfitProjectionRow[]
@@ -56,8 +58,9 @@ export function usePayoutsData() {
     // staleTime — this is a money ledger, not a list that's fine a minute old.
     refetchOnMount: 'always',
     queryFn: async () => {
-      const [paymentsRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
+      const [paymentsRes, manualRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
         supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
+        supabase.from('manual_transactions').select('*').order('created_at', { ascending: false }),
         supabase
           .from('applications')
           .select(
@@ -90,6 +93,9 @@ export function usePayoutsData() {
       if (paymentsRes.error) showToast(friendlyError(paymentsRes.error, `Couldn't load settlement payments.`), 'warning')
       const payments = (paymentsRes.data as SettlementPayment[]) ?? []
 
+      if (manualRes.error) showToast(friendlyError(manualRes.error, `Couldn't load manual transactions.`), 'warning')
+      const manualTransactions = (manualRes.data as ManualTransaction[]) ?? []
+
       const profileNamesById: Record<string, string> = {}
       for (const p of (profilesRes.data ?? []) as { id: string; full_name: string | null }[]) {
         if (p.full_name) profileNamesById[p.id] = p.full_name
@@ -103,7 +109,15 @@ export function usePayoutsData() {
 
       if (expectedRes.error) {
         showToast(friendlyError(expectedRes.error, `Couldn't load expected payouts.`), 'warning')
-        return { payments, expectedCards: [], livePriceBySymbol: {}, allRows, case2ManagerIds: new Set<string>(), profileNamesById }
+        return {
+          payments,
+          manualTransactions,
+          expectedCards: [],
+          livePriceBySymbol: {},
+          allRows,
+          case2ManagerIds: new Set<string>(),
+          profileNamesById,
+        }
       }
       const expectedRowsBaseAll = await hydrateDematAccounts(
         (expectedRes.data ?? []) as unknown as ProfitProjectionRow[],
@@ -140,10 +154,11 @@ export function usePayoutsData() {
         }>('fetch-stock-price', { body: { symbols } })
         for (const [sym, p] of Object.entries(priceData?.prices ?? {})) livePriceBySymbol[sym] = p.price
       }
-      return { payments, expectedCards, livePriceBySymbol, allRows, case2ManagerIds, profileNamesById }
+      return { payments, manualTransactions, expectedCards, livePriceBySymbol, allRows, case2ManagerIds, profileNamesById }
     },
   })
   const payments = localPayoutsQuery.data?.payments ?? EMPTY_PAYMENTS
+  const manualTransactions = localPayoutsQuery.data?.manualTransactions ?? EMPTY_MANUAL_TRANSACTIONS
   const expectedCards = localPayoutsQuery.data?.expectedCards ?? []
   const livePriceBySymbol = localPayoutsQuery.data?.livePriceBySymbol ?? EMPTY_LIVE_PRICES
   const allRows = localPayoutsQuery.data?.allRows ?? EMPTY_PROJECTION_ROWS
@@ -198,6 +213,7 @@ export function usePayoutsData() {
     rows,
     allRows,
     payments,
+    manualTransactions,
     paymentsByApp,
     profileNamesById,
     expectedCards,
