@@ -30,6 +30,8 @@ import { payoutMessage } from './AllotmentBoardPage'
 import { effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { usePayoutsData } from '../../lib/usePayoutsData'
+import { useDematAccounts, useBankAccounts } from '../../lib/queries'
+import { Combobox, type ComboboxOption } from '../../components/Combobox'
 import {
   buildUnrealizedProfitLines,
   expectedProfitBreakdown,
@@ -373,6 +375,41 @@ export function PayoutsPage() {
     invalidatePayoutsData,
     profileNamesById,
   } = usePayoutsData()
+  // Real account holders/funders for the "Log a transaction" person picker
+  // — every demat/bank account on file, not just ones with a sold
+  // application (manual transactions aren't scoped to SOLD at all). Skipped
+  // for a funder-only viewer, who hits the early `!isAdmin` return below and
+  // never renders anything that needs this.
+  const dematAccountsQuery = useDematAccounts(isAdmin)
+  const bankAccountsQuery = useBankAccounts(isAdmin)
+  // "Choose from account holder and funder" for the "Log a transaction"
+  // person field — every real demat holder and bank/UPI account holder on
+  // file, grouped the same way ApplicationsPage's own bank-account Combobox
+  // groups things, so a transaction against someone already in the system
+  // picks their exact on-file name (no typo for sameIdentity to then fail
+  // to match against) instead of being retyped from memory. Deduplicated
+  // within each group — the same person can appear as both a holder and a
+  // funder (shown once under each heading), which is informative, not a bug.
+  const personOptions: ComboboxOption[] = useMemo(() => {
+    const seen = new Set<string>()
+    const opts: ComboboxOption[] = []
+    for (const d of [...(dematAccountsQuery.data ?? [])].sort((a, b) => a.holder_name.localeCompare(b.holder_name))) {
+      const key = `holder:${d.holder_name}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      opts.push({ value: d.holder_name, label: d.holder_name, group: 'Account holders' })
+    }
+    for (const b of [...(bankAccountsQuery.data ?? [])].sort((a, b2) =>
+      (a.account_holder_name ?? '').localeCompare(b2.account_holder_name ?? ''),
+    )) {
+      if (!b.account_holder_name) continue
+      const key = `funder:${b.account_holder_name}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      opts.push({ value: b.account_holder_name, label: b.account_holder_name, group: 'Funders' })
+    }
+    return opts
+  }, [dematAccountsQuery.data, bankAccountsQuery.data])
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   // The "+ Log a transaction" card (icon next to the bell) — a money
@@ -577,20 +614,13 @@ export function PayoutsPage() {
     overpayments.push({ key: `${g.name}-holder`, name: g.name, ipoName: soleUnbalancedIpo(g), amount: -g.total, direction: 'from holder' })
   }
 
-  // Suggestions for the "Log a transaction" person field — every name
-  // already known from a real IPO relationship, so the common case (a
-  // manual entry for someone who's also a holder/funder elsewhere) doesn't
-  // risk a typo that sameIdentity then fails to match.
-  const knownNames = Array.from(
-    new Set(settlementCards.flatMap((c) => [c.holderName, c.funderName].filter((n): n is string => !!n))),
-  ).sort()
   const manualTransactionsSorted = [...manualTransactions].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
 
   return (
     <div className="space-y-6">
       {showManualForm && (
         <LogTransactionCard
-          knownNames={knownNames}
+          personOptions={personOptions}
           onClose={() => setShowManualForm(false)}
           onLogged={invalidatePayoutsData}
         />
@@ -724,7 +754,7 @@ export function PayoutsPage() {
           </p>
           <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {manualTransactionsSorted.map((t) => (
-              <ManualTransactionRow key={t.id} t={t} onChanged={invalidatePayoutsData} />
+              <ManualTransactionRow key={t.id} t={t} personOptions={personOptions} onChanged={invalidatePayoutsData} />
             ))}
           </div>
         </div>
@@ -1367,6 +1397,58 @@ export function PaymentLogRow({
   )
 }
 
+// Same cmdk Combobox every other "pick a real account" field in this app
+// uses (ApplicationsPage's bank-account/funder-override fields), plus a
+// "+ Someone not listed" escape hatch — a manual transaction is explicitly
+// for money that doesn't belong to any application, so the other person
+// doesn't have to already be a demat/bank account holder on file (the
+// ₹2,527 Honey case that motivated this feature in the first place). A
+// `value` that doesn't match any option (a brand-new name, or one that's
+// since been renamed) starts in custom-entry mode showing that real value,
+// rather than silently blanking it.
+const CUSTOM_PERSON_OPTION = '__custom__'
+
+function PersonPicker({
+  options,
+  value,
+  onChange,
+}: {
+  options: ComboboxOption[]
+  value: string
+  onChange: (name: string) => void
+}) {
+  const matchesOption = options.some((o) => o.value === value)
+  const [selected, setSelected] = useState(matchesOption ? value : CUSTOM_PERSON_OPTION)
+  const [customName, setCustomName] = useState(matchesOption ? '' : value)
+
+  return (
+    <div className="space-y-2">
+      <Combobox
+        aria-label="Person"
+        placeholder="Choose a person"
+        searchPlaceholder="Search account holders & funders…"
+        value={selected}
+        onChange={(v) => {
+          setSelected(v)
+          onChange(v === CUSTOM_PERSON_OPTION ? customName : v)
+        }}
+        options={[{ value: CUSTOM_PERSON_OPTION, label: '+ Someone not listed' }, ...options]}
+      />
+      {selected === CUSTOM_PERSON_OPTION && (
+        <input
+          value={customName}
+          onChange={(e) => {
+            setCustomName(e.target.value)
+            onChange(e.target.value)
+          }}
+          placeholder="Their name"
+          className="input text-sm"
+        />
+      )}
+    </div>
+  )
+}
+
 // The "+ Log a transaction" card — an icon-triggered overlay (same
 // backdrop + .ios-alert shape ConfirmDialogHost uses) for a money movement
 // between the admin and anyone, with no application behind it at all. Not
@@ -1374,11 +1456,11 @@ export function PaymentLogRow({
 // rendered from PayoutsPage's own admin-only branch (FunderPayoutsPage
 // returns a separate, funder-facing component entirely for a non-admin).
 function LogTransactionCard({
-  knownNames,
+  personOptions,
   onClose,
   onLogged,
 }: {
-  knownNames: string[]
+  personOptions: ComboboxOption[]
   onClose: () => void
   onLogged: () => void
 }) {
@@ -1440,23 +1522,14 @@ function LogTransactionCard({
           </button>
         </div>
         <div className="space-y-2">
-          <input
-            list="manual-transaction-names"
-            value={personName}
-            onChange={(e) => setPersonName(e.target.value)}
-            placeholder="Person's name"
-            className="input text-sm"
-            autoFocus
-          />
-          <datalist id="manual-transaction-names">
-            {knownNames.map((n) => (
-              <option key={n} value={n} />
-            ))}
-          </datalist>
+          <PersonPicker options={personOptions} value={personName} onChange={setPersonName} />
+          {/* Names the actual person once chosen ("Jigyansh sent me" / "I
+              sent Jigyansh") instead of a generic "they"/"them" — who sent
+              whom is the whole point of this field. */}
           <SegmentedControl
             options={[
-              { value: 'from_person', label: 'They sent me' },
-              { value: 'to_person', label: 'I sent them' },
+              { value: 'from_person', label: personName.trim() ? `${personName.trim()} sent me` : 'They sent me' },
+              { value: 'to_person', label: personName.trim() ? `I sent ${personName.trim()}` : 'I sent them' },
             ]}
             value={direction}
             onChange={setDirection}
@@ -1491,7 +1564,15 @@ function LogTransactionCard({
 // transaction has no paid-flag or archive state to recompute. Editing or
 // deleting just changes the row; the merged totals above re-derive from
 // manualTransactions on the next invalidatePayoutsData refresh.
-function ManualTransactionRow({ t, onChanged }: { t: ManualTransaction; onChanged: () => void }) {
+function ManualTransactionRow({
+  t,
+  personOptions,
+  onChanged,
+}: {
+  t: ManualTransaction
+  personOptions: ComboboxOption[]
+  onChanged: () => void
+}) {
   const [mode, setMode] = useState<'view' | 'edit' | 'confirmDelete'>('view')
   const [personName, setPersonName] = useState(t.person_name)
   const [direction, setDirection] = useState<ManualTransactionDirection>(t.direction)
@@ -1599,11 +1680,11 @@ function ManualTransactionRow({ t, onChanged }: { t: ManualTransaction; onChange
 
       {mode === 'edit' && (
         <div className="mt-2 space-y-2">
-          <input value={personName} onChange={(e) => setPersonName(e.target.value)} placeholder="Person" className="input text-xs" />
+          <PersonPicker options={personOptions} value={personName} onChange={setPersonName} />
           <SegmentedControl
             options={[
-              { value: 'from_person', label: 'They sent me' },
-              { value: 'to_person', label: 'I sent them' },
+              { value: 'from_person', label: personName.trim() ? `${personName.trim()} sent me` : 'They sent me' },
+              { value: 'to_person', label: personName.trim() ? `I sent ${personName.trim()}` : 'I sent them' },
             ]}
             value={direction}
             onChange={setDirection}
