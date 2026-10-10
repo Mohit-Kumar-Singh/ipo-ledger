@@ -27,16 +27,12 @@ import { firstIpoWord } from '../../lib/ipoDisplayName'
 import {
   groupCardsByIpo,
   settledPaidFlags,
-  resolvedPaidFlags,
-  remainingFromPayments,
-  PAYMENT_KIND_LABELS,
   SETTLED_EPSILON,
   type SettlementCard,
 } from '../../lib/settlement'
-import { IpoSettlementCard } from './PayoutsPage'
+import { IpoSettlementCard, PaymentLogRow } from './PayoutsPage'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { BellIcon, ChevronLeftIcon } from '@primer/octicons-react'
-import type { SettlementPayment, SettlementPaymentKind } from '../../types/database'
 
 export function FunderPayoutsPage() {
   const { funderName: funderNameParam } = useParams<{ funderName?: string }>()
@@ -235,7 +231,13 @@ export function FunderPayoutsPage() {
       {soldGroups.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {soldGroups.map((g) => (
-            <IpoSettlementCard key={g.ipoName} group={g} onLogged={invalidatePayoutsData} readOnly={!isAdmin} />
+            <IpoSettlementCard
+              key={g.ipoName}
+              group={g}
+              onLogged={invalidatePayoutsData}
+              readOnly={!isAdmin}
+              profileNamesById={profileNamesById}
+            />
           ))}
         </div>
       ) : (
@@ -429,186 +431,6 @@ function FunderPaymentsLog({
           />
         ))}
       </div>
-    </div>
-  )
-}
-
-function PaymentLogRow({
-  payment,
-  card,
-  loggedBy,
-  onChanged,
-}: {
-  payment: SettlementPayment
-  card: SettlementCard
-  loggedBy: string | null
-  onChanged: () => void
-}) {
-  const [mode, setMode] = useState<'view' | 'edit' | 'confirmDelete'>('view')
-  const [kind, setKind] = useState<SettlementPaymentKind>(payment.kind)
-  const [amount, setAmount] = useState(String(Math.round(payment.amount)))
-  const [note, setNote] = useState(payment.note ?? '')
-  const [busy, setBusy] = useState(false)
-
-  const dateLabel = new Date(payment.created_at).toLocaleDateString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
-  })
-
-  function resetForm() {
-    setKind(payment.kind)
-    setAmount(String(Math.round(payment.amount)))
-    setNote(payment.note ?? '')
-  }
-
-  // The two paid-flags this card SHOULD carry once `nextPayments` is the
-  // full payment set — recomputed from scratch (resolvedPaidFlags reports
-  // both directions, unlike the insert path's monotonic settledPaidFlags)
-  // and passed to the RPC, which sets them absolutely and re-syncs the
-  // IPO's archived state.
-  function flagsFor(nextPayments: SettlementPayment[]) {
-    const { remainingFromHolder, remainingToFunder } = remainingFromPayments(card, nextPayments)
-    return resolvedPaidFlags(card, remainingFromHolder, remainingToFunder)
-  }
-
-  async function saveEdit() {
-    const amt = Number(amount)
-    if (!amt || amt <= 0) {
-      showToast('Enter an amount greater than 0.', 'warning')
-      return
-    }
-    const next = card.payments.map((x) =>
-      x.id === payment.id ? { ...x, kind, amount: amt, note: note.trim() || null } : x,
-    )
-    const flags = flagsFor(next)
-    setBusy(true)
-    const { error } = await supabase.rpc('update_settlement_payment', {
-      p_id: payment.id,
-      p_kind: kind,
-      p_amount: amt,
-      p_note: note.trim() || null,
-      p_demat_cut_paid: flags.demat_cut_paid,
-      p_funder_share_paid: flags.funder_share_paid,
-    })
-    setBusy(false)
-    if (error) {
-      showToast(friendlyError(error), 'critical')
-      return
-    }
-    showToast('Payment updated.', 'good')
-    setMode('view')
-    onChanged()
-  }
-
-  async function confirmDelete() {
-    const next = card.payments.filter((x) => x.id !== payment.id)
-    const flags = flagsFor(next)
-    setBusy(true)
-    const { error } = await supabase.rpc('delete_settlement_payment', {
-      p_id: payment.id,
-      p_demat_cut_paid: flags.demat_cut_paid,
-      p_funder_share_paid: flags.funder_share_paid,
-    })
-    setBusy(false)
-    if (error) {
-      showToast(friendlyError(error), 'critical')
-      return
-    }
-    showToast('Payment deleted.', 'good')
-    onChanged()
-  }
-
-  return (
-    <div className="py-2 first:pt-0 last:pb-0">
-      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className="min-w-0">
-          <span style={{ color: 'var(--ink-primary)' }}>{PAYMENT_KIND_LABELS[payment.kind]}</span>
-          <span style={{ color: 'var(--ink-muted)' }}>
-            {' · '}
-            {firstIpoWord(card.ipoName)} · {card.holderName}
-          </span>
-        </div>
-        <span className="font-mono-ipo shrink-0" style={{ color: 'var(--ink-primary)' }}>
-          {rupees(payment.amount)}
-        </span>
-      </div>
-      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-        <span>{dateLabel}</span>
-        {loggedBy && <span>· by {loggedBy}</span>}
-        {payment.note && <span>· {payment.note}</span>}
-      </div>
-
-      {mode === 'view' && (
-        <div className="mt-1 flex gap-3">
-          <button
-            onClick={() => {
-              resetForm()
-              setMode('edit')
-            }}
-            className="link-accent text-xs font-medium"
-          >
-            Edit
-          </button>
-          <button
-            onClick={() => setMode('confirmDelete')}
-            className="text-xs font-medium hover:underline"
-            style={{ color: 'var(--critical-text)' }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
-
-      {mode === 'confirmDelete' && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-          <span style={{ color: 'var(--ink-secondary)' }}>Delete this {rupees(payment.amount)} entry?</span>
-          <button onClick={confirmDelete} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
-            {busy ? 'Deleting…' : 'Delete'}
-          </button>
-          <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-            Cancel
-          </button>
-        </div>
-      )}
-
-      {mode === 'edit' && (
-        <div className="mt-2 space-y-2">
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as SettlementPaymentKind)}
-            className="input text-xs"
-          >
-            <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>
-            <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>
-            <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>
-          </select>
-          <div className="flex gap-2">
-            <input
-              type="number"
-              inputMode="decimal"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="Amount"
-              className="input text-xs"
-            />
-            <input
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Note (optional)"
-              className="input text-xs"
-            />
-          </div>
-          <div className="flex gap-2">
-            <button onClick={saveEdit} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
-              {busy ? 'Saving…' : 'Save'}
-            </button>
-            <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

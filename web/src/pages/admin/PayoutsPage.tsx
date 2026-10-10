@@ -19,6 +19,9 @@ import {
   CheckCircleFillIcon,
 } from '@primer/octicons-react'
 import { showToast } from '../../lib/toast'
+import { friendlyError } from '../../lib/friendlyError'
+import { confirmDialog } from '../../lib/confirmDialog'
+import { supabase } from '../../lib/supabase'
 import { computeProfitSplit } from '../../lib/profitSplit'
 import { sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { payoutMessage } from './AllotmentBoardPage'
@@ -30,9 +33,17 @@ import {
   type UnrealizedProfitLine,
   type buildFunderAllottedCards,
 } from '../../lib/expectedProfit'
-import { settledPaidFlags, SETTLED_EPSILON, PAYMENT_KIND_LABELS, type SettlementCard, type IpoSettlementGroup } from '../../lib/settlement'
+import {
+  settledPaidFlags,
+  resolvedPaidFlags,
+  remainingFromPayments,
+  SETTLED_EPSILON,
+  PAYMENT_KIND_LABELS,
+  type SettlementCard,
+  type IpoSettlementGroup,
+} from '../../lib/settlement'
 import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
-import type { AllotmentBoardRow, SettlementPaymentKind } from '../../types/database'
+import type { AllotmentBoardRow, SettlementPayment, SettlementPaymentKind } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { SegmentedControl } from '../../components/SegmentedControl'
 import { buildPayoutAnalytics, resolveDateRange, type DateRangePreset } from '../../lib/payoutAnalytics'
@@ -324,6 +335,7 @@ export function PayoutsPage() {
     loading,
     loadError,
     invalidatePayoutsData,
+    profileNamesById,
   } = usePayoutsData()
   const [markingPaid, setMarkingPaid] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -897,7 +909,12 @@ export function PayoutsPage() {
           </h2>
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
             {ipoSettlementGroups.map((g) => (
-              <IpoSettlementCard key={g.ipoName} group={g} onLogged={invalidatePayoutsData} />
+              <IpoSettlementCard
+                key={g.ipoName}
+                group={g}
+                onLogged={invalidatePayoutsData}
+                profileNamesById={profileNamesById}
+              />
             ))}
           </div>
         </section>
@@ -1063,6 +1080,196 @@ function SettlementPartyList({
 }
 
 
+// A single logged settlement_payments row, editable/removable in place —
+// the admin-only correction path (migration 0092) for a mistyped amount,
+// wrong direction, or a genuine duplicate. Shared by every place that shows
+// payment history (this page's own Settlement — by IPO cards, and
+// FunderPayoutsPage's flat per-funder log) so there's exactly one
+// edit/delete implementation, not a second independently-written copy that
+// could drift. Previously this only existed on the funder-scoped page —
+// a self-funded application (no separate funder to view it under, e.g.
+// Kanohar Electricals/Knnu Harit) had no edit/delete at all, which is
+// exactly how a duplicate "Mark paid" click there went uncorrectable.
+export function PaymentLogRow({
+  payment,
+  card,
+  loggedBy,
+  onChanged,
+}: {
+  payment: SettlementPayment
+  card: SettlementCard
+  loggedBy: string | null
+  onChanged: () => void
+}) {
+  const [mode, setMode] = useState<'view' | 'edit' | 'confirmDelete'>('view')
+  const [kind, setKind] = useState<SettlementPaymentKind>(payment.kind)
+  const [amount, setAmount] = useState(String(Math.round(payment.amount)))
+  const [note, setNote] = useState(payment.note ?? '')
+  const [busy, setBusy] = useState(false)
+
+  const dateLabel = new Date(payment.created_at).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+  })
+
+  function resetForm() {
+    setKind(payment.kind)
+    setAmount(String(Math.round(payment.amount)))
+    setNote(payment.note ?? '')
+  }
+
+  // The two paid-flags this card SHOULD carry once `nextPayments` is the
+  // full payment set — recomputed from scratch (resolvedPaidFlags reports
+  // both directions, unlike the insert path's monotonic settledPaidFlags)
+  // and passed to the RPC, which sets them absolutely and re-syncs the
+  // IPO's archived state.
+  function flagsFor(nextPayments: SettlementPayment[]) {
+    const { remainingFromHolder, remainingToFunder } = remainingFromPayments(card, nextPayments)
+    return resolvedPaidFlags(card, remainingFromHolder, remainingToFunder)
+  }
+
+  async function saveEdit() {
+    const amt = Number(amount)
+    if (!amt || amt <= 0) {
+      showToast('Enter an amount greater than 0.', 'warning')
+      return
+    }
+    const next = card.payments.map((x) =>
+      x.id === payment.id ? { ...x, kind, amount: amt, note: note.trim() || null } : x,
+    )
+    const flags = flagsFor(next)
+    setBusy(true)
+    const { error } = await supabase.rpc('update_settlement_payment', {
+      p_id: payment.id,
+      p_kind: kind,
+      p_amount: amt,
+      p_note: note.trim() || null,
+      p_demat_cut_paid: flags.demat_cut_paid,
+      p_funder_share_paid: flags.funder_share_paid,
+    })
+    setBusy(false)
+    if (error) {
+      showToast(friendlyError(error), 'critical')
+      return
+    }
+    showToast('Payment updated.', 'good')
+    setMode('view')
+    onChanged()
+  }
+
+  async function confirmDelete() {
+    const next = card.payments.filter((x) => x.id !== payment.id)
+    const flags = flagsFor(next)
+    setBusy(true)
+    const { error } = await supabase.rpc('delete_settlement_payment', {
+      p_id: payment.id,
+      p_demat_cut_paid: flags.demat_cut_paid,
+      p_funder_share_paid: flags.funder_share_paid,
+    })
+    setBusy(false)
+    if (error) {
+      showToast(friendlyError(error), 'critical')
+      return
+    }
+    showToast('Payment deleted.', 'good')
+    onChanged()
+  }
+
+  return (
+    <div className="py-2 first:pt-0 last:pb-0">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+        <div className="min-w-0">
+          <span style={{ color: 'var(--ink-primary)' }}>{PAYMENT_KIND_LABELS[payment.kind]}</span>
+          <span style={{ color: 'var(--ink-muted)' }}>
+            {' · '}
+            {firstIpoWord(card.ipoName)} · {card.holderName}
+          </span>
+        </div>
+        <span className="font-mono-ipo shrink-0" style={{ color: 'var(--ink-primary)' }}>
+          {rupees(payment.amount)}
+        </span>
+      </div>
+      <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+        <span>{dateLabel}</span>
+        {loggedBy && <span>· by {loggedBy}</span>}
+        {payment.note && <span>· {payment.note}</span>}
+      </div>
+
+      {mode === 'view' && (
+        <div className="mt-1 flex gap-3">
+          <button
+            onClick={() => {
+              resetForm()
+              setMode('edit')
+            }}
+            className="link-accent text-xs font-medium"
+          >
+            Edit
+          </button>
+          <button
+            onClick={() => setMode('confirmDelete')}
+            className="text-xs font-medium hover:underline"
+            style={{ color: 'var(--critical-text)' }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+
+      {mode === 'confirmDelete' && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span style={{ color: 'var(--ink-secondary)' }}>Delete this {rupees(payment.amount)} entry?</span>
+          <button onClick={confirmDelete} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
+            {busy ? 'Deleting…' : 'Delete'}
+          </button>
+          <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {mode === 'edit' && (
+        <div className="mt-2 space-y-2">
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as SettlementPaymentKind)}
+            className="input text-xs"
+          >
+            <option value="holder_to_admin">{PAYMENT_KIND_LABELS.holder_to_admin}</option>
+            <option value="admin_to_funder">{PAYMENT_KIND_LABELS.admin_to_funder}</option>
+            <option value="holder_to_funder">{PAYMENT_KIND_LABELS.holder_to_funder}</option>
+          </select>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Amount"
+              className="input text-xs"
+            />
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Note (optional)"
+              className="input text-xs"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={saveEdit} disabled={busy} className="btn-primary text-xs disabled:opacity-50">
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={() => setMode('view')} disabled={busy} className="btn-secondary text-xs disabled:opacity-50">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // One card per IPO — every sold application under it as a row (see
 // SettlementCardView below), separated by dividers instead of each being
 // its own top-level card. "Settled ✓" on the header once every row's both
@@ -1073,6 +1280,7 @@ export function IpoSettlementCard({
   group,
   onLogged,
   readOnly,
+  profileNamesById,
 }: {
   group: IpoSettlementGroup
   onLogged: () => void
@@ -1083,6 +1291,10 @@ export function IpoSettlementCard({
   // Hiding the control is the correct read-only affordance, not a
   // workaround for a write that would fail anyway.
   readOnly?: boolean
+  // "logged by" attribution on each payment history row — optional, omit
+  // and that line just doesn't render (same graceful fallback
+  // FunderPayoutsPage's own PaymentLogRow usage already relies on).
+  profileNamesById?: Record<string, string>
 }) {
   return (
     <div className="card stagger-item p-4">
@@ -1097,7 +1309,13 @@ export function IpoSettlementCard({
       </div>
       <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
         {group.cards.map((c) => (
-          <SettlementCardView key={c.applicationId} c={c} onLogged={onLogged} readOnly={readOnly} />
+          <SettlementCardView
+            key={c.applicationId}
+            c={c}
+            onLogged={onLogged}
+            readOnly={readOnly}
+            profileNamesById={profileNamesById}
+          />
         ))}
       </div>
     </div>
@@ -1117,10 +1335,12 @@ function SettlementCardView({
   c,
   onLogged,
   readOnly,
+  profileNamesById,
 }: {
   c: SettlementCard
   onLogged: () => void
   readOnly?: boolean
+  profileNamesById?: Record<string, string>
 }) {
   const cutRemainder = c.profitTotal - c.dematCutAmount
   const [showDetails, setShowDetails] = useState(false)
@@ -1153,6 +1373,27 @@ function SettlementCardView({
     if (!amt || amt <= 0) {
       showToast('Enter an amount greater than 0.', 'warning')
       return
+    }
+    // Catches the exact mistake that left Knnu Harit's Kanohar Electricals
+    // demat-cut logged twice (₹16,137 backfilled, then the same ₹16,137
+    // logged again by hand three weeks later): nothing stopped a payment
+    // from being logged against a side that was already fully settled.
+    // Doesn't block it outright — an admin recording a genuine extra
+    // transfer is legitimate — just makes the overpay visible before it
+    // silently becomes an "overpaid" line the admin has to notice on their
+    // own later.
+    const nextFromHolderCheck = c.remainingFromHolder - (kind === 'holder_to_admin' || kind === 'holder_to_funder' ? amt : 0)
+    const nextToFunderCheck = c.remainingToFunder - (kind === 'admin_to_funder' || kind === 'holder_to_funder' ? amt : 0)
+    const overBy = Math.max(
+      kind === 'holder_to_admin' || kind === 'holder_to_funder' ? -nextFromHolderCheck : -Infinity,
+      kind === 'admin_to_funder' || kind === 'holder_to_funder' ? -nextToFunderCheck : -Infinity,
+    )
+    if (overBy > SETTLED_EPSILON) {
+      const ok = await confirmDialog(
+        `This side already shows nothing (or very little) remaining — logging ₹${Math.round(amt).toLocaleString('en-IN')} would overpay by ${rupees(overBy)}. Log it anyway?`,
+        { confirmLabel: 'Log anyway', tone: 'critical' },
+      )
+      if (!ok) return
     }
     // Same key for every retry of this one attempt — only minted fresh when
     // the form is opened (see the "+ Log a payment" button below), so a
@@ -1382,16 +1623,26 @@ function SettlementCardView({
       </p>
 
       {c.payments.length > 0 && (
-        <div className="space-y-1 border-t pt-2" style={{ borderColor: 'var(--border)' }}>
-          {c.payments.map((p) => (
-            <div key={p.id} className="flex items-center justify-between gap-2 text-xs" style={{ color: 'var(--ink-muted)' }}>
-              <span>
-                {PAYMENT_KIND_LABELS[p.kind]}
-                {p.note && ` — ${p.note}`}
-              </span>
-              <span className="font-mono-ipo shrink-0">{rupees(p.amount)}</span>
-            </div>
-          ))}
+        <div className="divide-y border-t text-xs" style={{ borderColor: 'var(--border)' }}>
+          {c.payments.map((p) =>
+            readOnly ? (
+              <div key={p.id} className="flex items-center justify-between gap-2 py-2" style={{ color: 'var(--ink-muted)' }}>
+                <span>
+                  {PAYMENT_KIND_LABELS[p.kind]}
+                  {p.note && ` — ${p.note}`}
+                </span>
+                <span className="font-mono-ipo shrink-0">{rupees(p.amount)}</span>
+              </div>
+            ) : (
+              <PaymentLogRow
+                key={p.id}
+                payment={p}
+                card={c}
+                loggedBy={p.created_by ? (profileNamesById?.[p.created_by] ?? null) : null}
+                onChanged={onLogged}
+              />
+            ),
+          )}
         </div>
       )}
 
