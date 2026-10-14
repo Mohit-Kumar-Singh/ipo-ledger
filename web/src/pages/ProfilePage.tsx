@@ -14,6 +14,7 @@ import {
   PersonIcon,
   GraphIcon,
   MegaphoneIcon,
+  PencilIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
@@ -70,7 +71,7 @@ export function ProfilePage() {
   // Which "Your details" row (if any) is inline-editable right now — name
   // and phone used to share one always-open form; each field is now its
   // own independent edit/save/cancel.
-  const [editingField, setEditingField] = useState<'name' | 'phone' | null>(null)
+  const [editing, setEditing] = useState(false)
 
   useEffect(() => {
     setFullName(profile?.full_name ?? '')
@@ -110,43 +111,31 @@ export function ProfilePage() {
     return true
   }
 
-  function startEditName() {
-    setFullName(profile?.full_name ?? '')
-    setError(null)
-    setEditingField('name')
-  }
-  function startEditPhone() {
-    setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
-    setError(null)
-    setEditingField('phone')
-  }
-  function cancelFieldEdit() {
+  function startEdit() {
     setFullName(profile?.full_name ?? '')
     setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
     setError(null)
-    setEditingField(null)
+    setEditing(true)
   }
-  async function saveName() {
+  function cancelEdit() {
+    setFullName(profile?.full_name ?? '')
+    setPhoneDigits(profile?.phone_e164?.replace(/^\+91/, '') ?? '')
+    setError(null)
+    setEditing(false)
+  }
+  async function saveDetails() {
     const trimmed = fullName.trim()
     if (!trimmed) {
       setError('Name cannot be empty.')
       return
     }
-    const ok = await updateProfile(trimmed, profile?.phone_e164?.replace(/^\+91/, '') ?? '')
-    if (ok) {
-      setEditingField(null)
-      setJustSaved(true)
-      setTimeout(() => setJustSaved(false), 2000)
-    }
-  }
-  async function savePhone() {
     if (!phoneValid) {
       setError('Phone number must be exactly 10 digits, or left blank.')
       return
     }
-    const ok = await updateProfile(profile?.full_name ?? fullName, phoneDigits)
+    const ok = await updateProfile(trimmed, phoneDigits)
     if (ok) {
-      setEditingField(null)
+      setEditing(false)
       setJustSaved(true)
       setTimeout(() => setJustSaved(false), 2000)
     }
@@ -176,11 +165,6 @@ export function ProfilePage() {
           </p>
         </div>
         <div className="flex items-center gap-0.5">
-          {isAdmin && (
-            <Link to="/broadcast" className="icon-btn" aria-label="Broadcast">
-              <MegaphoneIcon size={18} />
-            </Link>
-          )}
           <SharePortalButton />
           <ThemeToggle iconOnly />
         </div>
@@ -191,7 +175,7 @@ export function ProfilePage() {
           used to sit here is gone along with the self-service link-request
           flow it existed for — see the note above this component. */}
       <div className="card animate-page-in p-4">
-        <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--border)' }}>
+        <div className="flex items-center gap-3">
           <div
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-lg font-semibold"
             style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
@@ -203,7 +187,7 @@ export function ProfilePage() {
               .join('')
               .toUpperCase()}
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold" style={{ color: 'var(--ink-primary)' }}>
                 {profile?.full_name || 'Your name'}
@@ -215,7 +199,21 @@ export function ProfilePage() {
             <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
               {session?.user.email ?? session?.user.phone ?? '—'}
             </p>
+            <p className="truncate text-xs" style={{ color: 'var(--ink-muted)' }}>
+              {profile?.phone_e164 ? profile.phone_e164.replace(/^\+91/, '+91 ') : 'No phone number'}
+            </p>
           </div>
+          {!editing && (
+            <button
+              type="button"
+              onClick={startEdit}
+              aria-label="Edit personal details"
+              title="Edit personal details"
+              className="icon-btn shrink-0"
+            >
+              <PencilIcon size={16} />
+            </button>
+          )}
         </div>
 
         {justSaved && (
@@ -224,10 +222,9 @@ export function ProfilePage() {
           </p>
         )}
 
-        {/* Full name row */}
-        <div className="border-b" style={{ borderColor: 'var(--border)' }}>
-          {editingField === 'name' ? (
-            <div className="space-y-2 py-3">
+        {editing && (
+          <div className="mt-3 space-y-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
+            <div className="space-y-1">
               <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
                 Full name
                 <InfoTooltip text={`Shown in the sidebar, and used to sign messages — e.g. "— ${fullName.trim() || 'your name'}".`} />
@@ -236,44 +233,8 @@ export function ProfilePage() {
                 <PersonIcon size={15} fill="var(--ink-muted)" />
                 <input autoFocus required value={fullName} onChange={(e) => setFullName(e.target.value)} className="input" />
               </div>
-              {error && (
-                <p className="text-xs" style={{ color: 'var(--critical)' }}>
-                  {error}
-                </p>
-              )}
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={cancelFieldEdit} className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={saveName}
-                  disabled={submitting}
-                  className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
-                >
-                  {submitting ? 'Saving…' : 'Save'}
-                </button>
-              </div>
             </div>
-          ) : (
-            <button type="button" onClick={startEditName} className="flex w-full items-center gap-3 py-2.5 text-left">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  Full name
-                </p>
-                <p className="truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {fullName || '—'}
-                </p>
-              </div>
-              <ChevronRightIcon size={16} fill="var(--ink-muted)" />
-            </button>
-          )}
-        </div>
-
-        {/* Phone row */}
-        <div className="border-b" style={{ borderColor: 'var(--border)' }}>
-          {editingField === 'phone' ? (
-            <div className="space-y-2 py-3">
+            <div className="space-y-1">
               <label className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: 'var(--ink-secondary)' }}>
                 Phone number
                 <InfoTooltip text="Optional, 10 digits." />
@@ -287,7 +248,6 @@ export function ProfilePage() {
                   +91
                 </span>
                 <input
-                  autoFocus
                   inputMode="numeric"
                   value={phoneDigits}
                   onChange={(e) => setPhoneDigits(normalizeIndianPhoneDigits(e.target.value))}
@@ -300,40 +260,27 @@ export function ProfilePage() {
                   Must be exactly 10 digits.
                 </p>
               )}
-              {error && (
-                <p className="text-xs" style={{ color: 'var(--critical)' }}>
-                  {error}
-                </p>
-              )}
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={cancelFieldEdit} className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={savePhone}
-                  disabled={submitting}
-                  className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
-                >
-                  {submitting ? 'Saving…' : 'Save'}
-                </button>
-              </div>
             </div>
-          ) : (
-            <button type="button" onClick={startEditPhone} className="flex w-full items-center gap-3 py-2.5 text-left">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                  Phone number
-                </p>
-                <p className="font-mono-ipo truncate text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                  {phoneDigits ? `+91 ${phoneDigits}` : 'Not set'}
-                </p>
-              </div>
-              <ChevronRightIcon size={16} fill="var(--ink-muted)" />
-            </button>
-          )}
-        </div>
-
+            {error && (
+              <p className="text-xs" style={{ color: 'var(--critical)' }}>
+                {error}
+              </p>
+            )}
+            <div className="flex justify-end gap-3">
+              <button type="button" onClick={cancelEdit} className="text-sm font-medium" style={{ color: 'var(--ink-muted)' }}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveDetails}
+                disabled={submitting}
+                className="btn-primary px-4 py-1.5 text-sm disabled:opacity-50"
+              >
+                {submitting ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Quick nav ("Explore") — destinations not on the bottom tab bar.
