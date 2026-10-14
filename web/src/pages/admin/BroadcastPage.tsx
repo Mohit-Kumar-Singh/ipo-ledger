@@ -227,7 +227,7 @@ export function BroadcastPage() {
             disabled={!nextUnsent || !message.trim()}
             style={!nextUnsent || !message.trim() ? { opacity: 0.5 } : undefined}
           >
-            <MegaphoneIcon size={18} />
+            <MegaphoneIcon size={16} />
           </button>
           <button
             type="button"
@@ -236,7 +236,7 @@ export function BroadcastPage() {
             title="Manage people"
             onClick={() => setManageOpen(true)}
           >
-            <PencilIcon size={18} />
+            <PencilIcon size={16} />
           </button>
         </div>
       </div>
