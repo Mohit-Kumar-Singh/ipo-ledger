@@ -1,7 +1,7 @@
 import { friendlyError } from '../../lib/friendlyError'
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   AlertIcon,
   CheckIcon,
@@ -182,6 +182,19 @@ export function AccountsPage() {
       loggedInNotes: a.logged_in_notes ?? '',
     })
   }
+
+  // Deep link from the Broadcast page: /accounts?edit=<id> opens that
+  // account's edit form (e.g. to add a missing BO ID), once, then clears
+  // the param so a refresh doesn't reopen it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const editParam = searchParams.get('edit')
+  useEffect(() => {
+    if (!editParam || accounts.length === 0) return
+    const target = accounts.find((a) => a.id === editParam)
+    setSearchParams({}, { replace: true })
+    if (target) void startEdit(target)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editParam, accounts.length])
 
   async function deleteAccount(id: string, name: string) {
     if (

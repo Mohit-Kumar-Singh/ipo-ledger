@@ -13,13 +13,13 @@ import {
   ShieldCheckIcon,
   PersonIcon,
   GraphIcon,
+  MegaphoneIcon,
 } from '@primer/octicons-react'
 import { useAuth } from '../contexts/AuthContext'
 import { supabase } from '../lib/supabase'
 import { normalizeIndianPhoneDigits } from '../lib/phone'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SharePortalButton } from '../components/SharePortalButton'
-import { BroadcastButton, BroadcastListCard } from '../components/Broadcast'
 import { Logo } from '../components/Logo'
 import { InfoTooltip } from '../components/HoverCard'
 import { SellInstructionPdfsSection } from './admin/SellInstructionPdfs'
@@ -176,7 +176,11 @@ export function ProfilePage() {
           </p>
         </div>
         <div className="flex items-center gap-0.5">
-          <BroadcastButton />
+          {isAdmin && (
+            <Link to="/broadcast" className="icon-btn" aria-label="Broadcast">
+              <MegaphoneIcon size={18} />
+            </Link>
+          )}
           <SharePortalButton />
           <ThemeToggle iconOnly />
         </div>
@@ -332,8 +336,6 @@ export function ProfilePage() {
 
       </div>
 
-      <BroadcastListCard />
-
       {/* Quick nav ("Explore") — destinations not on the bottom tab bar.
           IPOs dropped from this list — it's one tap away from the
           Dashboard already, no need to duplicate it here. Hidden at lg,
@@ -387,6 +389,7 @@ export function ProfilePage() {
         </p>
         <div className="space-y-2">
           <NavCard to="/accounts" icon={PeopleIcon} iconColor="var(--accent)" label="Accounts" />
+          {isAdmin && <NavCard to="/broadcast" icon={MegaphoneIcon} iconColor="var(--accent)" label="Broadcast" />}
           {isAdmin && <NavCard to="/pan-access-log" icon={ShieldCheckIcon} iconColor="var(--violet)" label="PAN access log" />}
           {isAdmin && <NavCard to="/shareholder-quota" icon={GraphIcon} iconColor="var(--good)" label="Shareholder Quota" />}
           {/* Sell-instruction PDFs + archived applications sit last — rarely-
