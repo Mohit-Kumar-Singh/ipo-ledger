@@ -1,5 +1,5 @@
 import { friendlyError } from '../../lib/friendlyError'
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import {
@@ -188,8 +188,13 @@ export function AccountsPage() {
   // the param so a refresh doesn't reopen it.
   const [searchParams, setSearchParams] = useSearchParams()
   const editParam = searchParams.get('edit')
+  const handledEditParam = useRef<string | null>(null)
   useEffect(() => {
     if (!editParam || accounts.length === 0) return
+    // Guard against the effect firing twice for the same link (React
+    // StrictMode in dev) — startEdit reveals the PAN, which is logged.
+    if (handledEditParam.current === editParam) return
+    handledEditParam.current = editParam
     const target = accounts.find((a) => a.id === editParam)
     setSearchParams({}, { replace: true })
     if (target) void startEdit(target)

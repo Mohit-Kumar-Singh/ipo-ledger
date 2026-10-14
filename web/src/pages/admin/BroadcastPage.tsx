@@ -193,11 +193,18 @@ export function BroadcastPage() {
   const nextUnsent = contacts.find((c) => !sent.has(c.id))
   const remaining = contacts.filter((c) => !sent.has(c.id)).length
 
+  // A person can hold more than one demat account under the same phone —
+  // if ANY of them already has an application for this IPO, they have
+  // applied, whichever account the readiness check below happens to pick.
+  const appliedPhones = new Set(
+    (dematQuery.data ?? []).filter((a) => appliedDemat.has(a.id)).map((a) => a.phone_e164),
+  )
+
   // Not applying + we hold both PAN and BO ID + hasn't applied yet.
   const yetToApply = contacts.filter((c) => {
     if (!notApplying.has(c.id)) return false
     const account = accountByPhone.get(c.phone_e164)
-    return !!account?.dp_client_id && !appliedDemat.has(account.id)
+    return !!account?.dp_client_id && !appliedPhones.has(c.phone_e164)
   })
 
   if (!isAdmin) {
