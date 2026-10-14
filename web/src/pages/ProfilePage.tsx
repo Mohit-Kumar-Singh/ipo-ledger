@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase'
 import { normalizeIndianPhoneDigits } from '../lib/phone'
 import { ThemeToggle } from '../components/ThemeToggle'
 import { SharePortalButton } from '../components/SharePortalButton'
+import { BroadcastButton, BroadcastListCard } from '../components/Broadcast'
 import { Logo } from '../components/Logo'
 import { InfoTooltip } from '../components/HoverCard'
 import { SellInstructionPdfsSection } from './admin/SellInstructionPdfs'
@@ -175,6 +176,7 @@ export function ProfilePage() {
           </p>
         </div>
         <div className="flex items-center gap-0.5">
+          <BroadcastButton />
           <SharePortalButton />
           <ThemeToggle iconOnly />
         </div>
@@ -329,6 +331,8 @@ export function ProfilePage() {
         </div>
 
       </div>
+
+      <BroadcastListCard />
 
       {/* Quick nav ("Explore") — destinations not on the bottom tab bar.
           IPOs dropped from this list — it's one tap away from the
