@@ -1478,6 +1478,13 @@ export function IpojiSyncPanel({
             <button onClick={reviewInbox} disabled={loadingInbox || lookupsLoading} className="btn-primary">
               {loadingInbox || lookupsLoading ? 'Loading…' : 'Review'}
             </button>
+            {/* After Review, the real Import button sits far down below the
+                table — surface it right next to Review so it's one tap. */}
+            {fromInbox && parsed && (toCreate.length > 0 || toUpdateMandate.length > 0 || toSyncExisting.length > 0) && (
+              <button onClick={handleImport} disabled={submitting} className="btn-primary">
+                {submitting ? 'Importing…' : 'Import'}
+              </button>
+            )}
             <button onClick={discardInbox} className="btn-secondary">
               Discard
             </button>
