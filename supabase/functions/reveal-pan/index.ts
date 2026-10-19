@@ -25,16 +25,18 @@ Deno.serve(async (req) => {
     const { data: userData } = await admin.auth.getUser(jwt)
     if (!userData?.user) return new Response('unauthorized', { status: 401, headers: cors })
 
-    const { data: profile } = await admin
-      .from('profiles')
-      .select('role')
-      .eq('id', userData.user.id)
-      .single()
-    const isAdmin = profile?.role === 'admin'
-
     const body = await req.json().catch(() => ({}))
     const { demat_id } = body
     if (!demat_id) return jsonError('demat_id is required', 400, cors)
+
+    // Speed: the role lookup and the decrypt don't depend on each other, so
+    // run them together. The decrypted PAN stays server-side and is only
+    // returned after the authorization checks below pass.
+    const [{ data: profile }, decrypted] = await Promise.all([
+      admin.from('profiles').select('role').eq('id', userData.user.id).single(),
+      admin.rpc('decrypt_pan', { p_demat_id: demat_id, p_key: PAN_KEY }),
+    ])
+    const isAdmin = profile?.role === 'admin'
 
     let isOwner = false
     if (!isAdmin) {
@@ -61,7 +63,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { data: pan, error } = await admin.rpc('decrypt_pan', { p_demat_id: demat_id, p_key: PAN_KEY })
+    const { data: pan, error } = decrypted
     if (error || !pan) return jsonError(error?.message ?? 'not found', 404, cors)
 
     // is_self_reveal only when literally revealing your own account's PAN —
