@@ -70,7 +70,21 @@ Deno.serve(async (req) => {
     // was previously `!isAdmin`, which was accurate back when a non-admin
     // caller could only ever be the account's own owner; no longer true now
     // that a funder can also reveal someone else's PAN.
-    await admin.from('pan_access_log').insert({ demat_id, accessed_by: userData.user.id, is_self_reveal: isOwner })
+    //
+    // Non-blocking by the owner's decision: the audit row is still written,
+    // but the caller doesn't wait on it. EdgeRuntime.waitUntil keeps the
+    // function alive until the insert finishes; a failure is logged to the
+    // function logs (logError) rather than failing the reveal.
+    const logWrite = admin
+      .from('pan_access_log')
+      .insert({ demat_id, accessed_by: userData.user.id, is_self_reveal: isOwner })
+      .then(({ error: logErr }) => {
+        if (logErr) logError('reveal-pan:access-log', logErr)
+      })
+    // deno-lint-ignore no-explicit-any
+    const edgeRuntime = (globalThis as any).EdgeRuntime
+    if (edgeRuntime?.waitUntil) edgeRuntime.waitUntil(logWrite)
+    else await logWrite
 
     return jsonResponse({ pan }, 200, cors)
   } catch (err) {
