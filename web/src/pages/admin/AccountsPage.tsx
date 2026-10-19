@@ -85,6 +85,7 @@ export function AccountsPage() {
   const [showAddForm, setShowAddForm] = useState(hasAddDraft)
   const [editingAccount, setEditingAccount] = useState<EditingAccount | null>(null)
   const [revealing, setRevealing] = useState<string | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const [linking, setLinking] = useState<string | null>(null)
 
@@ -136,6 +137,18 @@ export function AccountsPage() {
       showToast(friendlyError(error), 'critical')
       return
     }
+    load()
+  }
+
+  async function toggleActive(a: DematAccount) {
+    setTogglingId(a.id)
+    const { error } = await supabase.from('demat_accounts').update({ is_active: !a.is_active }).eq('id', a.id)
+    setTogglingId(null)
+    if (error) {
+      showToast(friendlyError(error, "Couldn't change that account's status."), 'critical')
+      return
+    }
+    showToast(`${a.holder_name} marked ${a.is_active ? 'inactive' : 'active'}.`, 'good')
     load()
   }
 
@@ -329,6 +342,8 @@ export function AccountsPage() {
               load()
             }}
             onDelete={deleteAccount}
+            onToggleActive={toggleActive}
+            togglingId={togglingId}
           />
 
           <AccountSection
@@ -355,6 +370,8 @@ export function AccountsPage() {
               load()
             }}
             onDelete={deleteAccount}
+            onToggleActive={toggleActive}
+            togglingId={togglingId}
           />
         </>
       )}
@@ -383,6 +400,8 @@ function AccountSection({
   onCancelEdit,
   onSavedEdit,
   onDelete,
+  onToggleActive,
+  togglingId,
 }: {
   title: string
   subtitle: string
@@ -407,6 +426,8 @@ function AccountSection({
   onCancelEdit: () => void
   onSavedEdit: () => void
   onDelete: (id: string, name: string) => void
+  onToggleActive: (a: DematAccount) => void
+  togglingId: string | null
 }) {
   const [open, setOpen] = useState(!collapsedByDefault || accounts.length > 0)
   // Per-card expansion for the PAN/credentials panel. A Set rather than a
@@ -529,6 +550,16 @@ function AccountSection({
                         Copy, ml-1 on Edit) rather than a bigger gap and
                         bigger buttons everywhere. */}
                     <div className="flex shrink-0 items-center gap-1">
+                      {isAdmin && (
+                        <span className="mr-1 inline-flex" title={a.is_active ? 'Active — tap to mark inactive' : 'Inactive — tap to mark active'}>
+                          <Switch
+                            checked={a.is_active}
+                            onChange={() => onToggleActive(a)}
+                            disabled={togglingId === a.id}
+                            label={`${a.holder_name} is ${a.is_active ? 'active' : 'inactive'}`}
+                          />
+                        </span>
+                      )}
                       <ShareDetailsButton account={a} onGetPan={onGetPan} />
                       {/* ml-1 on top of the row's own gap-1 — a bit more
                           separation between the share pair and the manage
