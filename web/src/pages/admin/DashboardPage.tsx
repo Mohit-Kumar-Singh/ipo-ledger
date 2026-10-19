@@ -136,6 +136,11 @@ interface ExpectedProfitIpoBlock {
   // more accurate live price is possible until an admin fills in the
   // symbol field (ipoji never scrapes one; it's manual, see IposPage).
   needsSymbolForLivePrice: boolean
+  // Projected profit of every still-held (ALLOTTED, unsold) lot of this IPO
+  // after the demat holder's cut but before the funder split — the whole
+  // funded IPO's expected profit. IpoDashboardCard shows it next to the
+  // viewer's own net share (the still-projected funder lines' sum).
+  overallProjectedProfit: number
 }
 
 interface DashboardData {
@@ -279,9 +284,11 @@ function buildExpectedProfitByIpo(
         priceSource: livePrice != null ? 'live' : 'gmp',
         livePricePerShare: livePrice,
         needsSymbolForLivePrice: livePrice == null && !!c.listingDate && todayStr >= c.listingDate && !c.symbol,
+        overallProjectedProfit: 0,
       })
     }
     const b = expectedProfitBreakdown(c, livePrice)
+    byIpo.get(c.ipoName)!.overallProjectedProfit += b.netProfitPerLot * c.totalLots
     byIpo.get(c.ipoName)!.funders.push({
       funderName: c.funderName,
       holderNames: c.holderNames.map((h) => h.name).join(', '),
@@ -311,6 +318,7 @@ function buildExpectedProfitByIpo(
         priceSource: 'gmp',
         livePricePerShare: null,
         needsSymbolForLivePrice: false,
+        overallProjectedProfit: 0,
       })
     }
     byIpo.get(ipoName)!.funders.push({
@@ -1002,6 +1010,15 @@ export function DashboardPage() {
     .map((b) => ({ ...b, funders: b.funders.filter((f) => !f.booked) }))
     .filter((b) => b.funders.length > 0)
 
+  // Per-IPO figures for the IPO card's header once something is allotted:
+  // the whole funded IPO's projected profit vs the viewer's own net share.
+  const expectedProfitForCard = new Map(
+    unrealizedProfitByIpo.map((b) => [
+      b.ipoName,
+      { overall: b.overallProjectedProfit, mine: b.funders.reduce((sum, f) => sum + f.profit, 0) },
+    ]),
+  )
+
   // Soonest listing first — nulls (no listing date yet) sort last, same
   // ordering as the hover panel above so the two never disagree.
   const sortedAllottedNotSold = [...data.allottedNotSold].sort((a, b) => {
@@ -1160,6 +1177,7 @@ export function DashboardPage() {
                 retailIssueSize={p.retailIssueSize}
                 parentCompanyName={p.parentCompanyName}
                 parentPrice={p.parentCompanySymbol ? parentPrices[p.parentCompanySymbol] : undefined}
+                expectedProfit={expectedProfitForCard.get(p.companyName)}
               />
             ))}
           </div>

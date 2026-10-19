@@ -15,6 +15,11 @@ import { firstIpoWord } from '../lib/ipoDisplayName'
 // whole card used to be one big click target, which meant clicking
 // anywhere near the donut/legend/dates to, say, read a name also toggled
 // the expand panel as an unwanted side effect.
+function inr(n: number): string {
+  const r = Math.round(n)
+  return `${r < 0 ? '−' : ''}₹${Math.abs(r).toLocaleString('en-IN')}`
+}
+
 export function IpoDashboardCard({
   companyName,
   openDate,
@@ -37,6 +42,7 @@ export function IpoDashboardCard({
   retailIssueSize,
   parentCompanyName,
   parentPrice,
+  expectedProfit,
 }: {
   companyName: string
   openDate: string
@@ -72,6 +78,10 @@ export function IpoDashboardCard({
   retailIssueSize?: string | null
   parentCompanyName?: string | null
   parentPrice?: { price: number | null; stale: boolean }
+  // Set once something is allotted and unsold: overall = the whole funded
+  // IPO's expected profit, mine = the viewer's own net share. Replaces the
+  // generic 1-lot estimate next to the name.
+  expectedProfit?: { overall: number; mine: number }
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const canExpand = accountsLeft > 0
@@ -141,10 +151,16 @@ export function IpoDashboardCard({
               estimateLotProfit) — inline right after the name rather than
               its own row, and no explanatory tooltip; the full breakdown
               this used to show on hover was more than this card needed. */}
-          {lotEstimate && (
+          {allottedCount > 0 && expectedProfit ? (
             <span className="ml-1 text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
-              (₹{Math.round(lotEstimate.yourShare).toLocaleString('en-IN')})
+              (Overall {inr(expectedProfit.overall)} · Mine {inr(expectedProfit.mine)})
             </span>
+          ) : (
+            lotEstimate && (
+              <span className="ml-1 text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
+                (₹{Math.round(lotEstimate.yourShare).toLocaleString('en-IN')})
+              </span>
+            )
           )}
         </h3>
         {shareholderIssueSize && <span className="badge badge-info shrink-0 text-xs">Shareholder quota</span>}
