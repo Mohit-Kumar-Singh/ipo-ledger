@@ -142,13 +142,21 @@ export function AccountsPage() {
 
   async function toggleActive(a: DematAccount) {
     setTogglingId(a.id)
-    const { error } = await supabase.from('demat_accounts').update({ is_active: !a.is_active }).eq('id', a.id)
+    const next = !a.is_active
+    // Flip it in the shared cache straight away so the card moves
+    // instantly; rolled back below if the save fails.
+    const previous = queryClient.getQueryData<DematAccount[]>(queryKeys.dematAccounts)
+    queryClient.setQueryData<DematAccount[]>(queryKeys.dematAccounts, (old) =>
+      old?.map((x) => (x.id === a.id ? { ...x, is_active: next } : x)),
+    )
+    const { error } = await supabase.from('demat_accounts').update({ is_active: next }).eq('id', a.id)
     setTogglingId(null)
     if (error) {
+      if (previous) queryClient.setQueryData(queryKeys.dematAccounts, previous)
       showToast(friendlyError(error, "Couldn't change that account's status."), 'critical')
       return
     }
-    showToast(`${a.holder_name} marked ${a.is_active ? 'inactive' : 'active'}.`, 'good')
+    showToast(`${a.holder_name} marked ${next ? 'active' : 'inactive'}.`, 'good')
     load()
   }
 
@@ -716,11 +724,23 @@ function ShareDetailsButton({
 
   async function handleCopy() {
     setBusy('copy')
-    const text = await buildText()
-    setBusy(null)
-    await navigator.clipboard.writeText(text)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1200)
+    try {
+      // Hand the clipboard a pending value synchronously (still inside the
+      // tap) — iOS Safari rejects a plain writeText that only runs after the
+      // PAN lookup's network wait, because by then the tap no longer counts.
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        const textPromise = buildText().then((t) => new Blob([t], { type: 'text/plain' }))
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': textPromise })])
+      } else {
+        await navigator.clipboard.writeText(await buildText())
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    } catch {
+      showToast("Couldn't copy. Try the WhatsApp button instead.", 'warning')
+    } finally {
+      setBusy(null)
+    }
   }
 
   async function handleWhatsapp() {

@@ -509,11 +509,13 @@ function ManagePeople({
         ? await supabase.from('broadcast_contacts').update(row).eq('id', editingId)
         : await supabase.from('broadcast_contacts').insert(row)
       if (dbError) {
-        setError(
+        const base =
           dbError.code === '23505'
             ? 'That number is already on your broadcast list.'
-            : friendlyError(dbError, `Couldn't save that person.`),
-        )
+            : friendlyError(dbError, `Couldn't save that person.`)
+        // The account was already created above — say so, so a retry or a
+        // look at Accounts doesn't look like a half-saved mystery.
+        setError(wantsAccount ? `${base} Their account was saved in Accounts.` : base)
         return
       }
       await queryClient.invalidateQueries({ queryKey: ['broadcast-contacts'] })

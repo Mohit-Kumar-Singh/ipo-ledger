@@ -35,6 +35,26 @@ interface LocalPayoutsData {
 
 const EMPTY_PROFILE_NAMES: Record<string, string> = {}
 
+// PostgREST silently caps a response at 1000 rows — a ledger table that grows
+// past that would drop its oldest rows from every total with no error. Pages
+// through the table instead, newest first.
+async function fetchAllPages(table: 'settlement_payments' | 'manual_transactions') {
+  const PAGE = 1000
+  const all: unknown[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, from + PAGE - 1)
+    if (error) return { data: null, error }
+    all.push(...(data ?? []))
+    if ((data ?? []).length < PAGE) break
+  }
+  return { data: all, error: null }
+}
+
 export function usePayoutsData() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -54,13 +74,15 @@ export function usePayoutsData() {
 
   const localPayoutsQuery = useQuery<LocalPayoutsData>({
     queryKey: queryKeys.payoutsLocal,
-    // Every open of a payout page refetches, even inside the app-wide 60s
-    // staleTime — this is a money ledger, not a list that's fine a minute old.
-    refetchOnMount: 'always',
+    // Payout writes call invalidatePayoutsData themselves, so a revisit only
+    // needs a refetch once the data is a little old — not on every open,
+    // which re-ran every query plus the live-price call each time.
+    staleTime: 15_000,
+    refetchOnMount: true,
     queryFn: async () => {
       const [paymentsRes, manualRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
-        supabase.from('settlement_payments').select('*').order('created_at', { ascending: false }),
-        supabase.from('manual_transactions').select('*').order('created_at', { ascending: false }),
+        fetchAllPages('settlement_payments'),
+        fetchAllPages('manual_transactions'),
         supabase
           .from('applications')
           .select(

@@ -227,7 +227,15 @@ function netSettlementByParty(
   if (manualAdjustByName) {
     for (const [personName, adjust] of manualAdjustByName) {
       if (Math.abs(adjust) <= SETTLED_EPSILON) continue
-      const existing = Array.from(byName.values()).find((g) => sameIdentity(g.name, personName))
+      // Exact (case-insensitive) name first. The loose first-name match is
+      // only trusted when it points at exactly ONE person — if two people
+      // share a first name, guessing could credit the wrong one, so the
+      // entry stays a standalone line instead.
+      const want = personName.trim().toLowerCase()
+      const groups = Array.from(byName.values())
+      const exact = groups.find((g) => g.name.trim().toLowerCase() === want)
+      const loose = groups.filter((g) => sameIdentity(g.name, personName))
+      const existing = exact ?? (loose.length === 1 ? loose[0] : undefined)
       const g = existing ?? { name: personName, phone: null, total: 0, ipos: [] }
       if (!existing) byName.set(personName, g)
       g.total -= adjust
@@ -1576,7 +1584,7 @@ function ManualTransactionRow({
   const [mode, setMode] = useState<'view' | 'edit' | 'confirmDelete'>('view')
   const [personName, setPersonName] = useState(t.person_name)
   const [direction, setDirection] = useState<ManualTransactionDirection>(t.direction)
-  const [amount, setAmount] = useState(String(Math.round(t.amount)))
+  const [amount, setAmount] = useState(String(t.amount))
   const [note, setNote] = useState(t.note ?? '')
   const [busy, setBusy] = useState(false)
 
@@ -1589,7 +1597,7 @@ function ManualTransactionRow({
   function resetForm() {
     setPersonName(t.person_name)
     setDirection(t.direction)
-    setAmount(String(Math.round(t.amount)))
+    setAmount(String(t.amount))
     setNote(t.note ?? '')
   }
 
