@@ -144,7 +144,9 @@ export function ApplicationsPage() {
   // instead of an imperative fetch call, so a page that visited /ipos or
   // /accounts moments earlier hits a warm cache here instead of a fresh
   // network round trip.
-  const formDataNeeded = showForm || !!editingApplication || ipojiSyncOpen
+  // The inbox counts too: data the script delivered is processed (and, when
+  // clean, imported) without the sync panel being opened, which needs these.
+  const formDataNeeded = showForm || !!editingApplication || ipojiSyncOpen || (isAdmin && !!ipojiInbox)
   const iposQuery = useIpos(formDataNeeded)
   const accountsQuery = useDematAccounts(formDataNeeded)
   const banksQuery = useBankAccounts(formDataNeeded)
@@ -719,8 +721,8 @@ export function ApplicationsPage() {
         </button>
       )}
 
-      {isAdmin && !showForm && ipojiSyncOpen && (
-        <Suspense fallback={<InlineSpinner label="Loading sync panel…" />}>
+      {isAdmin && !showForm && (ipojiSyncOpen || !!ipojiInbox) && (
+        <Suspense fallback={ipojiSyncOpen ? <InlineSpinner label="Loading sync panel…" /> : null}>
           <IpojiSyncPanel
             open={ipojiSyncOpen}
             ipos={ipos}
@@ -730,6 +732,8 @@ export function ApplicationsPage() {
             existingByAppNumber={existingByAppNumber}
             existingByIpoAndDemat={existingByIpoAndDemat}
             onImported={loadApplications}
+            onRequestOpen={() => setIpojiSyncOpen(true)}
+            onFinished={() => setIpojiSyncOpen(false)}
             // The sync panel just inserted new IPO rows itself — force a
             // refetch rather than relying on formDataNeeded's existing
             // "already enabled" cache entry, which would otherwise keep

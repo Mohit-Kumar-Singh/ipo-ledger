@@ -1050,6 +1050,8 @@ export function IpojiSyncPanel({
   existingByAppNumber,
   existingByIpoAndDemat,
   onImported,
+  onRequestOpen,
+  onFinished,
   onIposCreated,
   lookupsLoading,
 }: {
@@ -1095,6 +1097,11 @@ export function IpojiSyncPanel({
   // on MatchedRow).
   existingByIpoAndDemat: Map<string, { id: string; mandate_status: MandateStatus; category: string }[]>
   onImported: () => void
+  // Asks the page to open this panel (for the review step) when data that
+  // arrived while it was closed turns out to need a person's look.
+  onRequestOpen: () => void
+  // Asks the page to close it again once an import has finished.
+  onFinished: () => void
   // Called after this panel creates one or more IPOs that didn't exist in
   // the portal at all — lets the parent refresh its own `ipos` prop so a
   // second paste (or the plain "New application" form) sees them without a
@@ -1568,6 +1575,25 @@ export function IpojiSyncPanel({
     // are skipped as duplicates); only a clean import clears it.
     if (fromInbox && failed === 0) await discardInbox()
     if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
+    // The review card closes itself after every import, clean or not; the
+    // outcome is reported in a toast instead of inside the card.
+    const summary = [
+      created > 0 ? created + ' new' : null,
+      mandateUpdated > 0 ? mandateUpdated + ' mandate update' + (mandateUpdated === 1 ? '' : 's') : null,
+      appNumbersBackfilled > 0 ? appNumbersBackfilled + ' synced' : null,
+      alreadyExisted > 0 ? alreadyExisted + ' already there' : null,
+    ]
+      .filter(Boolean)
+      .join(', ')
+    if (failed > 0) {
+      showToast(
+        failed + (failed === 1 ? ' application' : ' applications') + " couldn't be saved yet" + (summary ? ' (' + summary + ' went through)' : '') + '. Open the ipoji sync to try them again.',
+        'warning',
+      )
+    } else {
+      showToast('Imported from ipoji' + (summary ? ': ' + summary + '.' : '.'), 'good')
+    }
+    onFinished()
   }
 
   // Straight to import when the data came through clean: every row matched an
@@ -1592,7 +1618,13 @@ export function IpojiSyncPanel({
           !r.unusualStatus &&
           !r.duplicateOfExistingId,
       )
-    if (!clean || submitting) return
+    if (submitting) return
+    if (!clean) {
+      // Needs a person's look - bring the review card up (it is closed when
+      // the data arrived on its own).
+      onRequestOpen()
+      return
+    }
     if (toCreate.length + toUpdateMandate.length + toSyncExisting.length > 0) {
       void handleImport()
     } else {
@@ -1600,6 +1632,7 @@ export function IpojiSyncPanel({
       setParsed(null)
       setPasteText('')
       if (fromInbox) void discardInbox()
+      onFinished()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows])
@@ -1608,12 +1641,12 @@ export function IpojiSyncPanel({
   // Review tap needed. Once the lookups (accounts, banks, IPOs) are ready it
   // goes through the same parse -> clean-check -> import path as a paste.
   useEffect(() => {
-    if (!open || !inbox || lookupsLoading || parsed || loadingInbox) return
+    if (!inbox || lookupsLoading || parsed || loadingInbox) return
     if (inboxAutoStarted.current === inbox.id) return
     inboxAutoStarted.current = inbox.id
     void reviewInbox()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, inbox?.id, lookupsLoading])
+  }, [inbox?.id, lookupsLoading])
 
   if (!open) return null
 
