@@ -1,5 +1,5 @@
 import { friendlyError } from '../lib/friendlyError'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { InfoTooltip } from './HoverCard'
 import { Combobox, type ComboboxOption } from './Combobox'
 import { supabase } from '../lib/supabase'
@@ -690,6 +690,8 @@ interface MatchedRow extends ScrapedRow {
   // (add the UPI as a bank/UPI account, or link it to the right one) rather
   // than quietly defaulting to "no funder."
   newUpi: boolean
+  // This row's UPI was marked "applied for self" - skipped entirely.
+  selfApplied: boolean
 }
 
 function normalize(s: string): string {
@@ -755,6 +757,10 @@ function matchIpo(ipojiName: string, ipos: Ipo[]): Ipo | null {
 const IPO_ALIAS_KEY = 'ipojiSync.ipoAliases' // normalize(ipoji name) -> ipos.id
 const UPI_ALIAS_KEY = 'ipojiSync.upiAliases' // lowercased UPI ID -> bank_accounts.id
 const CLEAR_MAPPING = '__clear__'
+// Stored in the same UPI map instead of a bank id: this UPI's applications were
+// made for the person themselves, so the portal never tracks them (no
+// application, allotment or money split) and never warns about them again.
+const SELF_APPLIED = '__self__'
 
 function upiKey(upiId: string | undefined): string {
   return upiId?.trim().toLowerCase() ?? ''
@@ -1096,6 +1102,11 @@ export function IpojiSyncPanel({
   onIposCreated: () => void
   lookupsLoading: boolean
 }) {
+  // Set by every parse; the effect below consumes it once the matched rows
+  // are ready, to import straight away when nothing needs a human look.
+  const autoImportPending = useRef(false)
+  // Which inbox delivery has already been opened automatically (once each).
+  const inboxAutoStarted = useRef<string | null>(null)
   const [scriptCopied, setScriptCopied] = useState(false)
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false)
   const queryClient = useQueryClient()
@@ -1191,6 +1202,10 @@ export function IpojiSyncPanel({
   }
 
   async function handleParse(text: string = pasteText) {
+    autoImportPending.current = true
+    // Drop the previous preview first, so the auto-import check below can only
+    // ever see rows from THIS parse.
+    setParsed(null)
     setResult(null)
     setCreatedIpoNames([])
     setUnmatchableIpoNames([])
@@ -1257,6 +1272,7 @@ export function IpojiSyncPanel({
       const exactBank = matchBank(r.upiId, banks)
       const mappedBank = exactBank ? null : aliasedBank(upiAliases, r.upiId, banks)
       const matchedBank = exactBank ?? mappedBank
+      const selfApplied = !!r.upiId && !exactBank && upiAliases[upiKey(r.upiId)] === SELF_APPLIED
       const { lots, amount: amountNum, lotsGuessed } = computeLotsAndAmount(matchedIpo, r.qty, r.amount)
       // App-number match FIRST — ipoji's own application number is the
       // real stable identity of a bid, and has to win over a
@@ -1336,21 +1352,22 @@ export function IpojiSyncPanel({
         amountNum,
         duplicateOfExistingId: otherActive?.id ?? null,
         unusualStatus: !isKnownIpojiStatus(r.status),
-        newUpi: !!r.upiId && !matchedBank,
+        newUpi: !!r.upiId && !matchedBank && !selfApplied,
+        selfApplied,
         ipoMappedByHand: !!mappedIpo,
         bankMappedByHand: !!mappedBank,
       }
     })
   }, [parsed, effectiveIpos, banks, ipoAliases, upiAliases, existingByAppNumber, existingByKey, existingByIpoAndDemat])
 
-  const toCreate = (rows ?? []).filter((r) => r.matchedIpo && r.matchedDemat && !r.existingId && r.lots)
+  const toCreate = (rows ?? []).filter((r) => !r.selfApplied && r.matchedIpo && r.matchedDemat && !r.existingId && r.lots)
   // Only ever move PENDING -> a decided state here — never overwrite a
   // mandate this app already has a real decision for, in case ipoji's
   // status text and this app's own state ever disagree for a legitimate
   // reason (e.g. an admin manually cancelled a mandate ipoji still shows as
   // pending).
   const toUpdateMandate = (rows ?? []).filter(
-    (r) => r.existingId && r.existingMandate === 'PENDING' && r.guessedMandate !== 'PENDING',
+    (r) => !r.selfApplied && r.existingId && r.existingMandate === 'PENDING' && r.guessedMandate !== 'PENDING',
   )
   // An application that already exists here but was created before this
   // sync (or manually) either never got ipoji's own App number recorded, or
@@ -1373,6 +1390,7 @@ export function IpojiSyncPanel({
   // that gap.
   const toSyncExisting = (rows ?? []).filter(
     (r) =>
+      !r.selfApplied &&
       r.existingId &&
       ((!r.existingAppNumber && r.appNumber) ||
         !r.existingImportedFromIpoji ||
@@ -1551,6 +1569,51 @@ export function IpojiSyncPanel({
     if (fromInbox && failed === 0) await discardInbox()
     if (created > 0 || mandateUpdated > 0 || appNumbersBackfilled > 0) onImported()
   }
+
+  // Straight to import when the data came through clean: every row matched an
+  // IPO and an account, and nothing in the review warnings applies (unknown
+  // UPI, odd status, possible duplicate, multi-lot, unreadable rows). Anything
+  // that needs a person's judgement still stops at the preview as before.
+  useEffect(() => {
+    if (!rows || !autoImportPending.current) return
+    autoImportPending.current = false
+    const tracked = rows.filter((r) => !r.selfApplied)
+    const clean =
+      !parseError &&
+      unmatchableIpoNames.length === 0 &&
+      tracked.every(
+        (r) =>
+          r.matchedIpo &&
+          r.matchedDemat &&
+          // A new row needs a clean single-lot reading; an already-saved row
+          // is only being synced, so its lot count is not in question.
+          (r.existingId || (r.lots && !r.lotsGuessed && r.lots <= 1)) &&
+          !r.newUpi &&
+          !r.unusualStatus &&
+          !r.duplicateOfExistingId,
+      )
+    if (!clean || submitting) return
+    if (toCreate.length + toUpdateMandate.length + toSyncExisting.length > 0) {
+      void handleImport()
+    } else {
+      showToast('Everything from ipoji is already in the portal.', 'good')
+      setParsed(null)
+      setPasteText('')
+      if (fromInbox) void discardInbox()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
+
+  // Data the script sent to the inbox is opened as soon as the panel is: no
+  // Review tap needed. Once the lookups (accounts, banks, IPOs) are ready it
+  // goes through the same parse -> clean-check -> import path as a paste.
+  useEffect(() => {
+    if (!open || !inbox || lookupsLoading || parsed || loadingInbox) return
+    if (inboxAutoStarted.current === inbox.id) return
+    inboxAutoStarted.current = inbox.id
+    void reviewInbox()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, inbox?.id, lookupsLoading])
 
   if (!open) return null
 
@@ -1856,6 +1919,7 @@ export function IpojiSyncPanel({
                       b.upi_id ?? ([b.bank_name, b.last4 && `••${b.last4}`].filter(Boolean).join(' ') || 'no UPI')
                     }`,
                   })),
+                  { value: SELF_APPLIED, label: "Applied for self - don't track" },
                   { value: CLEAR_MAPPING, label: 'Clear mapping' },
                 ]
                 const rowCount = (pred: (r: MatchedRow) => boolean) => rows.filter(pred).length
@@ -1907,6 +1971,7 @@ export function IpojiSyncPanel({
                     })}
                     {upiIds.map((upi) => {
                       const mapped = aliasedBank(upiAliases, upi, banks)
+                      const markedSelf = upiAliases[upiKey(upi)] === SELF_APPLIED
                       const count = rowCount((r) => upiKey(r.upiId) === upiKey(upi))
                       return (
                         <div key={`upi-${upi}`} className="grid gap-1 sm:grid-cols-[1fr_22rem] sm:items-center sm:gap-3">
@@ -1917,15 +1982,21 @@ export function IpojiSyncPanel({
                             <span style={{ color: 'var(--ink-muted)' }}>
                               ({count} row{count === 1 ? '' : 's'})
                             </span>
-                            {!mapped && (
+                            {!mapped && !markedSelf && (
                               <p style={{ color: 'var(--warning-text)' }}>
-                                Not on any funder account — pick one, or leave it to import with no funder.
+                                Not on any funder account — pick one, mark it applied for self, or leave it to import
+                                with no funder.
+                              </p>
+                            )}
+                            {markedSelf && (
+                              <p style={{ color: 'var(--ink-muted)' }}>
+                                Applied for self — skipped: not tracked, no allotment, no money split.
                               </p>
                             )}
                           </div>
                           <Combobox
                             options={bankOptions}
-                            value={mapped?.id ?? ''}
+                            value={markedSelf ? SELF_APPLIED : (mapped?.id ?? '')}
                             onChange={(v) => setUpiAlias(upi, v)}
                             placeholder="Map to funder account…"
                             searchPlaceholder="Search funders / UPIs…"
@@ -2029,6 +2100,10 @@ export function IpojiSyncPanel({
                             <span style={{ color: 'var(--ink-muted)' }} title={r._debug}>
                               —{r._debug ? ' ⓘ' : ''}
                             </span>
+                          ) : r.selfApplied ? (
+                            <span title={r.upiId} style={{ color: 'var(--ink-muted)' }}>
+                              applied for self
+                            </span>
                           ) : r.matchedBank ? (
                             <>
                               {r.matchedBank.account_holder_name ?? r.upiId}
@@ -2055,7 +2130,9 @@ export function IpojiSyncPanel({
                           )}
                         </td>
                         <td className="p-1.5">
-                          {r.existingId ? (
+                          {r.selfApplied ? (
+                            <span style={{ color: 'var(--ink-muted)' }}>self-applied — skipped</span>
+                          ) : r.existingId ? (
                             toUpdateMandate.includes(r) ? (
                               <span style={{ color: 'var(--accent)' }}>update mandate → {r.guessedMandate}</span>
                             ) : toSyncExisting.includes(r) ? (
