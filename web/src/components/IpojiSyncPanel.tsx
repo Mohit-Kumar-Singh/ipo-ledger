@@ -291,6 +291,9 @@ const SYNC_SCRIPT = `(async () => {
             prevText = text;
           }
           const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
+          // Raw detail-panel lines (diagnostic, capped) - shows what ipoji prints
+          // there beyond UPI/PAN, e.g. an allotment result once it is out.
+          row._sheet = dLines.join(' | ').slice(0, 400);
           if (!dLines.some(l => l.includes(row.appNumber))) {
             errors.push({ card: i, stage: 'stale-sheet-content' });
             // v1.143.3's fix (require non-empty text before counting
@@ -609,6 +612,7 @@ interface ScrapedRow {
   // lines — diagnostics only, never written to the database.
   categoryText?: string
   _card?: string
+  _sheet?: string
   // Diagnostic only, set by the scrape script when it couldn't open/read the
   // UPI/PAN detail sheet for a row — surfaces what actually happened on a
   // phone (no DevTools console there) so it round-trips into this app
