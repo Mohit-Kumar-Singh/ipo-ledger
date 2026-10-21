@@ -75,6 +75,10 @@ interface IpoProgress {
   lotSize: number
   subscriptionRate: string | null
   remainingHolderNames: string[]
+  // Subset of remainingHolderNames that still owe a SHAREHOLDER-quota
+  // application: they hold this IPO's parent company shares (HELD) and have
+  // no live shareholder application yet — even if they already applied retail.
+  shareholderQuotaNames: string[]
   allottedCount: number
   shareholderIssueSize: string | null
   // Shown inside the progress gauge, under the applied/left ratio.
@@ -503,7 +507,7 @@ export function DashboardPage() {
     // shared with any other page. closingToday/activeAccounts are
     // derived client-side from the same fetched lists rather than their
     // own filtered network query.
-    const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes] = await Promise.all([
+    const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes, holdingsRes, shareholderAppsRes] = await Promise.all([
       queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
       queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
       queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
@@ -543,6 +547,12 @@ export function DashboardPage() {
       // a funder-only viewer who happens to BE a linked manager sees just
       // their own row via p_account_managers_self, which is all this needs.
       supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
+      // Parent-company shares currently held, and shareholder-quota
+      // applications already made — together they say who still owes a
+      // quota application on a live IPO. Admin-only at the RLS level
+      // (parent_company_holdings), so a funder-only viewer just gets none.
+      supabase.from('parent_company_holdings').select('parent_company_id, demat_id').eq('status', 'HELD'),
+      supabase.from('applications').select('ipo_id, demat_id, mandate_status').eq('category', 'SHAREHOLDER'),
     ])
 
     // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
@@ -613,16 +623,32 @@ export function DashboardPage() {
         .map(([ipoId]) => ipoId),
     )
 
+    const heldDematByParent = new Map<string, Set<string>>()
+    for (const h of (holdingsRes.data ?? []) as { parent_company_id: string; demat_id: string }[]) {
+      if (!heldDematByParent.has(h.parent_company_id)) heldDematByParent.set(h.parent_company_id, new Set())
+      heldDematByParent.get(h.parent_company_id)!.add(h.demat_id)
+    }
+    const shareholderAppliedByIpo = new Map<string, Set<string>>()
+    for (const a of (shareholderAppsRes.data ?? []) as { ipo_id: string; demat_id: string; mandate_status: string | null }[]) {
+      if (a.mandate_status === 'CANCELLED') continue
+      if (!shareholderAppliedByIpo.has(a.ipo_id)) shareholderAppliedByIpo.set(a.ipo_id, new Set())
+      shareholderAppliedByIpo.get(a.ipo_id)!.add(a.demat_id)
+    }
+
     const activeDematAccounts = dematAccountsData.filter((a) => a.is_active) as Pick<DematAccount, 'id' | 'holder_name'>[]
     const totalActive = activeDematAccounts.length
     const ipoProgress: IpoProgress[] = allIposData
       .filter(isLiveIpo)
       .map((ipo) => {
         const appliedIds = appliedDematIdsByIpo.get(ipo.id) ?? new Set<string>()
-        const remainingHolderNames = activeDematAccounts
-          .filter((d) => !appliedIds.has(d.id))
-          .map((d) => d.holder_name)
-          .sort((a, b) => a.localeCompare(b))
+        const quotaHolders = ipo.parent_company_id ? heldDematByParent.get(ipo.parent_company_id) : undefined
+        const quotaApplied = shareholderAppliedByIpo.get(ipo.id)
+        // Owes a quota application: holds the parent company's shares and has
+        // no live SHAREHOLDER application for this IPO.
+        const owesQuota = (id: string) => !!quotaHolders?.has(id) && !quotaApplied?.has(id)
+        const left = activeDematAccounts.filter((d) => !appliedIds.has(d.id) || owesQuota(d.id))
+        const remainingHolderNames = left.map((d) => d.holder_name).sort((a, b) => a.localeCompare(b))
+        const shareholderQuotaNames = left.filter((d) => owesQuota(d.id)).map((d) => d.holder_name)
         return {
           ipoId: ipo.id,
           companyName: ipo.company_name,
@@ -638,6 +664,7 @@ export function DashboardPage() {
           lotSize: ipo.lot_size,
           subscriptionRate: ipo.retail_subscription_rate,
           remainingHolderNames,
+          shareholderQuotaNames,
           allottedCount: allottedCountByIpo.get(ipo.id) ?? 0,
           shareholderIssueSize: ipo.shareholder_issue_size,
           retailIssueSize: ipo.retail_issue_size,
@@ -1168,6 +1195,7 @@ export function DashboardPage() {
                 applied={p.applied}
                 totalActive={p.totalActive}
                 remainingHolderNames={p.remainingHolderNames}
+                shareholderQuotaNames={p.shareholderQuotaNames}
                 attribution={attributionByIpoId.get(p.ipoId)}
                 expanded={expandedIpoIds.has(p.ipoId)}
                 onToggleExpanded={() => toggleExpanded(p.ipoId)}

@@ -19,6 +19,7 @@ import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
 import { Combobox } from '../../components/Combobox'
 import { CopyButton } from '../../components/CopyButton'
+import { ShareholderQuotaIcon } from '../../components/ShareholderQuotaIcon'
 // Lazy — most visits to this page never open the sync panel (627 lines,
 // its own review-table UI), no reason to make every Applications page load
 // pay for parsing it eagerly.
@@ -1140,8 +1141,12 @@ export function ApplicationsPage() {
                               SHAREHOLDER, migration 0097) needs the tag, so a
                               second bid via the shareholder quota is never
                               mistaken for a duplicate retail application. */}
-                          {a.category !== 'RETAIL' && (
-                            <span className="badge badge-neutral shrink-0 text-[10px]">{a.category}</span>
+                          {a.category === 'SHAREHOLDER' ? (
+                            <ShareholderQuotaIcon />
+                          ) : (
+                            a.category !== 'RETAIL' && (
+                              <span className="badge badge-neutral shrink-0 text-[10px]">{a.category}</span>
+                            )
                           )}
                         </div>
                         {/* UPI ID alongside the funder name — one funder can
