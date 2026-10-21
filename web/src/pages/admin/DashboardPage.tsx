@@ -611,11 +611,17 @@ export function DashboardPage() {
     // Distinct demat accounts marked ALLOTTED (or already SOLD — still
     // allotted, just further along) per IPO — feeds the Dashboard card's
     // "N allotted" badge that deep-links into that IPO's allotment board.
-    const allottedCountByIpo = new Map<string, number>()
+    const allottedDematsByIpo = new Map<string, Set<string>>()
     for (const r of boardRows) {
       if (r.status !== 'ALLOTTED' && r.status !== 'SOLD' && r.status !== 'PARTIALLY_SOLD') continue
-      allottedCountByIpo.set(r.ipo_id, (allottedCountByIpo.get(r.ipo_id) ?? 0) + 1)
+      // Distinct accounts (as the badge says) — an account allotted under
+      // both RETAIL and SHAREHOLDER is still one account.
+      if (!allottedDematsByIpo.has(r.ipo_id)) allottedDematsByIpo.set(r.ipo_id, new Set())
+      allottedDematsByIpo.get(r.ipo_id)!.add(r.demat_id)
     }
+    const allottedCountByIpo = new Map<string, number>(
+      Array.from(allottedDematsByIpo, ([ipoId, set]) => [ipoId, set.size] as [string, number]),
+    )
     // An IPO drops out of the progress cards once EVERY row of it this
     // viewer can see (their own rows only, for a funder-only viewer —
     // RLS scopes boardRows that way already; every row, for admin) came

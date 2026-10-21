@@ -449,17 +449,20 @@ export function ApplicationsPage() {
   // surfacing explicitly rather than letting it blend into the list, since
   // it used to be structurally impossible and is still an edge case worth a
   // second look.
+  //
+  // Category is part of the key: a RETAIL and a SHAREHOLDER-quota application
+  // for the same account + IPO are two different bids (0097), not duplicates.
   const duplicateAppIds = useMemo(() => {
     const counts = new Map<string, number>()
     for (const a of visibleApplications) {
       if (a.mandate_status === 'CANCELLED') continue
-      const key = `${a.ipo_id}_${a.demat_id}`
+      const key = `${a.ipo_id}_${a.demat_id}_${a.category}`
       counts.set(key, (counts.get(key) ?? 0) + 1)
     }
     const ids = new Set<string>()
     for (const a of visibleApplications) {
       if (a.mandate_status === 'CANCELLED') continue
-      if ((counts.get(`${a.ipo_id}_${a.demat_id}`) ?? 0) > 1) ids.add(a.id)
+      if ((counts.get(`${a.ipo_id}_${a.demat_id}_${a.category}`) ?? 0) > 1) ids.add(a.id)
     }
     return ids
   }, [visibleApplications])
@@ -1514,17 +1517,19 @@ function NewApplicationForm({
   // submitting fails outright, previously with no warning until the save
   // itself errored. Still shown (not filtered out of the list — an admin
   // may genuinely need to see/confirm who's already in), just flagged.
-  const [alreadyAppliedDematIds, setAlreadyAppliedDematIds] = useState<Set<string>>(new Set())
+  // Raw rows, reduced to a Set below once the chosen category is known — an
+  // account that applied RETAIL is still free to apply under SHAREHOLDER.
+  const [appliedRows, setAppliedRows] = useState<{ demat_id: string; mandate_status: string | null; category: string }[]>([])
 
   useEffect(() => {
     if (!ipoId || existing) {
-      setAlreadyAppliedDematIds(new Set())
+      setAppliedRows([])
       return
     }
     let cancelled = false
     supabase
       .from('applications')
-      .select('demat_id, mandate_status')
+      .select('demat_id, mandate_status, category')
       .eq('ipo_id', ipoId)
       .then(({ data }) => {
         if (cancelled) return
@@ -1534,9 +1539,7 @@ function NewApplicationForm({
         // left"/"cancelled mandates" fixes on Dashboard and Settings. Not
         // excluding it here left it wrongly flagged "already applied" (and
         // silently unselectable) in this exact dropdown.
-        setAlreadyAppliedDematIds(
-          new Set((data ?? []).filter((r) => r.mandate_status !== 'CANCELLED').map((r) => r.demat_id)),
-        )
+        setAppliedRows((data ?? []).filter((r) => r.mandate_status !== 'CANCELLED'))
       })
     return () => {
       cancelled = true
@@ -1562,6 +1565,10 @@ function NewApplicationForm({
   }, [bankAccountId, funderOverrideId, banks])
   const [lots, setLots] = useState(existing ? String(existing.lots) : '1')
   const [category, setCategory] = useState<ApplicationCategory>(existing?.category ?? 'RETAIL')
+  const alreadyAppliedDematIds = useMemo(
+    () => new Set(appliedRows.filter((r) => r.category === category).map((r) => r.demat_id)),
+    [appliedRows, category],
+  )
   // Which accounts already hold shares of this IPO's shareholder-quota
   // parent company (parent_company_holdings, migration 0097) — surfaced as
   // a hint once SHAREHOLDER is picked, not a hard filter, since an admin
