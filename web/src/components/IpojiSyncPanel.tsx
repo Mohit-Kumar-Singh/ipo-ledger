@@ -9,6 +9,10 @@ import { loadPersistedState, savePersistedState } from '../lib/persistedState'
 import { useQueryClient } from '@tanstack/react-query'
 import { showToast } from '../lib/toast'
 import { ShareholderQuotaIcon } from './ShareholderQuotaIcon'
+import { ALLOTMENT_SCRIPT } from '../lib/ipojiAllotmentScript'
+import { allotmentIssues, isAllotmentPaste, planAllotment, type AllotmentItem, type AllotmentRow, type AppRef } from '../lib/allotmentImport'
+import { maybeAutoArchiveIpo } from '../lib/autoArchive'
+import { queryKeys } from '../lib/queries'
 import { useIpojiInbox, loadIpojiInboxRows, clearIpojiInbox, getOrCreateIpojiImportKey } from '../lib/ipojiInbox'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
@@ -577,9 +581,9 @@ const SYNC_SCRIPT = `(async () => {
 // The personal import key + inbox URL are prefixed as a global the script
 // reads at the end (see `window.__IPOJI_INBOX` above), so the result goes
 // straight to the app.
-function buildBookmarklet(key: string): string {
+function buildBookmarklet(key: string, script: string = SYNC_SCRIPT): string {
   const inbox = JSON.stringify({ url: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ipoji-inbox`, key })
-  return 'javascript:' + encodeURIComponent(`window.__IPOJI_INBOX=${inbox};${SYNC_SCRIPT}`)
+  return 'javascript:' + encodeURIComponent(`window.__IPOJI_INBOX=${inbox};${script}`)
 }
 
 // Phones have no DevTools console (the computer flow can't run there) and
@@ -1120,6 +1124,10 @@ export function IpojiSyncPanel({
   const inboxAutoStarted = useRef<string | null>(null)
   const [scriptCopied, setScriptCopied] = useState(false)
   const [bookmarkletCopied, setBookmarkletCopied] = useState(false)
+  const [allotCopied, setAllotCopied] = useState<'script' | 'bookmarklet' | null>(null)
+  // Allotment results waiting for a person's look (see handleAllotmentParse).
+  const [allotPlan, setAllotPlan] = useState<AllotmentItem[] | null>(null)
+  const [applyingAllot, setApplyingAllot] = useState(false)
   const queryClient = useQueryClient()
   const inbox = useIpojiInbox(open).data
   // Set while the Preview on screen came from the app inbox, so a finished
@@ -1201,15 +1209,107 @@ export function IpojiSyncPanel({
     queryClient.invalidateQueries({ queryKey: ['ipoji_inbox'] })
   }
 
-  async function copyBookmarklet() {
+  async function copyBookmarklet(script: string = SYNC_SCRIPT, kind: 'sync' | 'allot' = 'sync') {
     try {
       const key = await getOrCreateIpojiImportKey()
-      await navigator.clipboard.writeText(buildBookmarklet(key))
-      setBookmarkletCopied(true)
-      setTimeout(() => setBookmarkletCopied(false), 1500)
+      await navigator.clipboard.writeText(buildBookmarklet(key, script))
+      if (kind === 'allot') {
+        setAllotCopied('bookmarklet')
+        setTimeout(() => setAllotCopied(null), 1500)
+      } else {
+        setBookmarkletCopied(true)
+        setTimeout(() => setBookmarkletCopied(false), 1500)
+      }
     } catch (err) {
       showToast(friendlyError(err, "Couldn't copy the bookmark. Try again."), 'critical')
     }
+  }
+
+  // Matches the allotment rows to IPOs / accounts / applications, then either
+  // applies the results straight away (nothing needs a look) or opens the
+  // review card with what does.
+  async function handleAllotmentParse(allotRows: AllotmentRow[]) {
+    const ipoByName = new Map<string, Ipo | null>()
+    for (const name of new Set(allotRows.map((r) => r.ipo))) {
+      ipoByName.set(name, aliasedIpo(ipoAliases, name, effectiveIpos) ?? matchIpo(name, effectiveIpos))
+    }
+    const dematByPan = new Map<string, DematAccount | null>()
+    for (const r of allotRows) {
+      if (dematByPan.has(r.panNumber)) continue
+      const { account } = await matchDemat(r.applicant, r.panNumber, accounts)
+      dematByPan.set(r.panNumber, account)
+    }
+    const ipoIds = Array.from(new Set(Array.from(ipoByName.values()).filter((i): i is Ipo => !!i).map((i) => i.id)))
+    let apps: AppRef[] = []
+    if (ipoIds.length > 0) {
+      const { data, error } = await withRetry(() =>
+        supabase.from('applications').select('id, ipo_id, demat_id, status, category, mandate_status').in('ipo_id', ipoIds),
+      )
+      if (error) {
+        showToast(friendlyError(error, "Couldn't read the applications to match the allotment results."), 'critical')
+        return
+      }
+      apps = (data ?? []) as AppRef[]
+    }
+    const items = planAllotment(
+      allotRows,
+      (r) => ({
+        ipoId: ipoByName.get(r.ipo)?.id ?? null,
+        dematId: dematByPan.get(r.panNumber)?.id ?? null,
+        holderName: dematByPan.get(r.panNumber)?.holder_name ?? null,
+      }),
+      apps,
+    )
+    const issues = allotmentIssues(items)
+    const updates = items.filter((i) => i.action === 'update')
+    if (issues.length === 0) {
+      if (updates.length > 0) await applyAllotment(items)
+      else {
+        showToast('Allotment results from ipoji already match the portal.', 'good')
+        setPasteText('')
+        if (fromInbox) await discardInbox()
+        onFinished()
+      }
+      return
+    }
+    setAllotPlan(items)
+    onRequestOpen()
+  }
+
+  async function applyAllotment(items: AllotmentItem[]) {
+    setApplyingAllot(true)
+    const updates = items.filter((i) => i.action === 'update' && i.applicationId && i.newStatus)
+    let done = 0
+    let failed = 0
+    const notAllottedIpos = new Set<string>()
+    for (const u of updates) {
+      // Guarded on status = APPLIED so a status someone changed meanwhile is
+      // never overwritten; select() confirms the row really changed (RLS
+      // would otherwise drop the write silently).
+      const { data, error } = await withRetry(() =>
+        supabase.from('applications').update({ status: u.newStatus }).eq('id', u.applicationId!).eq('status', 'APPLIED').select('id'),
+      )
+      if (!error && data && data.length > 0) {
+        done++
+        if (u.newStatus === 'NOT_ALLOTTED' && u.ipoId) notAllottedIpos.add(u.ipoId)
+      } else if (error) failed++
+    }
+    for (const ipoId of notAllottedIpos) await maybeAutoArchiveIpo(ipoId)
+    if (notAllottedIpos.size > 0) queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    onImported()
+    setApplyingAllot(false)
+    setAllotPlan(null)
+    setPasteText('')
+    const allotted = updates.filter((u) => u.newStatus === 'ALLOTTED').length
+    showToast(
+      failed > 0
+        ? failed + ' allotment update(s) could not be saved - try again.'
+        : 'Allotment applied: ' + done + ' updated (' + allotted + ' allotted, ' + (updates.length - allotted) + ' not allotted).',
+      failed > 0 ? 'warning' : 'good',
+    )
+    if (fromInbox && failed === 0) await discardInbox()
+    if (failed === 0) onFinished()
   }
 
   async function handleParse(text: string = pasteText) {
@@ -1232,6 +1332,14 @@ export function IpojiSyncPanel({
         ? `Couldn't read ${skippedLabels.length} row(s), add manually: ${skippedLabels.join('; ')}. The rest parsed fine below.`
         : null,
     )
+
+    // Allotment results (from the allotment script) take their own path: they
+    // update statuses of applications already in the portal, nothing is created.
+    if (isAllotmentPaste(scraped)) {
+      autoImportPending.current = false
+      await handleAllotmentParse(scraped)
+      return
+    }
 
     // Any ipoji IPO name this portal has no row for at all gets created
     // for real before matching runs — otherwise every application under it
@@ -1728,7 +1836,7 @@ export function IpojiSyncPanel({
                   which one applies to them. */}
               {isPhone ? (
                 <button
-                  onClick={copyBookmarklet}
+                  onClick={() => copyBookmarklet()}
                   className="btn-secondary"
                 >
                   {bookmarkletCopied ? 'Copied — save it as a bookmark' : 'Copy phone bookmarklet'}
@@ -1763,6 +1871,34 @@ export function IpojiSyncPanel({
                     : 'On the ipoji tab: open DevTools (F12), click Console, paste (Ctrl+V), press Enter. ' +
                       'The script runs by itself from there and shows progress in the corner. ' +
                       'Your ipoji login never touches this app — it only reads what is already on the page you are logged into.'
+                }
+              />
+              {/* Second script: ipoji's allotment results for the IPO picked on
+                  ipoji.com/ipo-allotment-status. Same copy / bookmark routine. */}
+              {isPhone ? (
+                <button onClick={() => copyBookmarklet(ALLOTMENT_SCRIPT, 'allot')} className="btn-secondary">
+                  {allotCopied === 'bookmarklet' ? 'Copied — save it as a bookmark' : 'Copy allotment bookmarklet'}
+                </button>
+              ) : (
+                <button
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(ALLOTMENT_SCRIPT)
+                    setAllotCopied('script')
+                    setTimeout(() => setAllotCopied(null), 1500)
+                  }}
+                  className="btn-secondary"
+                >
+                  {allotCopied === 'script' ? "Copied — paste it into ipoji's console" : 'Copy allotment script (computer)'}
+                </button>
+              )}
+              <InfoTooltip
+                text={
+                  'Allotment results: on ipoji open ipoji.com/ipo-allotment-status (logged in), pick the IPO in the ' +
+                  'dropdown, then run this script (computer: console paste; phone: the bookmark). ipoji checks each ' +
+                  'saved account one by one (about 5 seconds each); the script waits for it to finish, then sends the ' +
+                  'results here. Applications still at "Applied" become Allotted / Not allotted; anything already ' +
+                  'allotted or sold is never changed. If something is unclear (an account with two applications on ' +
+                  'the IPO, an unknown account) it is shown for review instead of being guessed.'
                 }
               />
             </div>
@@ -1822,6 +1958,66 @@ export function IpojiSyncPanel({
               </p>
             )}
           </div>
+
+          {allotPlan && (() => {
+            const issues = allotmentIssues(allotPlan)
+            const updates = allotPlan.filter((i) => i.action === 'update')
+            const issueText = (i: AllotmentItem): string => {
+              const who = i.holderName ?? i.row.applicant
+              if (i.action === 'unmatched-ipo') return who + ': the IPO "' + i.row.ipo + '" is not in the portal.'
+              if (i.action === 'unmatched-account') return i.row.applicant + ': no matching account in the portal.'
+              if (i.action === 'no-application') return who + ': ipoji shows a result but the portal has no live application for it.'
+              if (i.action === 'ambiguous') return who + ': more than one application on this IPO (for example retail and shareholder) - set it on the Allotment board.'
+              if (i.row.result === 'UNKNOWN') return who + ': unrecognised status "' + i.row.status + '".'
+              return who + ': ipoji had not finished checking this account.'
+            }
+            return (
+              <div className="space-y-2 rounded-lg border p-3" style={{ borderColor: 'var(--border)' }}>
+                <p className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                  Allotment results — {updates.length} ready to apply, {issues.length} need a look
+                </p>
+                <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  Only applications still at Applied are changed; anything already allotted or sold is left alone.
+                </p>
+                {issues.length > 0 && (
+                  <ul className="list-disc pl-4 text-xs font-medium" style={{ color: 'var(--warning-text)' }}>
+                    {issues.map((i, idx) => (
+                      <li key={idx}>{issueText(i)}</li>
+                    ))}
+                  </ul>
+                )}
+                {updates.length > 0 && (
+                  <ul className="max-h-48 overflow-auto text-xs" style={{ color: 'var(--ink-secondary)' }}>
+                    {updates.map((u, idx) => (
+                      <li key={idx}>
+                        {u.holderName ?? u.row.applicant} — {u.row.ipo} →{' '}
+                        {u.newStatus === 'ALLOTTED' ? 'Allotted' : 'Not allotted'}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => void applyAllotment(allotPlan)}
+                    disabled={applyingAllot || updates.length === 0}
+                    className="btn-primary"
+                  >
+                    {applyingAllot ? 'Applying…' : 'Apply ' + updates.length + ' update' + (updates.length === 1 ? '' : 's')}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAllotPlan(null)
+                      setPasteText('')
+                    }}
+                    disabled={applyingAllot}
+                    className="btn-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )
+          })()}
 
           {rows && (
             <div>
