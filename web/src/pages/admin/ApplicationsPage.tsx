@@ -569,6 +569,7 @@ export function ApplicationsPage() {
               ipoji_app_number: a.ipoji_app_number,
               imported_from_ipoji: a.imported_from_ipoji,
               bank_account_id: a.bank_account_id,
+              category: a.category,
             },
           ]),
       ),
@@ -578,13 +579,14 @@ export function ApplicationsPage() {
     () =>
       new Map(
         applications.map((a) => [
-          `${a.ipo_id}_${a.demat_id}_${a.bank_account_id ?? 'self'}`,
+          `${a.ipo_id}_${a.demat_id}_${a.bank_account_id ?? 'self'}_${a.category}`,
           {
             id: a.id,
             mandate_status: a.mandate_status,
             ipoji_app_number: a.ipoji_app_number,
             imported_from_ipoji: a.imported_from_ipoji,
             bank_account_id: a.bank_account_id,
+            category: a.category,
           },
         ]),
       ),
@@ -602,10 +604,10 @@ export function ApplicationsPage() {
       applications.reduce((map, a) => {
         const key = `${a.ipo_id}_${a.demat_id}`
         const list = map.get(key) ?? []
-        list.push({ id: a.id, mandate_status: a.mandate_status })
+        list.push({ id: a.id, mandate_status: a.mandate_status, category: a.category })
         map.set(key, list)
         return map
-      }, new Map<string, { id: string; mandate_status: Application['mandate_status'] }[]>()),
+      }, new Map<string, { id: string; mandate_status: Application['mandate_status']; category: string }[]>()),
     [applications],
   )
 

@@ -8,6 +8,7 @@ import { upsertIpoByIdentity } from '../lib/ipoUpsert'
 import { loadPersistedState, savePersistedState } from '../lib/persistedState'
 import { useQueryClient } from '@tanstack/react-query'
 import { showToast } from '../lib/toast'
+import { ShareholderQuotaIcon } from './ShareholderQuotaIcon'
 import { useIpojiInbox, loadIpojiInboxRows, clearIpojiInbox, getOrCreateIpojiImportKey } from '../lib/ipojiInbox'
 import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/database'
 
@@ -181,6 +182,50 @@ const SYNC_SCRIPT = `(async () => {
     return { pan: panOut.value, upi: upiOut.value };
   }
 
+  // Shareholder-quota detection. ipoji marks a quota bid with the word
+  // "Shareholder" somewhere on the card / detail sheet / API response, but not
+  // in a fixed spot - so look everywhere that belongs to THIS bid (never the
+  // IPO or applicant name lines, which could contain the word by chance) and
+  // treat an explicit "No"/"False" value as NOT a shareholder bid. Anything
+  // that does not say it is a normal (RETAIL) bid.
+  const SHAREHOLDER_RE = /share\s*-?\s*holder/i;
+  const NEGATIVE_RE = /^(no|false|n\/a|na|-|none|nil)$/i;
+  function findShareholderText(lines, skipLines) {
+    for (let k = 0; k < lines.length; k++) {
+      const line = lines[k];
+      if (skipLines.includes(line) || !SHAREHOLDER_RE.test(line)) continue;
+      const colon = line.indexOf(':');
+      if (colon >= 0 && NEGATIVE_RE.test(line.slice(colon + 1).trim())) continue;
+      const bare = line.replace(/[:\s]+$/, '');
+      if (/^share\s*-?\s*holder(\s*(quota|category|bid))?$/i.test(bare) && lines[k + 1] && NEGATIVE_RE.test(lines[k + 1].trim())) continue;
+      return line;
+    }
+    return '';
+  }
+  function walkForShareholder(obj, out, depth) {
+    if (depth > 6 || obj == null || typeof obj !== 'object') return;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (typeof v === 'string') {
+        if (!out.value && SHAREHOLDER_RE.test(v) && !/name|title|company|ipo|symbol/i.test(k) && !NEGATIVE_RE.test(v.trim())) out.value = k + ': ' + v.trim();
+      } else if (typeof v === 'boolean') {
+        if (!out.value && v && SHAREHOLDER_RE.test(k)) out.value = k + ': true';
+      } else if (v && typeof v === 'object') {
+        walkForShareholder(v, out, depth + 1);
+      }
+    }
+  }
+  function shareholderFromNetwork(entries, appNumber) {
+    const out = { value: '' };
+    for (const e of entries.filter((x) => x.body && (!appNumber || x.body.includes(appNumber)))) {
+      let parsed = null;
+      try { parsed = JSON.parse(e.body); } catch {}
+      if (parsed) walkForShareholder(parsed, out, 0);
+      if (out.value) break;
+    }
+    return out.value;
+  }
+
   async function scrapeDoc(win, doc, shouldStop) {
     patchNetworkCapture(win);
     const cards = [...doc.querySelectorAll('.order-card-v2')];
@@ -193,7 +238,12 @@ const SYNC_SCRIPT = `(async () => {
       const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
       if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
       const row = { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '', status: lines[amtIdx + 2] || '', qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '', upiId: '', panNumber: '' };
-      if (!row.appNumber) { errors.push({ card: i, stage: 'no-app-number', applicant: row.applicant }); rows.push(row); continue; }
+      // Card-level first (cheapest); the detail sheet and the captured API
+      // responses below can still upgrade it.
+      let shareholderText = findShareholderText(lines, [row.ipo, row.applicant]);
+      row._card = lines.join(' | ').slice(0, 220);
+      const finishCategory = () => { row.category = shareholderText ? 'SHAREHOLDER' : 'RETAIL'; row.categoryText = shareholderText; };
+      if (!row.appNumber) { finishCategory(); errors.push({ card: i, stage: 'no-app-number', applicant: row.applicant }); rows.push(row); continue; }
       try {
         const icons = [...card.querySelectorAll('svg')];
         const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
@@ -252,6 +302,7 @@ const SYNC_SCRIPT = `(async () => {
               ? 'empty-after-full-wait, sheet.innerHTML: ' + (sheet.innerHTML || '').replace(/\\s+/g, ' ').slice(0, 300)
               : 'stale-sheet-content: ' + dLines.slice(0, 8).join(' | ').slice(0, 200);
           } else {
+            if (!shareholderText) shareholderText = findShareholderText(dLines, [row.ipo, row.applicant]);
             const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
             if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
             const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
@@ -286,6 +337,7 @@ const SYNC_SCRIPT = `(async () => {
         // rendered, which is the whole point: the render step is what kept
         // failing on phone across three prior fix attempts, the underlying
         // data fetch never needed to be in question.
+        if (!shareholderText) shareholderText = shareholderFromNetwork((win.__ipojiNet || []).slice(netStart), row.appNumber);
         if (!row.panNumber || !row.upiId) {
           const netEntries = (win.__ipojiNet || []).slice(netStart);
           const net = extractFromNetwork(netEntries, row.appNumber);
@@ -299,6 +351,7 @@ const SYNC_SCRIPT = `(async () => {
         errors.push({ card: i, stage: 'click', error: String(e) });
         row._debug = 'click-error: ' + String(e);
       }
+      finishCategory();
       rows.push(row);
     }
     return { rows, errors, cardCount: cards.length };
@@ -544,6 +597,14 @@ interface ScrapedRow {
   amount?: string
   upiId?: string
   panNumber?: string
+  // 'SHAREHOLDER' when ipoji marks the bid as a shareholder-quota one,
+  // otherwise 'RETAIL'. Older pastes (before the script captured it) have
+  // neither field and are treated as RETAIL, exactly as before.
+  category?: 'SHAREHOLDER' | 'RETAIL'
+  // The exact ipoji text that made this a shareholder bid, and the card's raw
+  // lines — diagnostics only, never written to the database.
+  categoryText?: string
+  _card?: string
   // Diagnostic only, set by the scrape script when it couldn't open/read the
   // UPI/PAN detail sheet for a row — surfaces what actually happened on a
   // phone (no DevTools console there) so it round-trips into this app
@@ -581,12 +642,18 @@ interface MatchedRow extends ScrapedRow {
   // account. See toSyncExisting's filter/patch for where this actually
   // gets applied.
   existingBankAccountId: string | null
+  // What the existing row is filed under (RETAIL / SHAREHOLDER) — compared
+  // against this row's scraped category to correct rows imported before the
+  // script could tell the two apart.
+  existingCategory: string | null
   // Whether the EXISTING row (before this sync run) was already flagged as
   // ipoji-sourced. A manually-created application that a sync then
   // successfully matches against ipoji IS proof it really exists there —
   // this drives flipping its badge from "added manually" to "synced".
   existingImportedFromIpoji: boolean
   guessedMandate: MandateStatus
+  // RETAIL unless the scrape marked this bid as a shareholder-quota one.
+  category: 'RETAIL' | 'SHAREHOLDER'
   // Derived from ipoji's own scraped Qty ÷ the matched IPO's lot size when
   // that parses cleanly — falls back to the old assumed-1-lot-at-cutoff
   // default (see computeLotsAndAmount) only when it doesn't, e.g. no IPO
@@ -992,6 +1059,7 @@ export function IpojiSyncPanel({
       ipoji_app_number: string | null
       imported_from_ipoji: boolean
       bank_account_id: string | null
+      category: string
     }
   >
   // Keyed by (ipo_id, demat_id, ipoji_app_number) instead — checked FIRST,
@@ -1007,6 +1075,7 @@ export function IpojiSyncPanel({
       ipoji_app_number: string | null
       imported_from_ipoji: boolean
       bank_account_id: string | null
+      category: string
     }
   >
   // Every application already on file for a given (ipo, demat) pair
@@ -1014,7 +1083,7 @@ export function IpojiSyncPanel({
   // flag "this account already has an application for this IPO" when a
   // scraped row doesn't match one of them exactly (see duplicateOfExistingId
   // on MatchedRow).
-  existingByIpoAndDemat: Map<string, { id: string; mandate_status: MandateStatus }[]>
+  existingByIpoAndDemat: Map<string, { id: string; mandate_status: MandateStatus; category: string }[]>
   onImported: () => void
   // Called after this panel creates one or more IPOs that didn't exist in
   // the portal at all — lets the parent refresh its own `ipos` prop so a
@@ -1214,7 +1283,11 @@ export function IpojiSyncPanel({
       // existing match is treated as "not really there" here, same
       // reasoning the Dashboard's own applied-count uses — so this creates
       // a fresh row for the new bid instead of swallowing it.
-      const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}`)
+      // Category is part of the key: a shareholder-quota bid and a retail bid
+      // for the same account + IPO + UPI are two real applications (0097),
+      // and without it the second one would be swallowed as "already there".
+      const category: 'RETAIL' | 'SHAREHOLDER' = r.category === 'SHAREHOLDER' ? 'SHAREHOLDER' : 'RETAIL'
+      const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}_${category}`)
       const existing =
         matchedIpo && matchedDemat
           ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
@@ -1229,7 +1302,7 @@ export function IpojiSyncPanel({
       const otherActive =
         !existing && matchedIpo && matchedDemat
           ? (existingByIpoAndDemat.get(`${matchedIpo.id}_${matchedDemat.id}`) ?? []).find(
-              (a) => a.mandate_status !== 'CANCELLED',
+              (a) => a.mandate_status !== 'CANCELLED' && a.category === category,
             )
           : undefined
       return {
@@ -1243,6 +1316,8 @@ export function IpojiSyncPanel({
         existingAppNumber: existing?.ipoji_app_number ?? null,
         existingImportedFromIpoji: existing?.imported_from_ipoji ?? false,
         existingBankAccountId: existing?.bank_account_id ?? null,
+        existingCategory: existing?.category ?? null,
+        category,
         guessedMandate: guessMandateStatus(r.status),
         lots,
         lotsGuessed,
@@ -1289,6 +1364,7 @@ export function IpojiSyncPanel({
       r.existingId &&
       ((!r.existingAppNumber && r.appNumber) ||
         !r.existingImportedFromIpoji ||
+        (r.existingCategory != null && r.existingCategory !== r.category) ||
         (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId)),
   )
 
@@ -1315,7 +1391,7 @@ export function IpojiSyncPanel({
               // scraped UPI happens to match some other funder's own
               // account on file. A re-sync must never silently clear or
               // change an override someone set by hand.
-              category: 'RETAIL',
+              category: r.category,
               lots: r.lots!,
               bid_amount: r.amountNum,
               // Always false, deliberately — was previously
@@ -1419,6 +1495,10 @@ export function IpojiSyncPanel({
           // UPI-derived bank_account_id, which is exactly what a re-sync
           // is supposed to be able to correct.
           if (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId) patch.bank_account_id = r.matchedBank.id
+          // Fixes a shareholder-quota bid that an older sync filed as RETAIL
+          // (the script could not see the marker then) - matched by ipoji's
+          // own app number, so it is certainly the same bid.
+          if (r.existingCategory != null && r.existingCategory !== r.category) patch.category = r.category
           const { error } = await withRetry(() => supabase.from('applications').update(patch).eq('id', r.existingId))
           if (error) console.error('ipoji sync — existing-row sync failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (synced)`, error }
@@ -1885,7 +1965,10 @@ export function IpojiSyncPanel({
                             <span style={{ color: 'var(--critical-text)' }}>not found — map above</span>
                           )}
                         </td>
-                        <td className="p-1.5">{r.applicant}</td>
+                        <td className="p-1.5">
+                          {r.applicant}
+                          {r.category === 'SHAREHOLDER' && <ShareholderQuotaIcon className="ml-1.5" />}
+                        </td>
                         <td className="p-1.5">
                           {r.matchedDemat ? (
                             <>
