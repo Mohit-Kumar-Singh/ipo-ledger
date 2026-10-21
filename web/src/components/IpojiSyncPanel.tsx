@@ -188,16 +188,20 @@ const SYNC_SCRIPT = `(async () => {
   // IPO or applicant name lines, which could contain the word by chance) and
   // treat an explicit "No"/"False" value as NOT a shareholder bid. Anything
   // that does not say it is a normal (RETAIL) bid.
-  const SHAREHOLDER_RE = /share\s*-?\s*holder/i;
-  const NEGATIVE_RE = /^(no|false|n\/a|na|-|none|nil)$/i;
+  // No backslashes in these patterns on purpose: this whole script lives
+  // inside a TS template literal, where a single backslash silently vanishes
+  // (turning /share\s*holder/ into /shares*holder/ and /n\/a/ into a broken
+  // regex) - so classes like [ -] and [/] are used instead of \s and \/.
+  const SHAREHOLDER_RE = /share[ -]*holder/i;
+  const NEGATIVE_RE = /^(no|false|na|n[/]a|-|none|nil)$/i;
   function findShareholderText(lines, skipLines) {
     for (let k = 0; k < lines.length; k++) {
       const line = lines[k];
       if (skipLines.includes(line) || !SHAREHOLDER_RE.test(line)) continue;
       const colon = line.indexOf(':');
       if (colon >= 0 && NEGATIVE_RE.test(line.slice(colon + 1).trim())) continue;
-      const bare = line.replace(/[:\s]+$/, '');
-      if (/^share\s*-?\s*holder(\s*(quota|category|bid))?$/i.test(bare) && lines[k + 1] && NEGATIVE_RE.test(lines[k + 1].trim())) continue;
+      const bare = line.replace(/[: ]+$/, '');
+      if (/^share[ -]*holder( *(quota|category|bid))?$/i.test(bare) && lines[k + 1] && NEGATIVE_RE.test(lines[k + 1].trim())) continue;
       return line;
     }
     return '';
