@@ -581,16 +581,23 @@ export function DashboardPage() {
     // (counts, since the board rows don't carry category): a demat has a
     // retail application iff it has more live applications than quota ones.
     const quotaCountByIpoDemat = new Map<string, number>()
+    const shareholderAppliedByIpo = new Map<string, Set<string>>()
     for (const a of (shareholderAppsRes.data ?? []) as { ipo_id: string; demat_id: string; mandate_status: string | null }[]) {
       if (a.mandate_status === 'CANCELLED') continue
       const k = `${a.ipo_id}_${a.demat_id}`
       quotaCountByIpoDemat.set(k, (quotaCountByIpoDemat.get(k) ?? 0) + 1)
+      if (!shareholderAppliedByIpo.has(a.ipo_id)) shareholderAppliedByIpo.set(a.ipo_id, new Set())
+      shareholderAppliedByIpo.get(a.ipo_id)!.add(a.demat_id)
     }
     const liveCountByIpoDemat = new Map<string, number>()
+    // IPOs with at least one live application of any category - a card is
+    // still worth showing when only shareholder-quota bids exist so far.
+    const ipoIdsWithLiveApps = new Set<string>()
     for (const r of boardRows) {
       if (r.mandate_status === 'CANCELLED') continue
       const k = `${r.ipo_id}_${r.demat_id}`
       liveCountByIpoDemat.set(k, (liveCountByIpoDemat.get(k) ?? 0) + 1)
+      ipoIdsWithLiveApps.add(r.ipo_id)
     }
     const appliedDematIdsByIpo = new Map<string, Set<string>>()
     for (const r of boardRows) {
@@ -654,13 +661,6 @@ export function DashboardPage() {
       if (!heldDematByParent.has(h.parent_company_id)) heldDematByParent.set(h.parent_company_id, new Set())
       heldDematByParent.get(h.parent_company_id)!.add(h.demat_id)
     }
-    const shareholderAppliedByIpo = new Map<string, Set<string>>()
-    for (const a of (shareholderAppsRes.data ?? []) as { ipo_id: string; demat_id: string; mandate_status: string | null }[]) {
-      if (a.mandate_status === 'CANCELLED') continue
-      if (!shareholderAppliedByIpo.has(a.ipo_id)) shareholderAppliedByIpo.set(a.ipo_id, new Set())
-      shareholderAppliedByIpo.get(a.ipo_id)!.add(a.demat_id)
-    }
-
     const activeDematAccounts = dematAccountsData.filter((a) => a.is_active) as Pick<DematAccount, 'id' | 'holder_name'>[]
     const totalActive = activeDematAccounts.length
     const ipoProgress: IpoProgress[] = allIposData
@@ -707,7 +707,7 @@ export function DashboardPage() {
       // yet — it's not "in progress," there's nothing to track. Nor for
       // one this viewer's own visible applications have already settled
       // as NOT_ALLOTTED a day or more ago (see staleNotAllottedIpoIds).
-      .filter((p) => p.applied > 0 && !staleNotAllottedIpoIds.has(p.ipoId))
+      .filter((p) => ipoIdsWithLiveApps.has(p.ipoId) && !staleNotAllottedIpoIds.has(p.ipoId))
       // Most recently opened first, not soonest-closing first — the
       // latest IPO is what someone's actually here to check on.
       .sort((a, b) => b.openDate.localeCompare(a.openDate))

@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { CheckIcon } from '@primer/octicons-react'
 import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { ShareholderQuotaIcon } from '../../components/ShareholderQuotaIcon'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useIpos, useParentCompanies, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -790,7 +791,12 @@ function IpoCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {ipo.shareholder_issue_size && <span className="badge badge-info shrink-0">Shareholder quota</span>}
+          {ipo.shareholder_issue_size && (
+            <span className="badge badge-info inline-flex shrink-0 items-center gap-1">
+              <ShareholderQuotaIcon size={12} />
+              Shareholder quota
+            </span>
+          )}
           <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
         </div>
       </div>

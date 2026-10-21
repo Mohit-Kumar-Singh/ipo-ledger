@@ -175,7 +175,12 @@ export function IpoDashboardCard({
             )
           )}
         </h3>
-        {shareholderIssueSize && <span className="badge badge-info shrink-0 text-xs">Shareholder quota</span>}
+        {shareholderIssueSize && (
+          <span className="badge badge-info inline-flex shrink-0 items-center gap-1 text-xs">
+            <ShareholderQuotaIcon size={12} />
+            Shareholder quota
+          </span>
+        )}
         {allottedCount > 0 && (
           <Link
             to={`/allotment?ipo=${ipoId}`}

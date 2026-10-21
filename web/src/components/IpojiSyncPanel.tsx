@@ -190,8 +190,8 @@ const SYNC_SCRIPT = `(async () => {
   // that does not say it is a normal (RETAIL) bid.
   // No backslashes in these patterns on purpose: this whole script lives
   // inside a TS template literal, where a single backslash silently vanishes
-  // (turning /share\s*holder/ into /shares*holder/ and /n\/a/ into a broken
-  // regex) - so classes like [ -] and [/] are used instead of \s and \/.
+  // and corrupts the regex - so character classes like [ -] and [/] stand in
+  // for the usual whitespace and escaped-slash forms.
   const SHAREHOLDER_RE = /share[ -]*holder/i;
   const NEGATIVE_RE = /^(no|false|na|n[/]a|-|none|nil)$/i;
   function findShareholderText(lines, skipLines) {
@@ -1220,6 +1220,7 @@ export function IpojiSyncPanel({
     if (scraped.length === 0) {
       setParseError('Could not read that as sync data — make sure you pasted the exact clipboard content the script copied.')
       setParsed(null)
+      autoImportPending.current = false
       return
     }
     setParseError(
