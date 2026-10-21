@@ -1290,7 +1290,15 @@ export function IpojiSyncPanel({
       const byKey = existingByKey.get(`${matchedIpo?.id}_${matchedDemat?.id}_${matchedBank?.id ?? 'self'}_${category}`)
       const existing =
         matchedIpo && matchedDemat
-          ? byAppNumber || (byKey && byKey.mandate_status !== 'CANCELLED' ? byKey : undefined)
+          ? byAppNumber ||
+            (byKey &&
+            byKey.mandate_status !== 'CANCELLED' &&
+            // A row that already carries a DIFFERENT ipoji app number is a
+            // different bid (same account + UPI, e.g. a retail and a quota
+            // bid filed together by an older sync) - never the same one.
+            !(byKey.ipoji_app_number && r.appNumber && byKey.ipoji_app_number !== r.appNumber)
+              ? byKey
+              : undefined)
           : undefined
       // Only relevant when this row is about to create a brand-new
       // application (no exact match above) — check whether this exact
@@ -1375,6 +1383,27 @@ export function IpojiSyncPanel({
     // weak connection drops fewer requests when it isn't juggling a dozen
     // sockets at the same instant. Each individual write is also wrapped in
     // withRetry (transient "Load failed" only — never a real DB error).
+    // Existing rows are corrected FIRST (notably a shareholder bid an older sync
+    // filed as RETAIL): the new rows below can then be inserted without
+    // colliding with the row that was just re-categorised.
+    const syncExistingOutcomes = await Promise.all(
+        toSyncExisting.map(async (r) => {
+          const patch: Record<string, unknown> = { imported_from_ipoji: true }
+          if (!r.existingAppNumber && r.appNumber) patch.ipoji_app_number = r.appNumber
+          // Deliberately still never touches funder_override_id (see the
+          // same note on the insert path above) — only the literal
+          // UPI-derived bank_account_id, which is exactly what a re-sync
+          // is supposed to be able to correct.
+          if (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId) patch.bank_account_id = r.matchedBank.id
+          // Fixes a shareholder-quota bid that an older sync filed as RETAIL
+          // (the script could not see the marker then) - matched by ipoji's
+          // own app number, so it is certainly the same bid.
+          if (r.existingCategory != null && r.existingCategory !== r.category) patch.category = r.category
+          const { error } = await withRetry(() => supabase.from('applications').update(patch).eq('id', r.existingId))
+          if (error) console.error('ipoji sync — existing-row sync failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
+          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (synced)`, error }
+        }),
+    )
     const createOutcomes = await Promise.all(
         toCreate.map(async (r) => {
           const { data: inserted, error } = await withRetry(() =>
@@ -1484,24 +1513,6 @@ export function IpojiSyncPanel({
           )
           if (error) console.error('ipoji sync — mandate update failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
           return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (mandate)`, error }
-        }),
-    )
-    const syncExistingOutcomes = await Promise.all(
-        toSyncExisting.map(async (r) => {
-          const patch: Record<string, unknown> = { imported_from_ipoji: true }
-          if (!r.existingAppNumber && r.appNumber) patch.ipoji_app_number = r.appNumber
-          // Deliberately still never touches funder_override_id (see the
-          // same note on the insert path above) — only the literal
-          // UPI-derived bank_account_id, which is exactly what a re-sync
-          // is supposed to be able to correct.
-          if (r.matchedBank && r.matchedBank.id !== r.existingBankAccountId) patch.bank_account_id = r.matchedBank.id
-          // Fixes a shareholder-quota bid that an older sync filed as RETAIL
-          // (the script could not see the marker then) - matched by ipoji's
-          // own app number, so it is certainly the same bid.
-          if (r.existingCategory != null && r.existingCategory !== r.category) patch.category = r.category
-          const { error } = await withRetry(() => supabase.from('applications').update(patch).eq('id', r.existingId))
-          if (error) console.error('ipoji sync — existing-row sync failed for', r.matchedDemat?.holder_name, r.matchedIpo?.company_name, error)
-          return { ok: !error, label: `${r.matchedDemat?.holder_name} / ${r.matchedIpo?.company_name} (synced)`, error }
         }),
     )
     setSubmitting(false)
