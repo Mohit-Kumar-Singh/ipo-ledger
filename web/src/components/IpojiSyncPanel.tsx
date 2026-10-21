@@ -40,332 +40,64 @@ import type { BankAccount, DematAccount, Ipo, MandateStatus } from '../types/dat
 // silently importing garbage.
 const SYNC_SCRIPT = `(async () => {
   const KEY = 'ipojiAccumV1';
+  const MAX_AGE_DAYS = 21;
+  const MAX_PAGES = 60;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-  function findNextLink(doc) {
-    return doc.querySelector('a[aria-label="Next"]') ||
-      [...doc.querySelectorAll('a')].find(a => (a.textContent || '').trim().toLowerCase() === 'next') || null;
-  }
-  function isDisabled(el) {
-    if (!el) return true;
-    const li = el.closest('li');
-    if (li && li.classList.contains('disabled')) return true;
-    if (el.getAttribute('aria-disabled') === 'true') return true;
-    if (el.classList.contains('disabled')) return true;
-    return false;
-  }
-  function waitForIframeLoad(iframe, timeoutMs = 15000) {
-    return new Promise((resolve, reject) => {
-      let done = false;
-      const onLoad = () => { if (!done) { done = true; iframe.removeEventListener('load', onLoad); resolve(); } };
-      iframe.addEventListener('load', onLoad);
-      setTimeout(() => { if (!done) { done = true; iframe.removeEventListener('load', onLoad); reject(new Error('iframe load timeout')); } }, timeoutMs);
-    });
-  }
-  async function waitForCards(doc, timeoutMs = 4000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-      if (doc.querySelectorAll('.order-card-v2').length > 0) return;
-      await sleep(150);
-    }
-  }
+  // Reads ipoji's own order data instead of clicking through the page: every
+  // bid card on /bids (current) and /bids/past carries its full details (PAN,
+  // UPI, category, status) as JSON in a data-order-payload attribute, and each
+  // page of 10 is a plain GET (?currentIndex=N / ?pastIndex=N) - so this just
+  // fetches those pages with the logged-in session and parses them. No
+  // iframe, no clicking, a few seconds in total. NOTE: no backslashes in this
+  // script (a template literal drops them) - see ipojiSyncScript.test.ts.
 
-  // A real phone's _debug dump (sheet.innerHTML) showed the detail panel
-  // WAS fully rendered — real markup, "Bid Details For..." title, the
-  // detail-status-section div — while innerText on that same element read
-  // back completely empty. That combination (HTML present, innerText
-  // empty) means the browser considers the content not-visible (e.g. a
-  // Bootstrap offcanvas mid-transition, still visibility:hidden) —
-  // innerText respects CSS visibility, innerHTML doesn't. Almost certainly
-  // caused by this running inside a genuinely hidden (opacity:0, 1x1px)
-  // iframe on phone specifically. Fix: stop depending on layout/visibility
-  // at all — walk the DOM text nodes directly and reinsert innerText's
-  // usual line breaks at block-element boundaries by hand.
-  const BLOCK_TAGS = new Set(['DIV','P','H1','H2','H3','H4','H5','H6','TR','LI','SECTION','HEADER','FOOTER','TABLE','UL','OL','BR','SPAN']);
-  function textFromNode(node) {
-    let out = '';
-    (function walk(n) {
-      if (n.nodeType === 3) { out += n.nodeValue; return; }
-      if (n.nodeType !== 1) return;
-      const tag = n.tagName;
-      if (tag === 'SCRIPT' || tag === 'STYLE') return;
-      const isBlock = BLOCK_TAGS.has(tag);
-      if (isBlock) out += '\\n';
-      for (const child of n.childNodes) walk(child);
-      if (isBlock) out += '\\n';
-    })(node);
-    return out;
+  // --- helpers begin
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  function decodePayload(raw) {
+    try { return JSON.parse(decodeURIComponent(raw)); } catch (e) { return null; }
   }
+  function formatRupees(v) {
+    const n = Number(String(v == null ? '' : v).replace(/[^0-9.]/g, ''));
+    return Number.isFinite(n) && n > 0 ? '₹' + Math.round(n).toLocaleString('en-IN') : String(v == null ? '' : v);
+  }
+  function parsePlaced(s) {
+    const m = String(s || '').match(/^([0-9]{1,2}) ([A-Za-z]{3}) ([0-9]{4}),? ([0-9]{1,2}):([0-9]{2}) ?(AM|PM)$/i);
+    if (!m) return null;
+    const mon = MONTHS.indexOf(m[2].toLowerCase());
+    if (mon < 0) return null;
+    let h = Number(m[4]) % 12;
+    if (m[6].toUpperCase() === 'PM') h += 12;
+    return new Date(Number(m[3]), mon, Number(m[1]), h, Number(m[5]));
+  }
+  function rowFromPayload(p) {
+    const shareholder = String(p.category || '').toUpperCase() === 'SHAREHOLDER';
+    return {
+      ipo: p.companyName || '',
+      applicant: p.applicantName || '',
+      appNumber: String(p.appNo || ''),
+      status: p.message || '',
+      qty: String(p.bidQty || ''),
+      amount: formatRupees(p.bidAmount),
+      upiId: p.upiId || '',
+      panNumber: p.panNumber || '',
+      category: shareholder ? 'SHAREHOLDER' : 'RETAIL',
+      categoryText: shareholder ? String(p.category) : '',
+      boId: p.fullDpId || '',
+      placedAt: p.placedAt || '',
+      source: p.orderType || '',
+    };
+  }
+  // --- helpers end
 
-  // Reading the rendered detail sheet (innerText) turned out to be
-  // fundamentally fragile on phone — three real-device debug rounds (see
-  // git history) never pinned down why the panel's text stayed empty there.
-  // This sidesteps that entirely: ipoji's own page still has to fetch the
-  // PAN/UPI data from its API to render that sheet at all, on any device —
-  // so capture the raw network responses instead of the DOM they get
-  // rendered into, and pull the fields out of the actual JSON. Patched once
-  // per fresh iframe window (a full-page nav creates a new window object,
-  // so this re-runs each page but no-ops if already patched on this one).
-  function patchNetworkCapture(win) {
-    if (win.__ipojiPatched) return;
-    win.__ipojiPatched = true;
-    win.__ipojiNet = [];
-    const origFetch = win.fetch;
-    if (origFetch) {
-      win.fetch = function (...args) {
-        return origFetch.apply(this, args).then((res) => {
-          try {
-            res
-              .clone()
-              .text()
-              .then((body) => { win.__ipojiNet.push({ url: String(args[0]), body }); })
-              .catch(() => {});
-          } catch {}
-          return res;
-        });
-      };
-    }
-    const OrigXHR = win.XMLHttpRequest;
-    if (OrigXHR) {
-      const origOpen = OrigXHR.prototype.open;
-      const origSend = OrigXHR.prototype.send;
-      OrigXHR.prototype.open = function (method, url) {
-        this.__ipojiUrl = url;
-        return origOpen.apply(this, arguments);
-      };
-      OrigXHR.prototype.send = function (...args) {
-        this.addEventListener('loadend', () => {
-          try { win.__ipojiNet.push({ url: this.__ipojiUrl, body: this.responseText }); } catch {}
-        });
-        return origSend.apply(this, args);
-      };
-    }
-  }
-
-  // Depth-limited recursive walk for any key whose NAME (not value) mentions
-  // pan/upi — far more reliable than a blind text regex over the whole
-  // response, since it can't accidentally grab an unrelated PAN-shaped
-  // string or someone's login email from a sibling field.
-  function walkForKeys(obj, panOut, upiOut, depth) {
-    if (depth > 6 || obj == null || typeof obj !== 'object') return;
-    for (const k of Object.keys(obj)) {
-      const v = obj[k];
-      const kl = k.toLowerCase();
-      if (typeof v === 'string' && v.trim()) {
-        if (!panOut.value && kl.includes('pan')) panOut.value = v.trim();
-        if (!upiOut.value && kl.includes('upi')) upiOut.value = v.trim();
-      } else if (v && typeof v === 'object') {
-        walkForKeys(v, panOut, upiOut, depth + 1);
-      }
-    }
-  }
-
-  function extractFromNetwork(entries, appNumber) {
-    const panOut = { value: '' }, upiOut = { value: '' };
-    const relevant = entries.filter((e) => e.body && (!appNumber || e.body.includes(appNumber)));
-    for (const e of relevant) {
-      let parsed = null;
-      try { parsed = JSON.parse(e.body); } catch {}
-      if (parsed) walkForKeys(parsed, panOut, upiOut, 0);
-      if (panOut.value && upiOut.value) break;
-    }
-    // Regex fallback (strict PAN format / UPI's @handle shape) in case the
-    // response wasn't parseable JSON (e.g. server-rendered HTML fragment).
-    if (!panOut.value || !upiOut.value) {
-      for (const e of relevant) {
-        if (!panOut.value) {
-          const m = e.body.match(/\\b[A-Z]{5}[0-9]{4}[A-Z]\\b/);
-          if (m) panOut.value = m[0];
-        }
-        if (!upiOut.value) {
-          const m = e.body.match(/[a-zA-Z0-9.\\-_]{2,}@[a-zA-Z]{2,}\\b/);
-          if (m) upiOut.value = m[0];
-        }
-      }
-    }
-    return { pan: panOut.value, upi: upiOut.value };
-  }
-
-  // Shareholder-quota detection. ipoji marks a quota bid with the word
-  // "Shareholder" somewhere on the card / detail sheet / API response, but not
-  // in a fixed spot - so look everywhere that belongs to THIS bid (never the
-  // IPO or applicant name lines, which could contain the word by chance) and
-  // treat an explicit "No"/"False" value as NOT a shareholder bid. Anything
-  // that does not say it is a normal (RETAIL) bid.
-  // No backslashes in these patterns on purpose: this whole script lives
-  // inside a TS template literal, where a single backslash silently vanishes
-  // and corrupts the regex - so character classes like [ -] and [/] stand in
-  // for the usual whitespace and escaped-slash forms.
-  const SHAREHOLDER_RE = /share[ -]*holder/i;
-  const NEGATIVE_RE = /^(no|false|na|n[/]a|-|none|nil)$/i;
-  function findShareholderText(lines, skipLines) {
-    for (let k = 0; k < lines.length; k++) {
-      const line = lines[k];
-      if (skipLines.includes(line) || !SHAREHOLDER_RE.test(line)) continue;
-      const colon = line.indexOf(':');
-      if (colon >= 0 && NEGATIVE_RE.test(line.slice(colon + 1).trim())) continue;
-      const bare = line.replace(/[: ]+$/, '');
-      if (/^share[ -]*holder( *(quota|category|bid))?$/i.test(bare) && lines[k + 1] && NEGATIVE_RE.test(lines[k + 1].trim())) continue;
-      return line;
-    }
-    return '';
-  }
-  function walkForShareholder(obj, out, depth) {
-    if (depth > 6 || obj == null || typeof obj !== 'object') return;
-    for (const k of Object.keys(obj)) {
-      const v = obj[k];
-      if (typeof v === 'string') {
-        if (!out.value && SHAREHOLDER_RE.test(v) && !/name|title|company|ipo|symbol/i.test(k) && !NEGATIVE_RE.test(v.trim())) out.value = k + ': ' + v.trim();
-      } else if (typeof v === 'boolean') {
-        if (!out.value && v && SHAREHOLDER_RE.test(k)) out.value = k + ': true';
-      } else if (v && typeof v === 'object') {
-        walkForShareholder(v, out, depth + 1);
-      }
-    }
-  }
-  function shareholderFromNetwork(entries, appNumber) {
-    const out = { value: '' };
-    for (const e of entries.filter((x) => x.body && (!appNumber || x.body.includes(appNumber)))) {
-      let parsed = null;
-      try { parsed = JSON.parse(e.body); } catch {}
-      if (parsed) walkForShareholder(parsed, out, 0);
-      if (out.value) break;
-    }
-    return out.value;
-  }
-
-  async function scrapeDoc(win, doc, shouldStop) {
-    patchNetworkCapture(win);
-    const cards = [...doc.querySelectorAll('.order-card-v2')];
-    const rows = []; const errors = [];
-    for (let i = 0; i < cards.length; i++) {
-      if (shouldStop()) { errors.push({ card: i, stage: 'stopped-mid-page' }); break; }
-      const card = cards[i];
-      const lines = (card.innerText || '').split('\\n').map(s => s.trim()).filter(Boolean);
-      const idx = (label) => lines.findIndex(l => l.toLowerCase() === label);
-      const appIdx = idx('app'), priceIdx = idx('price'), qtyIdx = idx('qty'), amtIdx = idx('amount');
-      if (appIdx < 2 || priceIdx < 0 || qtyIdx < 0 || amtIdx < 0) { errors.push({ card: i, stage: 'list' }); continue; }
-      const row = { ipo: lines[0], applicant: lines[1], appNumber: lines[appIdx + 1] || '', status: lines[amtIdx + 2] || '', qty: lines[qtyIdx + 1] || '', amount: lines[amtIdx + 1] || '', upiId: '', panNumber: '' };
-      // Card-level first (cheapest); the detail sheet and the captured API
-      // responses below can still upgrade it.
-      let shareholderText = findShareholderText(lines, [row.ipo, row.applicant]);
-      row._card = lines.join(' | ').slice(0, 220);
-      const finishCategory = () => { row.category = shareholderText ? 'SHAREHOLDER' : 'RETAIL'; row.categoryText = shareholderText; };
-      if (!row.appNumber) { finishCategory(); errors.push({ card: i, stage: 'no-app-number', applicant: row.applicant }); rows.push(row); continue; }
-      try {
-        const icons = [...card.querySelectorAll('svg')];
-        const chevron = icons.length > 1 ? icons[icons.length - 1] : null;
-        const target = (chevron && (chevron.closest('button,a,[role="button"]') || chevron)) || card;
-        const netStart = (win.__ipojiNet || []).length;
-        target.click();
-        let sheet = null;
-        // 15x120ms (1.8s) was tuned against a desktop's wired connection —
-        // on a phone (mobile data/slower CPU) ipoji's async call to populate
-        // this panel can take longer than that, so every row silently fell
-        // through to the no-PAN/no-UPI fallback there while the card-list
-        // fields (no round trip needed) still came through fine. Widened to
-        // 40x150ms (6s) and re-clicks the target once at the halfway point,
-        // in case the very first click landed before ipoji's own listener
-        // had attached (observed as a total, not partial, phone failure —
-        // consistent with a listener-not-ready race, not a wrong selector).
-        for (let t = 0; t < 40 && !sheet; t++) {
-          await sleep(150);
-          if (t === 20) target.click();
-          sheet = doc.querySelector('#orderDetailSheet.show, #orderDetailSheet[aria-modal="true"]');
-        }
-        if (sheet) {
-          const body = sheet.querySelector('#orderDetailBody') || sheet;
-          let prevText = null, stableReads = 0, text = '';
-          // Real phone diagnostic (_debug field) showed the sheet DOES open
-          // promptly on mobile — it's this loop that was the bug: two
-          // consecutive empty reads ('' === '') counted as "stable" and
-          // exited after ~300ms, before ipoji's own async call had actually
-          // populated the sheet on a slower connection. Requiring non-empty
-          // text before counting toward stability (plus a longer 30x150ms=
-          // 4.5s cap, up from 12x150ms=1.8s) fixes the real race instead of
-          // the sheet-opening timing guessed at in the previous attempt.
-          for (let t = 0; t < 30 && stableReads < 2; t++) {
-            await sleep(150);
-            // textFromNode, not body.innerText — see its comment above: a
-            // real phone confirmed innerText reads empty on a fully-
-            // rendered-but-visibility-suppressed panel, which textFromNode
-            // doesn't depend on.
-            text = textFromNode(body);
-            stableReads = (text.trim() && text === prevText) ? stableReads + 1 : 0;
-            prevText = text;
-          }
-          const dLines = text.split('\\n').map(s => s.trim()).filter(Boolean);
-          // Raw detail-panel lines (diagnostic, capped) - shows what ipoji prints
-          // there beyond UPI/PAN, e.g. an allotment result once it is out.
-          row._sheet = dLines.join(' | ').slice(0, 400);
-          if (!dLines.some(l => l.includes(row.appNumber))) {
-            errors.push({ card: i, stage: 'stale-sheet-content' });
-            // v1.143.3's fix (require non-empty text before counting
-            // "stable") still came back permanently empty on a real phone
-            // re-test even after a 4.5s cap — ruling out timing entirely.
-            // innerText can read as empty even when real markup exists
-            // (elements with visibility:hidden/display:none, or content
-            // that only lives in an attribute/nested structure) — dumping
-            // raw innerHTML here (not innerText) distinguishes "genuinely
-            // no content rendered" from "content's there, just not the way
-            // innerText can see it," which decides the fix.
-            row._debug = !text
-              ? 'empty-after-full-wait, sheet.innerHTML: ' + (sheet.innerHTML || '').replace(/\\s+/g, ' ').slice(0, 300)
-              : 'stale-sheet-content: ' + dLines.slice(0, 8).join(' | ').slice(0, 200);
-          } else {
-            if (!shareholderText) shareholderText = findShareholderText(dLines, [row.ipo, row.applicant]);
-            const upiIdx = dLines.findIndex(l => l.toLowerCase() === 'upi id');
-            if (upiIdx >= 0) row.upiId = dLines[upiIdx + 1] || '';
-            const panIdx = dLines.findIndex(l => l.toLowerCase() === 'pan number');
-            if (panIdx >= 0) row.panNumber = dLines[panIdx + 1] || '';
-            if (!row.upiId && !row.panNumber) {
-              row._debug = 'sheet-found-but-no-upi/pan-lines: ' + dLines.slice(0, 10).join(' | ').slice(0, 200);
-            }
-          }
-          if (win.bootstrap?.Offcanvas) win.bootstrap.Offcanvas.getOrCreateInstance(sheet).hide();
-          else (sheet.querySelector('.btn-close,[data-bs-dismiss="offcanvas"]') || {}).click?.();
-          await sleep(200);
-        } else {
-          errors.push({ card: i, stage: 'detail-sheet-not-found' });
-          // Same reasoning as above — since the expected #orderDetailSheet
-          // selector never matched, look for anything modal/offcanvas-like
-          // that DID appear, so a mismatch between this selector and
-          // ipoji's actual mobile markup shows up in the pasted data
-          // instead of needing phone DevTools to see it.
-          const candidates = [...doc.querySelectorAll(
-            '[id*="offcanvas" i],[id*="modal" i],[class*="offcanvas" i],[class*="modal" i],[role="dialog"]'
-          )].slice(0, 6).map(el => ({
-            id: el.id || null,
-            cls: (el.className || '').toString().slice(0, 60),
-            visible: el.classList.contains('show') || el.getAttribute('aria-modal') === 'true',
-          }));
-          row._debug = 'detail-sheet-not-found, candidates: ' + JSON.stringify(candidates);
-        }
-        // Enrichment pass, not a replacement — only fills gaps the DOM read
-        // above left empty, using whatever ipoji's own page actually fetched
-        // from its API while that detail sheet was opening (see
-        // patchNetworkCapture). Works regardless of how/whether the sheet
-        // rendered, which is the whole point: the render step is what kept
-        // failing on phone across three prior fix attempts, the underlying
-        // data fetch never needed to be in question.
-        if (!shareholderText) shareholderText = shareholderFromNetwork((win.__ipojiNet || []).slice(netStart), row.appNumber);
-        if (!row.panNumber || !row.upiId) {
-          const netEntries = (win.__ipojiNet || []).slice(netStart);
-          const net = extractFromNetwork(netEntries, row.appNumber);
-          const recovered = (!row.panNumber && net.pan) || (!row.upiId && net.upi);
-          if (!row.panNumber && net.pan) row.panNumber = net.pan;
-          if (!row.upiId && net.upi) row.upiId = net.upi;
-          if (recovered) row._debug = (row._debug ? row._debug + ' | ' : '') + 'recovered-via-network';
-          else if (!row.panNumber && !row.upiId) row._debug = (row._debug ? row._debug + ' | ' : '') + 'network-capture-empty (' + netEntries.length + ' response(s) seen)';
-        }
-      } catch (e) {
-        errors.push({ card: i, stage: 'click', error: String(e) });
-        row._debug = 'click-error: ' + String(e);
-      }
-      finishCategory();
-      rows.push(row);
-    }
-    return { rows, errors, cardCount: cards.length };
+  async function fetchCards(url) {
+    const res = await fetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+    const cards = [...doc.querySelectorAll('.order-card-v2')]
+      .map((c) => decodePayload(c.getAttribute('data-order-payload')))
+      .filter(Boolean);
+    return { cards, finalUrl: res.url };
   }
 
   let store = {};
@@ -393,75 +125,57 @@ const SYNC_SCRIPT = `(async () => {
     setStatus('Stopping after the current page finishes.');
   };
 
-  const iframe = document.createElement('iframe');
-  iframe.id = '__ipojiAutoIframe';
-  // A 1x1px iframe (the previous size) makes the browser lay out the whole
-  // page at a near-zero viewport width, and Bootstrap (which ipoji's own
-  // markup uses) hides content behind responsive d-*-none / breakpoint
-  // classes at narrow widths — so PAN/UPI markup can be genuinely present in
-  // the DOM (confirmed via sheet.innerHTML dumps: real "detail-status-section"
-  // markup shows up even on rows logged as empty) while innerText, which
-  // reflects rendered layout, reads as empty. Three earlier rounds chased
-  // this as a timing bug because that's what the _debug text implied; a
-  // real mobile-width viewport (so nothing collapses under a breakpoint),
-  // pushed off-screen instead of shrunk to 1px, is the actual fix.
-  iframe.style.cssText = 'position:fixed;width:390px;height:844px;opacity:0;pointer-events:none;left:-9999px;top:0;';
-  document.body.appendChild(iframe);
-
-  let pageNum = 1;
-  const MAX_PAGES = 50;
   let stoppedReason = '';
   let totalErrors = 0;
+  const cutoff = Date.now() - MAX_AGE_DAYS * 86400000;
+  const sections = [
+    { name: 'Current bids', path: '/bids', param: 'currentIndex', recentOnly: false },
+    { name: 'Past bids', path: '/bids/past', param: 'pastIndex', recentOnly: true },
+  ];
 
   try {
-    setStatus('Loading page 1 in a hidden iframe.');
-    const firstLoad = waitForIframeLoad(iframe);
-    iframe.src = location.href;
-    await firstLoad;
-
-    while (pageNum <= MAX_PAGES) {
-      if (stopRequested) { stoppedReason = 'Stopped manually before page ' + pageNum + '.'; break; }
-      let doc, win;
-      try {
-        doc = iframe.contentDocument;
-        win = iframe.contentWindow;
-        if (!doc) throw new Error('no contentDocument');
-      } catch (e) {
-        stoppedReason = 'Cannot read the iframe content (' + String(e) + ').';
-        break;
+    for (const sec of sections) {
+      for (let i = 0; i < MAX_PAGES; i++) {
+        if (stopRequested) { stoppedReason = 'Stopped manually - everything read before the stop is saved.'; break; }
+        setStatus(sec.name + ': page ' + (i + 1) + '. ' + Object.keys(store).length + ' stored so far.');
+        let page;
+        try {
+          page = await fetchCards(location.origin + sec.path + (i === 0 ? '' : '?' + sec.param + '=' + i));
+        } catch (e) {
+          totalErrors++;
+          stoppedReason = sec.name + ' page ' + (i + 1) + ' failed (' + String(e) + '). Everything read before is saved.';
+          break;
+        }
+        if (i === 0 && page.cards.length === 0 && page.finalUrl.indexOf(sec.path) === -1) {
+          stoppedReason = 'Not logged in to ipoji - log in there, then run this again.';
+          break;
+        }
+        if (page.cards.length === 0) break;
+        let added = 0;
+        let tooOld = 0;
+        for (const p of page.cards) {
+          const row = rowFromPayload(p);
+          if (!row.appNumber) continue;
+          if (sec.recentOnly) {
+            const d = parsePlaced(p.placedAt);
+            if (d && d.getTime() < cutoff) { tooOld++; continue; }
+          }
+          if (!store[row.appNumber]) added++;
+          store[row.appNumber] = row;
+        }
+        localStorage.setItem(KEY, JSON.stringify(store));
+        if (page.cards.length < 10) break;
+        if (sec.recentOnly && tooOld === page.cards.length) break;
+        if (added === 0 && i > 0) break;
+        await sleep(150);
       }
-      await waitForCards(doc);
-      setStatus('Scraping page ' + pageNum + '.');
-      const { rows, errors, cardCount } = await scrapeDoc(win, doc, () => stopRequested);
-      totalErrors += errors.length;
-      let added = 0;
-      for (const r of rows) { if (r.appNumber && !store[r.appNumber]) added++; if (r.appNumber) store[r.appNumber] = r; }
-      localStorage.setItem(KEY, JSON.stringify(store));
-      const total = Object.keys(store).length;
-      setStatus('Page ' + pageNum + ': ' + cardCount + ' card(s), ' + added + ' new.\\nTotal stored: ' + total + '.' + (errors.length ? ' (' + errors.length + ' issue(s), see console)' : ''));
-      console.log('[ipoji auto] page', pageNum, { cardCount, added, errors });
-
-      if (stopRequested) { stoppedReason = 'Stopped manually mid-page ' + pageNum + ' - everything scraped before the stop is saved.'; break; }
-      if (cardCount < 10) { stoppedReason = 'Page ' + pageNum + ' had fewer than 10 cards - last page.'; break; }
-      if (added === 0 && pageNum > 1) { stoppedReason = 'Page ' + pageNum + ' had no new app numbers - stopped to avoid a loop.'; break; }
-
-      const nextLink = findNextLink(doc);
-      if (isDisabled(nextLink)) { stoppedReason = 'Next is disabled on page ' + pageNum + '.'; break; }
-
-      setStatus('Clicking Next (leaving page ' + pageNum + ').');
-      const nextLoad = waitForIframeLoad(iframe);
-      nextLink.click();
-      await nextLoad;
-      pageNum++;
-    }
-    if (pageNum > MAX_PAGES && !stoppedReason) {
-      stoppedReason = 'Hit the ' + MAX_PAGES + '-page safety cap - there may be more pages left. Run again to continue (already-stored rows are skipped automatically).';
+      if (stoppedReason) break;
     }
   } catch (e) {
-    stoppedReason = 'Stopped on an error: ' + String(e) + '. Everything scraped before the error is still saved.';
+    stoppedReason = 'Stopped on an error: ' + String(e) + '. Everything read before the error is still saved.';
   }
+  if (!stoppedReason) stoppedReason = 'Read current bids and the last ' + MAX_AGE_DAYS + ' days of past bids.';
 
-  iframe.remove();
   statusBox.remove();
 
   const total = Object.keys(store).length;
