@@ -75,9 +75,10 @@ interface IpoProgress {
   lotSize: number
   subscriptionRate: string | null
   remainingHolderNames: string[]
-  // Subset of remainingHolderNames that still owe a SHAREHOLDER-quota
-  // application: they hold this IPO's parent company shares (HELD) and have
-  // no live shareholder application yet — even if they already applied retail.
+  // Accounts that still owe a SHAREHOLDER-quota application: they hold this
+  // IPO's parent company shares (HELD) and have no live shareholder
+  // application yet. Separate from remainingHolderNames (the retail list) —
+  // an account can be in both, and is then listed twice.
   shareholderQuotaNames: string[]
   allottedCount: number
   shareholderIssueSize: string | null
@@ -576,6 +577,21 @@ export function DashboardPage() {
     // Applied-per-IPO accounts come from the board rows already fetched above
     // (one row per application) rather than a separate query — v_allotment_board
     // already covers every IPO, not just the top-8-by-open-date attribution set.
+    // Non-cancelled applications per (ipo, demat), split by quota vs retail
+    // (counts, since the board rows don't carry category): a demat has a
+    // retail application iff it has more live applications than quota ones.
+    const quotaCountByIpoDemat = new Map<string, number>()
+    for (const a of (shareholderAppsRes.data ?? []) as { ipo_id: string; demat_id: string; mandate_status: string | null }[]) {
+      if (a.mandate_status === 'CANCELLED') continue
+      const k = `${a.ipo_id}_${a.demat_id}`
+      quotaCountByIpoDemat.set(k, (quotaCountByIpoDemat.get(k) ?? 0) + 1)
+    }
+    const liveCountByIpoDemat = new Map<string, number>()
+    for (const r of boardRows) {
+      if (r.mandate_status === 'CANCELLED') continue
+      const k = `${r.ipo_id}_${r.demat_id}`
+      liveCountByIpoDemat.set(k, (liveCountByIpoDemat.get(k) ?? 0) + 1)
+    }
     const appliedDematIdsByIpo = new Map<string, Set<string>>()
     for (const r of boardRows) {
       // A CANCELLED mandate means the funder never actually approved the
@@ -585,6 +601,10 @@ export function DashboardPage() {
       // section; this is that same account showing up as still-available
       // here instead of silently counting as done.
       if (r.mandate_status === 'CANCELLED') continue
+      // Only a RETAIL application counts here — a quota-only account has
+      // still not applied retail.
+      const k = `${r.ipo_id}_${r.demat_id}`
+      if ((liveCountByIpoDemat.get(k) ?? 0) - (quotaCountByIpoDemat.get(k) ?? 0) <= 0) continue
       if (!appliedDematIdsByIpo.has(r.ipo_id)) appliedDematIdsByIpo.set(r.ipo_id, new Set())
       appliedDematIdsByIpo.get(r.ipo_id)!.add(r.demat_id)
     }
@@ -646,9 +666,14 @@ export function DashboardPage() {
         // Owes a quota application: holds the parent company's shares and has
         // no live SHAREHOLDER application for this IPO.
         const owesQuota = (id: string) => !!quotaHolders?.has(id) && !quotaApplied?.has(id)
-        const left = activeDematAccounts.filter((d) => !appliedIds.has(d.id) || owesQuota(d.id))
-        const remainingHolderNames = left.map((d) => d.holder_name).sort((a, b) => a.localeCompare(b))
-        const shareholderQuotaNames = left.filter((d) => owesQuota(d.id)).map((d) => d.holder_name)
+        const remainingHolderNames = activeDematAccounts
+          .filter((d) => !appliedIds.has(d.id))
+          .map((d) => d.holder_name)
+          .sort((a, b) => a.localeCompare(b))
+        const shareholderQuotaNames = activeDematAccounts
+          .filter((d) => owesQuota(d.id))
+          .map((d) => d.holder_name)
+          .sort((a, b) => a.localeCompare(b))
         return {
           ipoId: ipo.id,
           companyName: ipo.company_name,

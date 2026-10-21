@@ -62,8 +62,9 @@ export function IpoDashboardCard({
   applied: number
   totalActive: number
   remainingHolderNames: string[]
-  // Names in remainingHolderNames that hold the parent company's shares and
-  // still owe a shareholder-quota application — shown with the quota icon.
+  // Accounts that hold the parent company's shares and still owe a
+  // shareholder-quota application. Listed after the retail names, each with
+  // the quota icon — an account owing both appears twice (plain, then icon).
   shareholderQuotaNames?: string[]
   attribution: IpoAttribution | undefined
   expanded: boolean
@@ -89,10 +90,13 @@ export function IpoDashboardCard({
   expectedProfit?: { overall: number; mine: number }
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
-  const quotaNames = new Set(shareholderQuotaNames ?? [])
+  const leftEntries: { name: string; quota: boolean }[] = [
+    ...remainingHolderNames.map((name) => ({ name, quota: false })),
+    ...(shareholderQuotaNames ?? []).map((name) => ({ name, quota: true })),
+  ].sort((a, b) => a.name.localeCompare(b.name) || Number(a.quota) - Number(b.quota))
   // Driven by the list itself: an account that applied retail but still owes
   // its shareholder-quota application is "left" too, though the ring is full.
-  const canExpand = remainingHolderNames.length > 0
+  const canExpand = leftEntries.length > 0
   const cardRef = useRef<HTMLDivElement>(null)
   // Indicative only — not tied to any real application/account, just "if you
   // fund one lot of this and it gets allotted, at today's GMP." Real per-
@@ -109,7 +113,7 @@ export function IpoDashboardCard({
   // totalActive > 0 guards against firing on a 0/0 IPO nobody's applied to
   // at all (accountsLeft is also 0 there, but there's nothing to celebrate).
   useEffect(() => {
-    if (accountsLeft !== 0 || remainingHolderNames.length !== 0 || totalActive === 0) return
+    if (accountsLeft !== 0 || leftEntries.length !== 0 || totalActive === 0) return
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
     let cancelled = false
     import('canvas-confetti').then(({ default: confetti }) => {
@@ -246,17 +250,17 @@ export function IpoDashboardCard({
           {canExpand ? (
             <>
               <p className="mb-1 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
-                Accounts yet to apply ({remainingHolderNames.length})
+                Accounts yet to apply ({leftEntries.length})
               </p>
               <ul className="max-h-32 overflow-y-auto">
-                {remainingHolderNames.map((name) => (
+                {leftEntries.map(({ name, quota }) => (
                   <li
-                    key={name}
+                    key={name + (quota ? '#q' : '')}
                     className="truncate border-b py-1 text-xs last:border-b-0"
                     style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
                   >
                     {name}
-                    {quotaNames.has(name) && <ShareholderQuotaIcon className="ml-1.5" />}
+                    {quota && <ShareholderQuotaIcon className="ml-1.5" />}
                   </li>
                 ))}
               </ul>
@@ -311,17 +315,17 @@ export function IpoDashboardCard({
               onClick={(e) => e.stopPropagation()}
             >
             <p className="mb-1 shrink-0 text-xs font-medium" style={{ color: 'var(--ink-muted)' }}>
-              Accounts yet to apply ({remainingHolderNames.length})
+              Accounts yet to apply ({leftEntries.length})
             </p>
             <ul className="min-h-0 flex-1 overflow-y-auto">
-              {remainingHolderNames.map((name) => (
+              {leftEntries.map(({ name, quota }) => (
                 <li
-                  key={name}
+                  key={name + (quota ? '#q' : '')}
                   className="truncate border-b py-1.5 text-xs last:border-b-0"
                   style={{ borderColor: 'var(--border)', color: 'var(--ink-secondary)' }}
                 >
                   {name}
-                  {quotaNames.has(name) && <ShareholderQuotaIcon className="ml-1.5" />}
+                  {quota && <ShareholderQuotaIcon className="ml-1.5" />}
                 </li>
               ))}
             </ul>
