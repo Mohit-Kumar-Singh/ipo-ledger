@@ -86,6 +86,7 @@ interface IpoProgress {
   retailIssueSize: string | null
   parentCompanyName: string | null
   parentCompanySymbol: string | null
+  hasShareholderQuota: boolean
 }
 
 const HIGH_GMP_THRESHOLD = 15
@@ -701,6 +702,7 @@ export function DashboardPage() {
           retailIssueSize: ipo.retail_issue_size,
           parentCompanyName: ipo.parent_company_name,
           parentCompanySymbol: ipo.parent_company_symbol,
+          hasShareholderQuota: !!(ipo.parent_company_id || ipo.parent_company_name || ipo.shareholder_issue_size),
         }
       })
       // No point showing a progress tile for an IPO nobody has applied to
@@ -1235,6 +1237,7 @@ export function DashboardPage() {
                 shareholderIssueSize={p.shareholderIssueSize}
                 retailIssueSize={p.retailIssueSize}
                 parentCompanyName={p.parentCompanyName}
+                hasShareholderQuota={p.hasShareholderQuota}
                 parentPrice={p.parentCompanySymbol ? parentPrices[p.parentCompanySymbol] : undefined}
                 expectedProfit={expectedProfitForCard.get(p.companyName)}
               />

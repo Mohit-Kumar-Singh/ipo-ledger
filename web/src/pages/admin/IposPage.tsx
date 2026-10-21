@@ -779,6 +779,11 @@ function IpoCard({
           <div className="min-w-0">
             <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
               {ipo.company_name}
+              {/* Bank symbol = this IPO has a shareholder quota (a parent
+                  company is set, or a quota size is listed). */}
+              {(ipo.parent_company_id || ipo.parent_company_name || ipo.shareholder_issue_size) && (
+                <ShareholderQuotaIcon className="ml-1.5" />
+              )}
             </h3>
             {/* Registrar + bid amount only (max bid price × lot size) — the
                 price band and lot size separately were more than this line
@@ -791,12 +796,7 @@ function IpoCard({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {ipo.shareholder_issue_size && (
-            <span className="badge badge-info inline-flex shrink-0 items-center gap-1">
-              <ShareholderQuotaIcon size={12} />
-              Shareholder quota
-            </span>
-          )}
+          {ipo.shareholder_issue_size && <span className="badge badge-info shrink-0">Shareholder quota</span>}
           <span className={`badge shrink-0 ${status.badge}`}>{status.label}</span>
         </div>
       </div>

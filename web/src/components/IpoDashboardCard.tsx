@@ -45,6 +45,7 @@ export function IpoDashboardCard({
   parentCompanyName,
   parentPrice,
   expectedProfit,
+  hasShareholderQuota,
 }: {
   companyName: string
   openDate: string
@@ -88,6 +89,9 @@ export function IpoDashboardCard({
   // IPO's expected profit, mine = the viewer's own net share. Replaces the
   // generic 1-lot estimate next to the name.
   expectedProfit?: { overall: number; mine: number }
+  // This IPO has a shareholder quota (a parent company is set, or a quota size
+  // is listed) - shown as the bank symbol beside the name.
+  hasShareholderQuota?: boolean
 }) {
   const accountsLeft = Math.max(totalActive - applied, 0)
   const leftEntries: { name: string; quota: boolean }[] = [
@@ -159,6 +163,7 @@ export function IpoDashboardCard({
             Dashboard card included, uses the short form. */}
         <h3 className="truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }} title={companyName}>
           {firstIpoWord(companyName)}
+          {hasShareholderQuota && <ShareholderQuotaIcon className="ml-1.5" />}
           {/* Est. profit for 1 lot if it gets allotted (see
               estimateLotProfit) — inline right after the name rather than
               its own row, and no explanatory tooltip; the full breakdown
@@ -175,12 +180,7 @@ export function IpoDashboardCard({
             )
           )}
         </h3>
-        {shareholderIssueSize && (
-          <span className="badge badge-info inline-flex shrink-0 items-center gap-1 text-xs">
-            <ShareholderQuotaIcon size={12} />
-            Shareholder quota
-          </span>
-        )}
+        {shareholderIssueSize && <span className="badge badge-info shrink-0 text-xs">Shareholder quota</span>}
         {allottedCount > 0 && (
           <Link
             to={`/allotment?ipo=${ipoId}`}
