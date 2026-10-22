@@ -42,6 +42,20 @@ logging in directly in the automated window as a fallback — but be aware
 "Continue with Google" specifically is very likely to get blocked there.
 The cookie file is the reliable path.
 
+## How long an exported cookie lasts (about one hour)
+
+ipoji signs you in with Firebase. The `accessToken` cookie is a login token
+that expires **1 hour** after it was issued; your browser renews it from a
+longer-lived login stored in the browser's own storage, which a cookie export
+does not include. So an exported `ipoji-cookies.json` works for roughly an
+hour, then ipoji shows logged out. The bot now checks this before launching
+and tells you how long the cookie has left (or that it expired), instead of
+opening a browser that is certain to come up logged out.
+
+Practical flow: export fresh cookies, then run the bot straight away (the sync
+itself now takes a few seconds). `node check-cookie-expiry.mjs` shows how long
+the current file has left.
+
 ## Exporting your ipoji cookies
 
 Any cookie-export browser extension that outputs JSON works; **Cookie-Editor**

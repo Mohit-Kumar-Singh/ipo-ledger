@@ -111,6 +111,53 @@ async function loadIpojiCookies(context) {
   return true
 }
 
+// ipoji's accessToken cookie is a Firebase login token (base64-wrapped JWT)
+// that is only valid for ONE HOUR - the browser normally renews it from a
+// longer-lived login kept in its own storage, which an exported cookie does
+// not carry. So an exported cookie file is only good for about an hour; this
+// checks the token's own expiry up front and stops with a plain message
+// instead of launching a browser that is certain to come up logged out.
+// (Decoded read-only; the token value is never printed.)
+function jwtExpiry(value) {
+  const tryParts = (str) => {
+    const parts = str.split('.')
+    if (parts.length !== 3) return null
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8'))
+      return typeof payload.exp === 'number' ? payload.exp * 1000 : null
+    } catch {
+      return null
+    }
+  }
+  return tryParts(value) ?? tryParts(Buffer.from(value, 'base64').toString('utf8'))
+}
+
+function assertCookieFresh() {
+  if (!existsSync(COOKIES_PATH)) return
+  let raw
+  try {
+    raw = JSON.parse(readFileSync(COOKIES_PATH, 'utf8'))
+  } catch {
+    return // loadIpojiCookies reports a malformed file with its own message
+  }
+  const token = Array.isArray(raw) ? raw.find((c) => c?.name === 'accessToken') : null
+  if (!token?.value) return
+  const exp = jwtExpiry(token.value)
+  if (exp == null) return
+  const minutes = Math.round((exp - Date.now()) / 60000)
+  if (minutes <= 0) {
+    const ago = Math.abs(minutes) >= 120 ? `${Math.round(Math.abs(minutes) / 60)} hours` : `${Math.abs(minutes)} minutes`
+    throw new Error(
+      `The ipoji login in ipoji-cookies.json expired ${ago} ago (ipoji logins only last 1 hour). ` +
+        'Export fresh cookies right before running: log in to ipoji.com in your normal browser, ' +
+        'Cookie-Editor -> Export -> JSON, paste into ipoji-cookies.json, then run this again within the hour. ' +
+        'See README.md, section "Exporting your ipoji cookies".',
+    )
+  }
+  console.log(`ipoji login in the cookie file is valid for about ${minutes} more minute(s).`)
+  if (minutes < 10) console.log('That is short - if the run is slow, export fresh cookies and start again.')
+}
+
 // Reads SYNC_SCRIPT straight out of the real component file rather than
 // keeping a second copy here — the exact same extraction technique used to
 // validate the script's escaping during development (see the file's own
@@ -160,6 +207,7 @@ async function isLoggedIntoIpoji(page) {
 async function main() {
   console.log('Reading the current sync script from the repo...')
   const syncScript = extractSyncScript()
+  assertCookieFresh()
 
   console.log(`Launching Firefox (profile: ${PROFILE_DIR})...`)
   let context
@@ -275,9 +323,10 @@ async function main() {
   await portalPage.getByRole('button', { name: 'Preview' }).click()
 
   console.log(
-    '\nPasted into the portal and clicked Preview. Review the warnings in the table (multi-lot, ' +
-      'possible duplicates, unusual status, new UPI), then click Import yourself when it looks right.\n' +
-      'Leaving both browser tabs open so you can do that. IMPORTANT: close this Firefox window ' +
+    '\nPasted into the portal and clicked Preview. If everything is clean the portal imports it by itself and ' +
+      'closes the review card; if something needs a look (multi-lot, possible duplicate, unusual status, ' +
+      'unknown UPI) it stays open for you to fix and click Import.\n' +
+      'Leaving both browser tabs open so you can check. IMPORTANT: close this Firefox window ' +
       'before running the bot again — it holds a lock on the browser profile, and a second launch ' +
       "against the same locked profile fails immediately (\"Firefox exited immediately on launch\").",
   )
