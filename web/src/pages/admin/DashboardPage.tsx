@@ -681,6 +681,12 @@ export function DashboardPage() {
           .filter((d) => owesQuota(d.id))
           .map((d) => d.holder_name)
           .sort((a, b) => a.localeCompare(b))
+        // The progress ring counts every application this IPO can take: one per
+        // active account, plus a second (quota) one for each active account that
+        // holds the parent company's shares - so its left/total matches the
+        // 'yet to apply' list, quota entries included.
+        const quotaEligible = activeDematAccounts.filter((d) => quotaHolders?.has(d.id)).length
+        const quotaDone = quotaEligible - shareholderQuotaNames.length
         return {
           ipoId: ipo.id,
           companyName: ipo.company_name,
@@ -689,8 +695,8 @@ export function DashboardPage() {
           closeDate: ipo.close_date,
           allotmentDate: ipo.allotment_date,
           listingDate: ipo.listing_date,
-          applied: appliedIds.size,
-          totalActive,
+          applied: appliedIds.size + quotaDone,
+          totalActive: totalActive + quotaEligible,
           gmpNotes: ipo.gmp_notes,
           priceHigh: ipo.price_high,
           lotSize: ipo.lot_size,
