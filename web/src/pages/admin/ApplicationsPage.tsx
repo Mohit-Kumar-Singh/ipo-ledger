@@ -317,6 +317,13 @@ export function ApplicationsPage() {
 
   function loadApplications() {
     queryClient.invalidateQueries({ queryKey: applicationsQueryKey })
+    // Other screens built from applications have their own caches (the
+    // Dashboard's 'yet to apply' lists and progress rings, the allotment
+    // board) - after an import or edit they must not keep showing the old
+    // picture for up to a minute, e.g. an account that was just applied for
+    // still listed as 'yet to apply'.
+    queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   useEffect(() => {
