@@ -42,6 +42,14 @@ export async function clearIpojiInbox(): Promise<void> {
   await supabase.from('ipoji_inbox').delete().gte('created_at', '1970-01-01')
 }
 
+// Replaces the admin's personal bookmarklet key with a new one: every bookmark
+// made with the old key stops working at once. The way to revoke a bookmark
+// that was shared, synced to another device, or otherwise exposed.
+export async function rotateIpojiImportKey(): Promise<void> {
+  const { error } = await supabase.rpc('rotate_ipoji_import_key')
+  if (error) throw error
+}
+
 // The admin's personal bookmarklet key; created on first use.
 export async function getOrCreateIpojiImportKey(): Promise<string> {
   const { data, error } = await supabase.from('ipoji_import_keys').select('key').maybeSingle()

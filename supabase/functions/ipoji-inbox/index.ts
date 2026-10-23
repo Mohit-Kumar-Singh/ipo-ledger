@@ -2,8 +2,12 @@
 // ipoji.com) and parks it in ipoji_inbox for the admin to review in the app.
 // Auth is the per-admin import key in the body (see migration 0103) — no JWT,
 // because the bookmarklet runs on ipoji's page, not ours. The key is
-// write-only: it can add rows to that admin's inbox and do nothing else, and
-// nothing in the inbox is imported without the admin's own Review step.
+// write-only: it can add rows to that admin's inbox and do nothing else.
+// NOTE: the portal now imports a clean batch automatically when the admin opens
+// the app (and only stops for review when something looks off), so anyone
+// holding this key could get rows imported - treat it like a password. The
+// admin can revoke it at any time with "Reset bookmark key" in the ipoji sync
+// panel (rotate_ipoji_import_key), which invalidates every saved bookmark.
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import { jsonError, jsonResponse, logError, logRequest } from '../_shared/http.ts'
 
