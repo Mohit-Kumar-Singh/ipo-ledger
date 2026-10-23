@@ -842,6 +842,10 @@ export function IpojiSyncPanel({
   // Allotment results waiting for a person's look (see handleAllotmentParse).
   const [allotPlan, setAllotPlan] = useState<AllotmentItem[] | null>(null)
   const [applyingAllot, setApplyingAllot] = useState(false)
+  // True when the pasted data has no category field at all - it came from an
+  // old copy of the script (a saved bookmark keeps the script it was made
+  // with), which cannot tell a shareholder-quota bid from a normal one.
+  const [legacyFormat, setLegacyFormat] = useState(false)
   const queryClient = useQueryClient()
   const inbox = useIpojiInbox(open).data
   // Set while the Preview on screen came from the app inbox, so a finished
@@ -1046,6 +1050,8 @@ export function IpojiSyncPanel({
         ? `Couldn't read ${skippedLabels.length} row(s), add manually: ${skippedLabels.join('; ')}. The rest parsed fine below.`
         : null,
     )
+
+    setLegacyFormat(!isAllotmentPaste(scraped) && scraped.length > 0 && scraped.every((r) => r.category === undefined))
 
     // Allotment results (from the allotment script) take their own path: they
     // update statuses of applications already in the portal, nothing is created.
@@ -1432,6 +1438,7 @@ export function IpojiSyncPanel({
     autoImportPending.current = false
     const tracked = rows.filter((r) => !r.selfApplied)
     const clean =
+      !legacyFormat &&
       !parseError &&
       unmatchableIpoNames.length === 0 &&
       tracked.every(
@@ -1740,6 +1747,15 @@ export function IpojiSyncPanel({
                 {toUpdateMandate.length === 1 ? '' : 's'}, {toSyncExisting.length} existing row
                 {toSyncExisting.length === 1 ? '' : 's'} synced of {rows.length} found)
               </p>
+              {legacyFormat && (
+                <p className="mt-2 rounded-lg p-2 text-xs font-medium" style={{ background: 'var(--hover-surface)', color: 'var(--warning-text)' }}>
+                  ⚠ This data came from an old copy of the ipoji script, which cannot tell a shareholder-quota
+                  application from a normal one — a shareholder application would be imported as a normal one (or
+                  skipped as a duplicate). Copy the script again with the button above (on a phone, re-do the
+                  bookmark with “Copy phone bookmarklet”), run it, and import that instead. It was not imported
+                  automatically.
+                </p>
+              )}
               <p className="mt-1 text-xs" style={{ color: 'var(--ink-muted)' }}>
                 Mandate status is a best-effort guess from ipoji's own status text — double-check it
                 rather than treating it as certain.
