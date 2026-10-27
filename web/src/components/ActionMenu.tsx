@@ -22,7 +22,17 @@ export interface ActionMenuItem {
 // Notify holder, Notify funder, Sell reminder, Undo) — a lot of vertical
 // space for a row whose left side is a few lines of plain text. Picking
 // an item closes the menu automatically so a second tap can't re-fire it.
-export function ActionMenu({ items, label = 'More actions' }: { items: ActionMenuItem[]; label?: string }) {
+// `icon` swaps the "⋯" trigger glyph for the same menu used another way —
+// e.g. the Allotment board's small sort button.
+export function ActionMenu({
+  items,
+  label = 'More actions',
+  icon = <KebabHorizontalIcon size={15} />,
+}: {
+  items: ActionMenuItem[]
+  label?: string
+  icon?: ReactNode
+}) {
   const [open, setOpen] = useState(false)
   if (items.length === 0) return null
   return (
@@ -35,7 +45,7 @@ export function ActionMenu({ items, label = 'More actions' }: { items: ActionMen
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover-surface)]"
           style={{ color: 'var(--ink-muted)' }}
         >
-          <KebabHorizontalIcon size={15} />
+          {icon}
         </button>
       </Popover.Trigger>
       <Popover.Portal>

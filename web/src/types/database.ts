@@ -346,6 +346,9 @@ export interface AllotmentBoardRow {
   // Exchange application number (migration 0110) — null for applications
   // entered by hand without one.
   ipoji_app_number: string | null
+  // The holder will sell these shares themselves (migration 0111) — set
+  // from the Allotment board's "⋯" menu.
+  self_sell: boolean
 }
 
 // "Shared accounts" — a demat account sourced by someone else (Person X/Y),

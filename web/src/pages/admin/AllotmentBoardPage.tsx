@@ -1,5 +1,5 @@
 import { friendlyError } from '../../lib/friendlyError'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -20,7 +20,7 @@ import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { ActionMenu, type ActionMenuItem } from '../../components/ActionMenu'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon, LinkExternalIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon, LinkExternalIcon, SortAscIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationSell,
@@ -901,34 +901,87 @@ function SoldPayoutsSection({
     !!row.bank_account_phone &&
     !namesMatch(row.bank_account_holder_name, row.holder_name)
 
+  // "The holder sells these shares themselves" (migration 0111). The update
+  // comes back with zero rows, not an error, when RLS refuses it (anyone but
+  // the account owner or an admin) — so an empty result is a failure too.
+  const queryClient = useQueryClient()
+  async function toggleSelfSell(row: AllotmentBoardRow) {
+    const { data, error } = await supabase
+      .from('applications')
+      .update({ self_sell: !row.self_sell })
+      .eq('id', row.application_id)
+      .select('id')
+    if (error || !data?.length) {
+      showToast(friendlyError(error, `Couldn't update ${row.holder_name}'s application. Only the account owner or an admin can change it.`), 'critical')
+      return
+    }
+    showToast(
+      row.self_sell ? `${row.holder_name} is back on your list to sell.` : `Marked: ${row.holder_name} will sell it themselves.`,
+      'good',
+    )
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+  }
+
+  // A–Z by holder by default; "By funder" groups each funder's applications
+  // together (headed by the funder's name), A–Z within, self-funded last.
+  const [sortBy, setSortBy] = useState<'name' | 'funder'>('name')
+  const sortedRows = useMemo(() => {
+    const byName = (a: AllotmentBoardRow, b: AllotmentBoardRow) =>
+      a.holder_name.localeCompare(b.holder_name, 'en', { sensitivity: 'base' })
+    return [...rows].sort((a, b) => {
+      if (sortBy === 'name') return byName(a, b)
+      const fa = a.bank_account_holder_name ?? ''
+      const fb = b.bank_account_holder_name ?? ''
+      if (!fa !== !fb) return fa ? -1 : 1
+      return fa.localeCompare(fb, 'en', { sensitivity: 'base' }) || byName(a, b)
+    })
+  }, [rows, sortBy])
+
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between gap-2 text-left"
-      >
-        <div>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="min-w-0 flex-1 text-left"
+        >
           <h2 className="text-base font-semibold" style={{ color: 'var(--ink-primary)' }}>
             {open ? '▾' : '▸'} Sold status &amp; payouts
           </h2>
           <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
             Mark allotted shares as sold and track who still needs to be paid.
           </p>
-        </div>
+        </button>
+        {open && rows.length > 1 && (
+          <ActionMenu
+            label={sortBy === 'name' ? 'Sorted A–Z by holder. Change sorting' : 'Grouped by funder. Change sorting'}
+            icon={<SortAscIcon size={15} />}
+            items={[
+              { key: 'name', label: `${sortBy === 'name' ? '✓ ' : ''}Holder name (A–Z)`, onClick: () => setSortBy('name') },
+              { key: 'funder', label: `${sortBy === 'funder' ? '✓ ' : ''}Group by funder`, onClick: () => setSortBy('funder') },
+            ]}
+          />
+        )}
         {rows.length > 0 && <span className="badge badge-neutral shrink-0">{rows.length}</span>}
-      </button>
+      </div>
       {open && (rows.length === 0 ? (
         <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
           Nothing allotted or sold yet for this IPO.
         </p>
       ) : (
         <div className="space-y-3">
-          {rows.map((row) => {
+          {sortedRows.map((row, index) => {
             const form = soldForms[row.application_id]
             const isEditing = !!form
+            const funder = row.bank_account_holder_name ?? ''
+            const startsFunderGroup =
+              sortBy === 'funder' && (index === 0 || (sortedRows[index - 1].bank_account_holder_name ?? '') !== funder)
             return (
-              <div key={row.application_id} className="card stagger-item p-4">
+              <Fragment key={row.application_id}>
+              {startsFunderGroup && (
+                <p className="section-label pt-1">{funder ? `Funded by ${funder}` : 'No funder'}</p>
+              )}
+              <div className="card stagger-item p-4">
                 {/* Top row: name + status tick on the left, Mark sold + "⋯"
                     on the right — always one line, the details sit below
                     across the full card width. min-w-0 is load-bearing: a
@@ -950,6 +1003,14 @@ function SoldPayoutsSection({
                         <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
                       )}
                       <StatusBadge status={row.status} compact />
+                      {row.self_sell && (
+                        <span
+                          className="badge badge-info shrink-0 px-1.5 py-0 text-[10px] leading-4"
+                          title="The holder will sell these shares themselves"
+                        >
+                          Self-sell
+                        </span>
+                      )}
                     </p>
                   {/* One row always, primary action + overflow menu
                       — this used to stack up to five text-link actions
@@ -992,6 +1053,14 @@ function SoldPayoutsSection({
                             title: 'WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF',
                             disabled: notifying === row.application_id,
                             onClick: () => notifyHolder(row),
+                          },
+                          {
+                            key: 'self-sell',
+                            label: row.self_sell ? 'Undo: holder sells it themselves' : 'Holder sells it themselves',
+                            title: row.self_sell
+                              ? 'Put this back on your own list to sell'
+                              : 'Mark that the account holder will sell these shares on their own',
+                            onClick: () => toggleSelfSell(row),
                           },
                           {
                             key: 'undo',
@@ -1064,6 +1133,7 @@ function SoldPayoutsSection({
                   <PartialSells row={row} profitPersonName={profitPersonName} isAdmin={isAdmin} />
                 )}
               </div>
+              </Fragment>
             )
           })}
         </div>
