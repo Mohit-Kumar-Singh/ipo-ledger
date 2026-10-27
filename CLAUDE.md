@@ -127,6 +127,13 @@ must never reach a screen again.
 - **Version bump on every user-visible push** — bump `web/package.json` +
   `git tag vX.Y.Z`, even for a small fix; classify patch/minor/major honestly
   rather than defaulting to minor.
+- **Every read caps at 1000 rows, silently.** PostgREST returns at most
+  1000 rows per request — no error, the rest just aren't there. Once
+  `applications` passed 1000, the Allotment board quietly dropped allotted
+  rows that the Applications page still showed (v1.253.1). Any read not
+  scoped to a naturally small set (one IPO, one account, a `.limit()`) goes
+  through `fetchAllRows` (`web/src/lib/fetchAllRows.ts`) with an `.order()`
+  ending in a unique column (`id`), or pages can overlap/skip rows.
 - **Realtime**: only tables explicitly added to the `supabase_realtime`
   publication push live updates (`notifications`, `applications`,
   `demat_link_requests`, `bank_link_requests` so far) — adding a new

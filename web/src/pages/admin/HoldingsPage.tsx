@@ -1,6 +1,7 @@
 import { friendlyError } from '../../lib/friendlyError'
 import { useQuery } from '@tanstack/react-query'
 import { supabase } from '../../lib/supabase'
+import { fetchAllRows } from '../../lib/fetchAllRows'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { buildHoldings, soldSharesByApplication, type HoldingSourceRow } from '../../lib/partialSells'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
@@ -27,12 +28,17 @@ export function HoldingsPage() {
   const holdingsQuery = useQuery({
     queryKey: ['holdings'],
     queryFn: async () => {
-      const { data: apps, error } = await supabase
-        .from('applications')
-        .select(
-          'id, ipo_id, demat_id, lots, bid_amount, status, ipos(company_name, lot_size, symbol), demat_accounts(holder_name)',
-        )
-        .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
+      // Paged past PostgREST's 1000-row cap (see fetchAllRows).
+      const { data: apps, error } = await fetchAllRows((from, to) =>
+        supabase
+          .from('applications')
+          .select(
+            'id, ipo_id, demat_id, lots, bid_amount, status, ipos(company_name, lot_size, symbol), demat_accounts(holder_name)',
+          )
+          .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
+          .order('id')
+          .range(from, to),
+      )
       if (error) throw error
 
       const rows: HoldingSourceRow[] = (apps ?? [])

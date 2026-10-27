@@ -28,6 +28,7 @@
 // for the full list of what's still page-local.
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { supabase } from './supabase'
+import { fetchAllRows } from './fetchAllRows'
 import type { Ipo, DematAccount, BankAccount, AllotmentBoardRow, ParentCompany } from '../types/database'
 
 export const queryKeys = {
@@ -75,8 +76,13 @@ export async function fetchBankAccounts(): Promise<BankAccount[]> {
   return (data ?? []) as BankAccount[]
 }
 
+// One row per application across every IPO ever — passed PostgREST's
+// 1000-row cap at 1010 rows, silently dropping applications from the board.
+// Paged (see fetchAllRows); application_id is the view's unique key.
 export async function fetchAllotmentBoardAll(): Promise<AllotmentBoardRow[]> {
-  const { data, error } = await supabase.from('v_allotment_board').select('*')
+  const { data, error } = await fetchAllRows((from, to) =>
+    supabase.from('v_allotment_board').select('*').order('application_id').range(from, to),
+  )
   if (error) throw error
   return (data ?? []) as AllotmentBoardRow[]
 }

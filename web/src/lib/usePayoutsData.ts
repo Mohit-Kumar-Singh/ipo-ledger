@@ -7,6 +7,7 @@ import { friendlyError } from './friendlyError'
 import { useMemo, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from './supabase'
+import { fetchAllRows } from './fetchAllRows'
 import { useAllotmentBoardAll, queryKeys } from './queries'
 import { useAuth } from '../contexts/AuthContext'
 import { showToast } from './toast'
@@ -35,24 +36,17 @@ interface LocalPayoutsData {
 
 const EMPTY_PROFILE_NAMES: Record<string, string> = {}
 
-// PostgREST silently caps a response at 1000 rows — a ledger table that grows
-// past that would drop its oldest rows from every total with no error. Pages
-// through the table instead, newest first.
-async function fetchAllPages(table: 'settlement_payments' | 'manual_transactions') {
-  const PAGE = 1000
-  const all: unknown[] = []
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+// Ledger tables grow forever — paged past PostgREST's 1000-row cap (see
+// fetchAllRows), newest first.
+function fetchAllPages(table: 'settlement_payments' | 'manual_transactions') {
+  return fetchAllRows((from, to) =>
+    supabase
       .from(table)
       .select('*')
       .order('created_at', { ascending: false })
       .order('id', { ascending: false })
-      .range(from, from + PAGE - 1)
-    if (error) return { data: null, error }
-    all.push(...(data ?? []))
-    if ((data ?? []).length < PAGE) break
-  }
-  return { data: all, error: null }
+      .range(from, to),
+  )
 }
 
 export function usePayoutsData() {
@@ -83,29 +77,37 @@ export function usePayoutsData() {
       const [paymentsRes, manualRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
         fetchAllPages('settlement_payments'),
         fetchAllPages('manual_transactions'),
-        supabase
-          .from('applications')
-          .select(
-            'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-              'application_sells(shares, price, sold_on)',
-          )
-          .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
-          .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
+        fetchAllRows((from, to) =>
+          supabase
+            .from('applications')
+            .select(
+              'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+                'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+                'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+                'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+                'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+                'application_sells(shares, price, sold_on)',
+            )
+            .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
+            .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
+            .order('id')
+            .range(from, to),
+        ),
         supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
-        supabase
-          .from('applications')
-          .select(
-            'id, demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-              'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-              'application_sells(shares, price, sold_on)',
-          ),
+        fetchAllRows((from, to) =>
+          supabase
+            .from('applications')
+            .select(
+              'id, demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+                'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+                'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+                'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+                'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+                'application_sells(shares, price, sold_on)',
+            )
+            .order('id')
+            .range(from, to),
+        ),
         // Names for settlement_payments.created_by, so the per-funder
         // payments log can say who logged each entry. Admin reads every row
         // (p_profiles_self); a non-admin gets only their own, which is fine —

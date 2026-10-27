@@ -11,6 +11,7 @@ import {
   LinkIcon,
 } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { fetchAllRows } from '../../lib/fetchAllRows'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchIpos, fetchDematAccounts, fetchAllotmentBoardAll, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -513,7 +514,12 @@ export function DashboardPage() {
       queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
       queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
       queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
-      supabase.from('v_application_attribution').select('*'),
+      // This, the funded-applications read and settlement_payments below all
+      // span every application/payment ever — paged past PostgREST's
+      // 1000-row cap (see fetchAllRows) instead of silently truncated.
+      fetchAllRows((from, to) =>
+        supabase.from('v_application_attribution').select('*').order('application_id').range(from, to),
+      ),
       // Same row shape/query NotificationsPage's admin-only funder query
       // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
       // client-side role gate: RLS (p_apps_member_funder_select,
@@ -523,18 +529,22 @@ export function DashboardPage() {
       // RLS do the scoping (instead of an isAdmin ? ... : [] gate
       // pretending to be the security boundary) is what actually lets a
       // funder see their own expected profit on their own Dashboard.
-      supabase
-        .from('applications')
-        .select(
-          'demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-            'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-            'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-            'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-            'application_sells(shares, price, sold_on)',
-        )
-        .in('status', ['ALLOTTED', 'SOLD', 'PARTIALLY_SOLD'])
-        .or('bank_account_id.not.is.null,funder_override_id.not.is.null'),
+      fetchAllRows((from, to) =>
+        supabase
+          .from('applications')
+          .select(
+            'demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'ipos(company_name, open_date, close_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
+              'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
+              'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
+              'application_sells(shares, price, sold_on)',
+          )
+          .in('status', ['ALLOTTED', 'SOLD', 'PARTIALLY_SOLD'])
+          .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
+          .order('id')
+          .range(from, to),
+      ),
       // Live remaining-to-funder figures for pendingPayouts below (same
       // ledger PayoutsPage's settlement cards read) — genuinely
       // admin-only at the RLS level (p_settlement_payments_admin,
@@ -542,7 +552,7 @@ export function DashboardPage() {
       // non-admin viewer just always gets back zero rows here, same as
       // if this were still client-gated, just without a client-side
       // branch pretending to be the actual security boundary.
-      supabase.from('settlement_payments').select('*'),
+      fetchAllRows((from, to) => supabase.from('settlement_payments').select('*').order('id').range(from, to)),
       // Shared-account CASE_2 managers (migration 0079) — their remaining
       // profit share shouldn't get halved with a nonexistent third-party
       // funder in the projections below. Admin sees every manager;
@@ -554,7 +564,14 @@ export function DashboardPage() {
       // quota application on a live IPO. Admin-only at the RLS level
       // (parent_company_holdings), so a funder-only viewer just gets none.
       supabase.from('parent_company_holdings').select('parent_company_id, demat_id').eq('status', 'HELD'),
-      supabase.from('applications').select('ipo_id, demat_id, mandate_status').eq('category', 'SHAREHOLDER'),
+      fetchAllRows((from, to) =>
+        supabase
+          .from('applications')
+          .select('ipo_id, demat_id, mandate_status')
+          .eq('category', 'SHAREHOLDER')
+          .order('id')
+          .range(from, to),
+      ),
     ])
 
     // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this

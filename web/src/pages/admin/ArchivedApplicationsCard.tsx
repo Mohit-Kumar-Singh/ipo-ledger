@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ArchiveIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { supabase } from '../../lib/supabase'
+import { fetchAllRows } from '../../lib/fetchAllRows'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { InfoTooltip } from '../../components/HoverCard'
 import type { ApplicationStatus } from '../../types/database'
@@ -42,10 +43,16 @@ export function ArchivedApplicationsCard() {
   const archivedQuery = useQuery<ArchivedRow[]>({
     queryKey: ['archived-applications'],
     queryFn: async () => {
-      const { data } = await supabase
-        .from('applications')
-        .select('id, status, demat_accounts(holder_name), ipos!inner(company_name, is_archived)')
-        .eq('ipos.is_archived', true)
+      // Archives only ever grow — paged past PostgREST's 1000-row cap (see
+      // fetchAllRows).
+      const { data } = await fetchAllRows((from, to) =>
+        supabase
+          .from('applications')
+          .select('id, status, demat_accounts(holder_name), ipos!inner(company_name, is_archived)')
+          .eq('ipos.is_archived', true)
+          .order('id')
+          .range(from, to),
+      )
       return (data ?? []) as unknown as ArchivedRow[]
     },
   })

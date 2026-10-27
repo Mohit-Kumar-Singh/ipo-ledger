@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PaperAirplaneIcon, ChevronDownIcon } from '@primer/octicons-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
+import { fetchAllRows } from '../../lib/fetchAllRows'
 import { useAuth } from '../../contexts/AuthContext'
 import { openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
 import { renderMessageBody } from '../../lib/notificationTemplates'
@@ -537,7 +538,9 @@ export function NotificationsPage() {
         // exactly what the (now non-admin-visible-too) 'Allotment updates'
         // card below needs: a funder's own 'this IPO is allotted, funded by
         // you' card.
-        supabase
+        // Every application ever — paged past PostgREST's 1000-row cap
+        // (see fetchAllRows), `id` breaking applied_at ties.
+        fetchAllRows((from, to) => supabase
           .from('applications')
           .select(
             // Explicit FK on both bank_accounts embeds — applications now
@@ -560,7 +563,9 @@ export function NotificationsPage() {
           // back to the demat holder identity when neither is set, same
           // as the attribution pie chart already does — this just needs
           // the row to actually be fetched for that fallback to run.
-          .order('applied_at', { ascending: false }),
+          .order('applied_at', { ascending: false })
+          .order('id')
+          .range(from, to)),
         !isAdmin
           ? supabase.from('notifications').select('*').order('created_at', { ascending: false }).limit(50)
           : Promise.resolve({ data: [], error: null }),

@@ -7,6 +7,7 @@ import { AlertIcon, CheckIcon, HistoryIcon, PencilIcon, PersonIcon, SearchIcon, 
 import { Bot, Plus, X } from 'lucide-react'
 import { InfoTooltip } from '../../components/HoverCard'
 import { supabase } from '../../lib/supabase'
+import { fetchAllRows } from '../../lib/fetchAllRows'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useIpos, useDematAccounts, useBankAccounts, queryKeys } from '../../lib/queries'
 import { useAuth } from '../../contexts/AuthContext'
@@ -230,19 +231,26 @@ export function ApplicationsPage() {
   const applicationsQuery = useQuery<ApplicationsData>({
     queryKey: applicationsQueryKey,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('applications')
-        .select(
-          // bank_accounts is now embedded twice (bank_account_id — the literal
-          // paying UPI — and funder_override_id, an independent manual credit
-          // override, migration 0063) — PostgREST needs the FK named
-          // explicitly on both or it can't tell which relationship a bare
-          // `bank_accounts(...)` means anymore.
-          '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), ' +
-            'bank_accounts!bank_account_id(account_holder_name, upi_id, linked_user_id), ' +
-            'funder_override:bank_accounts!funder_override_id(account_holder_name, upi_id, linked_user_id)',
-        )
-        .order('applied_at', { ascending: false })
+      // Paged past PostgREST's 1000-row cap (see fetchAllRows) — every
+      // application ever is well past it, and the oldest were silently
+      // missing from this list. `id` breaks applied_at ties so pages are stable.
+      const { data, error } = await fetchAllRows((from, to) =>
+        supabase
+          .from('applications')
+          .select(
+            // bank_accounts is now embedded twice (bank_account_id — the literal
+            // paying UPI — and funder_override_id, an independent manual credit
+            // override, migration 0063) — PostgREST needs the FK named
+            // explicitly on both or it can't tell which relationship a bare
+            // `bank_accounts(...)` means anymore.
+            '*, ipos(company_name, allotment_date, is_archived, open_date, close_date), demat_accounts(holder_name, linked_user_id), ' +
+              'bank_accounts!bank_account_id(account_holder_name, upi_id, linked_user_id), ' +
+              'funder_override:bank_accounts!funder_override_id(account_holder_name, upi_id, linked_user_id)',
+          )
+          .order('applied_at', { ascending: false })
+          .order('id')
+          .range(from, to),
+      )
       if (error) throw error
       // supabase-js's compile-time select-string parser can't resolve the
       // `!fk_column` disambiguation + alias syntax above (needed now that
