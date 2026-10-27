@@ -34,6 +34,7 @@ import { CopyButton } from '../../components/CopyButton'
 import { InfoTooltip } from '../../components/HoverCard'
 import { SellReminderComposer } from './SellReminderComposer'
 import { buildSellReminderText, resolveSellPdfUrl } from '../../lib/sellReminder'
+import { matchPastedAppNumbers } from '../../lib/allotmentPaste'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
   APPLIED: 'badge-info',
@@ -85,6 +86,8 @@ function StatusBadge({ status, compact = false }: { status: ApplicationStatus; c
     </span>
   )
 }
+
+const NSE_VERIFY_BIDS_URL = 'https://www.nseindia.com/invest/check-trades-bids-verify-ipo-bids'
 
 type AllottedNotif = Pick<Notification, 'id' | 'status' | 'to_phone' | 'template_name' | 'variables'>
 
@@ -308,6 +311,24 @@ export function AllotmentBoardPage() {
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
+  // One tap per pending row: copy its application number and open NSE's
+  // verify-bids page, so checking is pick-symbol → paste → search. NSE's
+  // lookup sits behind reCAPTCHA, so it can't be fetched from here — the
+  // admin still runs the search themselves. The clipboard write is started
+  // before window.open on purpose: once the new tab takes focus the
+  // browser refuses clipboard writes from this one.
+  function checkOnNse(row: AllotmentBoardRow) {
+    const appNo = row.ipoji_app_number
+    if (appNo) navigator.clipboard.writeText(appNo).catch(() => {})
+    window.open(NSE_VERIFY_BIDS_URL, '_blank', 'noopener,noreferrer')
+    const symbolHint = selectedIpo?.symbol ? `pick ${selectedIpo.symbol}, then ` : ''
+    showToast(
+      appNo
+        ? `Application number copied. On NSE, ${symbolHint}paste it into Application No.`
+        : `No application number saved for ${row.holder_name}. On NSE, ${symbolHint}search by their PAN instead.`,
+    )
+  }
+
   function toggle(id: string) {
     setSelected((s) => {
       const next = new Set(s)
@@ -333,6 +354,41 @@ export function AllotmentBoardPage() {
   // means all of those, matching what the bulk "Mark selected as Not
   // allotted" action can actually act on.
   const selectableIds = rows.filter((r) => r.status === 'APPLIED' && canMark(r)).map((r) => r.application_id)
+
+  const allotmentOut = !!selectedIpo?.allotment_date && selectedIpo.allotment_date <= nowIst().dateStr
+  const [showPaste, setShowPaste] = useState(false)
+
+  // Both writes go through the same applications RLS as markStatus — only
+  // ids from selectableIds (APPLIED + canMark) are ever passed in.
+  async function applyPastedResults(allottedIds: string[], notAllottedIds: string[]): Promise<boolean> {
+    if (allottedIds.length > 0) {
+      const { error } = await supabase.from('applications').update({ status: 'ALLOTTED' }).in('id', allottedIds)
+      if (error) {
+        showToast(friendlyError(error, `Couldn't save those results. Nothing was changed.`), 'critical')
+        return false
+      }
+    }
+    if (notAllottedIds.length > 0) {
+      const { error } = await supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).in('id', notAllottedIds)
+      if (error) {
+        showToast(
+          friendlyError(error, `Allotted ones were saved, but the rest couldn't be marked Not allotted. Try again.`),
+          'critical',
+        )
+        queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+        return false
+      }
+      await maybeAutoArchiveIpo(selectedIpoId)
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    }
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    setSelected(new Set())
+    showToast(
+      `Saved: ${allottedIds.length} allotted${notAllottedIds.length ? `, ${notAllottedIds.length} not allotted` : ''}.`,
+      'good',
+    )
+    return true
+  }
 
   function toggleSelectAll() {
     setSelected((s) => (s.size === selectableIds.length ? new Set() : new Set(selectableIds)))
@@ -436,7 +492,7 @@ export function AllotmentBoardPage() {
         {/* NSE's own bid/allotment lookup — check a holder's result there with
             the application number copied from their card below. */}
         <a
-          href="https://www.nseindia.com/invest/check-trades-bids-verify-ipo-bids"
+          href={NSE_VERIFY_BIDS_URL}
           target="_blank"
           rel="noopener noreferrer"
           aria-label="Check IPO bids on NSE (opens in a new tab)"
@@ -476,12 +532,25 @@ export function AllotmentBoardPage() {
             </option>
           ))}
         </select>
+        {allotmentOut && selectableIds.length > 0 && !showPaste && (
+          <button onClick={() => setShowPaste(true)} className="btn-secondary">
+            Paste results
+          </button>
+        )}
         {selected.size > 0 && (
           <button onClick={bulkMarkNotAllotted} className="btn-secondary">
             Mark {selected.size} selected as Not allotted
           </button>
         )}
       </div>
+
+      {showPaste && allotmentOut && (
+        <PasteResultsPanel
+          rows={rows.filter((r) => selectableIds.includes(r.application_id))}
+          onApply={applyPastedResults}
+          onClose={() => setShowPaste(false)}
+        />
+      )}
 
       {showSellComposer && selectedIpo && (
         <SellReminderComposer
@@ -602,6 +671,11 @@ export function AllotmentBoardPage() {
                         <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
                       )}
                     </span>
+                    {row.status === 'APPLIED' && row.ipoji_app_number && (
+                      <span className="block font-mono-ipo text-xs font-normal" style={{ color: 'var(--ink-muted)' }}>
+                        {row.ipoji_app_number}
+                      </span>
+                    )}
                   </td>
                   {/* Funder name + the UPI the money actually moved through.
                       Visible to whoever can already see the row — admin,
@@ -660,6 +734,14 @@ export function AllotmentBoardPage() {
                       // loaded (stale selectedIpo in an already-open tab).
                       (selectedIpo?.allotment_date && selectedIpo.allotment_date <= nowIst().dateStr ? (
                         <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => checkOnNse(row)}
+                            className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
+                            style={{ color: 'var(--ink-secondary)' }}
+                            title="Copy the application number and open NSE's bid check"
+                          >
+                            Check NSE <LinkExternalIcon size={12} />
+                          </button>
                           <button onClick={() => markStatus(row.application_id, 'ALLOTTED')} className="link-accent text-xs font-medium">
                             Allotted
                           </button>
@@ -710,6 +792,97 @@ export function AllotmentBoardPage() {
         </div>
         </AccountListSection>
       )}
+    </div>
+  )
+}
+
+// Bulk result entry: paste the allotted application numbers collected from
+// NSE / the registrar, preview who they match, then save them all at once —
+// optionally marking every other pending row Not allotted in the same step.
+// `rows` is only the pending (APPLIED) rows this viewer can mark.
+function PasteResultsPanel({
+  rows,
+  onApply,
+  onClose,
+}: {
+  rows: AllotmentBoardRow[]
+  onApply: (allottedIds: string[], notAllottedIds: string[]) => Promise<boolean>
+  onClose: () => void
+}) {
+  const [text, setText] = useState('')
+  const [restNotAllotted, setRestNotAllotted] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const { matchedIds, unmatched } = useMemo(() => matchPastedAppNumbers(text, rows), [text, rows])
+  const matchedSet = new Set(matchedIds)
+  const matchedRows = rows.filter((r) => matchedSet.has(r.application_id))
+  const restIds = rows.filter((r) => !matchedSet.has(r.application_id)).map((r) => r.application_id)
+  const withoutNumber = rows.filter((r) => !r.ipoji_app_number).length
+  const notAllottedIds = restNotAllotted ? restIds : []
+  const nothingToSave = matchedIds.length === 0 && notAllottedIds.length === 0
+
+  async function save() {
+    if (restNotAllotted && restIds.length > 0) {
+      const ok = await confirmDialog(
+        `Mark ${restIds.length} as Not allotted? Everyone on this IPO whose number isn't in your list will be marked Not allotted. You can undo any of them from the list below.`,
+        { confirmLabel: 'Save results' },
+      )
+      if (!ok) return
+    }
+    setSaving(true)
+    const ok = await onApply(matchedIds, notAllottedIds)
+    setSaving(false)
+    if (ok) onClose()
+  }
+
+  return (
+    <div className="card space-y-3 p-4">
+      <div>
+        <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+          Paste allotted application numbers
+        </p>
+        <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+          One per line, or paste any text that has them — names and other words are ignored.
+          {withoutNumber > 0 &&
+            ` ${withoutNumber} pending ${withoutNumber === 1 ? 'account has' : 'accounts have'} no application number saved, so ${withoutNumber === 1 ? 'it' : 'they'} can only be marked one at a time below.`}
+        </p>
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        className="input font-mono-ipo"
+        placeholder={'1100234567\n1100234568'}
+        autoFocus
+      />
+      {text.trim() && (
+        <div className="space-y-1 text-sm">
+          <p style={{ color: 'var(--ink-primary)' }}>
+            {matchedRows.length === 0
+              ? `None of these match a pending application on this IPO.`
+              : `${matchedRows.length} will be marked Allotted: ${matchedRows.map((r) => r.holder_name).join(', ')}`}
+          </p>
+          {unmatched.length > 0 && (
+            <p className="text-xs" style={{ color: 'var(--warning-text)' }}>
+              Not found on this IPO: <span className="font-mono-ipo">{unmatched.join(', ')}</span>. Check for a typo, or
+              whether it's already marked.
+            </p>
+          )}
+        </div>
+      )}
+      {restIds.length > 0 && (
+        <label className="flex items-center gap-2 text-sm" style={{ color: 'var(--ink-secondary)' }}>
+          <input type="checkbox" checked={restNotAllotted} onChange={(e) => setRestNotAllotted(e.target.checked)} />
+          Mark the other {restIds.length} as Not allotted
+        </label>
+      )}
+      <div className="flex justify-end gap-2">
+        <button onClick={onClose} className="btn-secondary" disabled={saving}>
+          Cancel
+        </button>
+        <button onClick={save} className="btn-primary" disabled={saving || nothingToSave}>
+          {saving ? 'Saving…' : 'Save results'}
+        </button>
+      </div>
     </div>
   )
 }
