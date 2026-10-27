@@ -30,6 +30,7 @@ import type {
   SettlementPaymentKind,
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
+import { CopyButton } from '../../components/CopyButton'
 import { InfoTooltip } from '../../components/HoverCard'
 import { SellReminderComposer } from './SellReminderComposer'
 import { buildSellReminderText, resolveSellPdfUrl } from '../../lib/sellReminder'
@@ -56,10 +57,23 @@ const notifBadgeClass: Record<Notification['status'], string> = {
 // title/aria-label for anyone hovering or on a screen reader); ALLOTTED's
 // icon was removed by request — every status now reads as plain text
 // except SOLD.
-// `compact` is the smaller pill that sits inline beside the holder's name on
-// the sold-status cards, keeping each card to fewer, shorter lines.
+// `compact` is the inline version beside the holder's name on the
+// sold-status cards: ALLOTTED and SOLD shrink to a bare tick (green and
+// violet, the same colors as their pills), anything else to a small pill.
+const compactTickColor: Partial<Record<ApplicationStatus, string>> = {
+  ALLOTTED: 'var(--good-text)',
+  SOLD: 'var(--violet)',
+}
+
 function StatusBadge({ status, compact = false }: { status: ApplicationStatus; compact?: boolean }) {
   const label = status.replace('_', ' ')
+  if (compact && compactTickColor[status]) {
+    return (
+      <span className="inline-flex shrink-0" style={{ color: compactTickColor[status] }} title={label} aria-label={label}>
+        <CheckCircleFillIcon size={14} />
+      </span>
+    )
+  }
   const icon = status === 'SOLD' ? <CheckCircleFillIcon size={compact ? 11 : 13} /> : null
   return (
     <span
@@ -703,15 +717,6 @@ export function AllotmentBoardPage() {
 // Same collapsible pattern as NotificationsPage's message list / SoldPayoutsSection
 // below — the per-account table can run long once an IPO has a lot of
 // applicants. Collapsed by default, same as every other list on this page.
-async function copyAppNumber(appNumber: string) {
-  try {
-    await navigator.clipboard.writeText(appNumber)
-    showToast(`Copied application number ${appNumber}`, 'good')
-  } catch {
-    showToast(`Couldn't copy. The application number is ${appNumber}.`, 'warning')
-  }
-}
-
 function AccountListSection({ count, children }: { count: number; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
@@ -924,16 +929,15 @@ function SoldPayoutsSection({
             const isEditing = !!form
             return (
               <div key={row.application_id} className="card stagger-item p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  {/* min-w-0 is load-bearing here, not decorative — without
-                      it a flex item can't shrink below its content's
-                      natural width, so the summary chips row below
-                      (truncate on each chip) had nothing to truncate
-                      AGAINST and just pushed the card wider than the phone
-                      screen instead of wrapping/clipping in place. */}
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
-                      {row.holder_name}
+                {/* Top row: name + status tick on the left, Mark sold + "⋯"
+                    on the right — always one line, the details sit below
+                    across the full card width. min-w-0 is load-bearing: a
+                    flex item can't shrink below its content's natural width
+                    otherwise, so a long name would push the actions off a
+                    phone screen instead of truncating. */}
+                <div className="flex items-center gap-2">
+                    <p className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      <span className="truncate">{row.holder_name}</span>
                       {row.is_funder_override && (
                         <span
                           className="shrink-0"
@@ -947,53 +951,7 @@ function SoldPayoutsSection({
                       )}
                       <StatusBadge status={row.status} compact />
                     </p>
-                    <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
-                      {row.lots} lot(s)
-                      {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
-                      {/* Tap to copy — pasted into NSE's verify-bids page
-                          (the header link) to check this holder's result. */}
-                      {row.ipoji_app_number && (
-                        <>
-                          {' · '}
-                          <button
-                            type="button"
-                            onClick={() => copyAppNumber(row.ipoji_app_number!)}
-                            className="font-mono-ipo hover:underline"
-                            title="Copy application number"
-                          >
-                            App {row.ipoji_app_number}
-                          </button>
-                        </>
-                      )}
-                    </p>
-                    {/* Compact summary — first word of the IPO name, funder,
-                        listing date, GMP% — deliberately terse (a full
-                        company name/funder name/raw GMP string was too much
-                        for one line, especially on phone) rather than
-                        trying to fit the full facts and truncating them.
-                        Weekday on the listing date (short form) — this is
-                        the one visible listing-date mention on this page
-                        the earlier pass missed; truncate already handles
-                        the rare case a long combination doesn't fit (GMP%
-                        clips first, ellipsis shows there's more) rather
-                        than an ugly hard wrap. */}
-                    <p className="mt-1 truncate text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                      {firstIpoWord(row.company_name)}
-                      {row.bank_account_holder_name && ` · via ${row.bank_account_holder_name}`}
-                      {row.listing_date && ` · ${formatShortDate(row.listing_date, { weekday: 'short' })}`}
-                      {parseGmpPercent(row.gmp_notes) != null && ` · GMP:${parseGmpPercent(row.gmp_notes)}%`}
-                    </p>
-                    {/* UPI on its own line, not appended to the terse summary
-                        above — a UPI id is long enough that inlining it there
-                        would push the listing date and GMP off the end on a
-                        phone. Same visibility as the funder name beside it. */}
-                    {row.upi_id && (
-                      <p className="mt-0.5 truncate font-mono text-[11px]" style={{ color: 'var(--ink-muted)' }}>
-                        {row.upi_id}
-                      </p>
-                    )}
-                  </div>
-                  {/* One row always, badge + primary action + overflow menu
+                  {/* One row always, primary action + overflow menu
                       — this used to stack up to five text-link actions
                       (Mark sold, Notify holder, Notify funder, Sell
                       reminder, Undo) vertically on phone, which was a lot
@@ -1046,6 +1004,36 @@ function SoldPayoutsSection({
                       />
                     )}
                   </div>
+                </div>
+
+                {/* Details, grouped by what they're about: the position
+                    (IPO, lots, money, listing, GMP), then who funded it,
+                    then the application number. Terse on purpose — each
+                    line truncates rather than wrapping on a phone. */}
+                <div className="mt-1 space-y-0.5 text-[11px]" style={{ color: 'var(--ink-muted)' }}>
+                  <p className="truncate">
+                    {firstIpoWord(row.company_name)} · {row.lots} lot(s)
+                    {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')}`}
+                    {row.listing_date && ` · Lists ${formatShortDate(row.listing_date, { weekday: 'short' })}`}
+                    {parseGmpPercent(row.gmp_notes) != null && ` · GMP ${parseGmpPercent(row.gmp_notes)}%`}
+                  </p>
+                  {(row.bank_account_holder_name || row.upi_id) && (
+                    <p className="truncate">
+                      {row.bank_account_holder_name && `via ${row.bank_account_holder_name}`}
+                      {row.bank_account_holder_name && row.upi_id && ' · '}
+                      {row.upi_id && <span className="font-mono">{row.upi_id}</span>}
+                    </p>
+                  )}
+                  {/* Copied into NSE's verify-bids page (the header link)
+                      to check this holder's result. */}
+                  {row.ipoji_app_number && (
+                    <div className="flex items-center gap-1">
+                      <span>
+                        App no. <span className="font-mono-ipo">{row.ipoji_app_number}</span>
+                      </span>
+                      <CopyButton value={row.ipoji_app_number} label="application number" />
+                    </div>
+                  )}
                 </div>
 
                 {isEditing && form && (
