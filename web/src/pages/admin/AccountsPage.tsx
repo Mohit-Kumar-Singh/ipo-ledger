@@ -957,7 +957,7 @@ function AccountForm({
     }
 
     setSubmitting(true)
-    const { data, error: fnError } = await supabase.functions.invoke<{ id?: string; error?: string }>(
+    const { data, error: fnError } = await supabase.functions.invoke<{ id?: string; platform?: string | null; error?: string }>(
       'add-demat',
       {
         body: {
@@ -981,6 +981,13 @@ function AccountForm({
     setSubmitting(false)
     if (fnError || !data?.id) {
       setError(await describeFunctionError(fnError, data))
+      return
+    }
+    // The server answers with the platform it actually stored. If that isn't
+    // what was picked, the save didn't fully stick — say so instead of
+    // closing the form as if it had (this once failed silently for months).
+    if ((data.platform ?? '') !== platform) {
+      setError("The account saved, but the platform didn't. Please try again, or let the admin know if it keeps happening.")
       return
     }
     clearDraft(draftKey)

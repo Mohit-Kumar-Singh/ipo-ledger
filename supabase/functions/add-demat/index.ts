@@ -143,9 +143,23 @@ Deno.serve(async (req) => {
     if (t_pin !== undefined) followUp.t_pin = t_pin || null
     if (logged_in_notes !== undefined) followUp.logged_in_notes = logged_in_notes || null
     if (!isAdmin && !demat_id) followUp.linked_user_id = userData.user.id
-    await admin.from('demat_accounts').update(followUp).eq('id', newId)
+    // Checked, not fire-and-forget: this used to ignore its own error, so a
+    // failed follow-up (platform, credentials, cut) still answered "saved".
+    // The saved platform comes back so the form can confirm it stuck — the
+    // live copy of this function once lagged the repo and silently dropped
+    // `platform` on every save for months.
+    const { data: saved, error: followUpError } = await admin
+      .from('demat_accounts')
+      .update(followUp)
+      .eq('id', newId)
+      .select('platform')
+      .single()
+    if (followUpError) {
+      logError('add-demat', followUpError)
+      return jsonError(followUpError.message, 500, cors)
+    }
 
-    return jsonResponse({ id: newId }, 200, cors)
+    return jsonResponse({ id: newId, platform: saved.platform }, 200, cors)
   } catch (err) {
     logError('add-demat', err)
     return jsonError('Internal error', 500, corsHeadersFor(req))
