@@ -24,6 +24,17 @@ export const PLATFORMS = Object.keys(PLATFORM_LABELS) as DematPlatform[]
 // excludes 'other', which is a valid account value but never a PDF row.
 export const PDF_PLATFORMS = PLATFORMS.filter((p) => p !== 'other')
 
+// Brand icon per platform, served from web/public/platform-logos/ (square
+// PNGs, ideally 128×128 or larger). 'other' has none. A missing file isn't
+// an error — PlatformAvatar falls back to the holder's initial.
+export const PLATFORM_LOGOS: Partial<Record<DematPlatform, string>> = {
+  groww: '/platform-logos/groww.png',
+  kite: '/platform-logos/kite.png',
+  dhan: '/platform-logos/dhan.png',
+  paytm_money: '/platform-logos/paytm_money.png',
+  upstox: '/platform-logos/upstox.png',
+}
+
 export function platformLabel(platform: string | null | undefined): string {
   if (!platform) return '—'
   return PLATFORM_LABELS[platform as DematPlatform] ?? platform

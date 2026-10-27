@@ -26,6 +26,7 @@ import { Combobox } from '../../components/Combobox'
 import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { PLATFORM_OPTIONS, platformLabel, type DematPlatform } from '../../lib/platforms'
+import { PlatformAvatar } from '../../components/PlatformAvatar'
 
 type EditingAccount = {
   id: string
@@ -520,12 +521,7 @@ function AccountSection({
                       width, down to a phone-narrow viewport. */}
                   <div className="flex flex-nowrap items-center justify-between gap-2">
                     <div className="flex min-w-0 flex-1 items-center gap-2">
-                      <div
-                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-                        style={{ background: 'linear-gradient(135deg, var(--violet), var(--accent))', color: 'white' }}
-                      >
-                        {a.holder_name[0]?.toUpperCase()}
-                      </div>
+                      <PlatformAvatar platform={a.platform} name={a.holder_name} />
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                           <p className="min-w-0 truncate text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
