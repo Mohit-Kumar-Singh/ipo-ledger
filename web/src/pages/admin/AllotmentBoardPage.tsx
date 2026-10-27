@@ -20,7 +20,7 @@ import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { SaleAmountField, sellPricePerShareFromEntry } from '../../components/SaleAmountField'
 import { ActionMenu, type ActionMenuItem } from '../../components/ActionMenu'
-import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon } from '@primer/octicons-react'
+import { SearchIcon, PaperAirplaneIcon, CommentDiscussionIcon, CheckCircleFillIcon, FileCheckIcon, UndoIcon, LinkExternalIcon } from '@primer/octicons-react'
 import type {
   AllotmentBoardRow,
   ApplicationSell,
@@ -56,12 +56,14 @@ const notifBadgeClass: Record<Notification['status'], string> = {
 // title/aria-label for anyone hovering or on a screen reader); ALLOTTED's
 // icon was removed by request — every status now reads as plain text
 // except SOLD.
-function StatusBadge({ status }: { status: ApplicationStatus }) {
+// `compact` is the smaller pill that sits inline beside the holder's name on
+// the sold-status cards, keeping each card to fewer, shorter lines.
+function StatusBadge({ status, compact = false }: { status: ApplicationStatus; compact?: boolean }) {
   const label = status.replace('_', ' ')
-  const icon = status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : null
+  const icon = status === 'SOLD' ? <CheckCircleFillIcon size={compact ? 11 : 13} /> : null
   return (
     <span
-      className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}`}
+      className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}${compact ? ' shrink-0 px-1.5 py-0 text-[10px] leading-4' : ''}`}
       title={label}
       aria-label={icon ? label : undefined}
     >
@@ -416,6 +418,20 @@ export function AllotmentBoardPage() {
             badge) rather than a wide button in the controls row below. The
             Payouts quick-link that used to sit next to this moved to the
             Dashboard, alongside the IPOs icon, per feedback. */}
+        <div className="flex shrink-0 items-center gap-1">
+        {/* NSE's own bid/allotment lookup — check a holder's result there with
+            the application number copied from their card below. */}
+        <a
+          href="https://www.nseindia.com/invest/check-trades-bids-verify-ipo-bids"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Check IPO bids on NSE (opens in a new tab)"
+          title="Check IPO bids on NSE"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-[var(--hover-surface)]"
+          style={{ color: 'var(--ink-secondary)' }}
+        >
+          <LinkExternalIcon size={18} />
+        </a>
         {isAdmin && selectedIpoId && allottedCount > 0 && (
           <button
             type="button"
@@ -434,6 +450,7 @@ export function AllotmentBoardPage() {
             </span>
           </button>
         )}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -686,6 +703,15 @@ export function AllotmentBoardPage() {
 // Same collapsible pattern as NotificationsPage's message list / SoldPayoutsSection
 // below — the per-account table can run long once an IPO has a lot of
 // applicants. Collapsed by default, same as every other list on this page.
+async function copyAppNumber(appNumber: string) {
+  try {
+    await navigator.clipboard.writeText(appNumber)
+    showToast(`Copied application number ${appNumber}`, 'good')
+  } catch {
+    showToast(`Couldn't copy. The application number is ${appNumber}.`, 'warning')
+  }
+}
+
 function AccountListSection({ count, children }: { count: number; children: ReactNode }) {
   const [open, setOpen] = useState(false)
   return (
@@ -919,10 +945,26 @@ function SoldPayoutsSection({
                       {row.category !== 'RETAIL' && (
                         <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
                       )}
+                      <StatusBadge status={row.status} compact />
                     </p>
                     <p className="text-xs" style={{ color: 'var(--ink-muted)' }}>
                       {row.lots} lot(s)
                       {row.bid_amount != null && ` · ₹${row.bid_amount.toLocaleString('en-IN')} invested`}
+                      {/* Tap to copy — pasted into NSE's verify-bids page
+                          (the header link) to check this holder's result. */}
+                      {row.ipoji_app_number && (
+                        <>
+                          {' · '}
+                          <button
+                            type="button"
+                            onClick={() => copyAppNumber(row.ipoji_app_number!)}
+                            className="font-mono-ipo hover:underline"
+                            title="Copy application number"
+                          >
+                            App {row.ipoji_app_number}
+                          </button>
+                        </>
+                      )}
                     </p>
                     {/* Compact summary — first word of the IPO name, funder,
                         listing date, GMP% — deliberately terse (a full
@@ -961,7 +1003,6 @@ function SoldPayoutsSection({
                       action actually used every time; the rest move into
                       the "⋯" menu (components/ActionMenu.tsx). */}
                   <div className="flex shrink-0 items-center gap-2">
-                    <StatusBadge status={row.status} />
                     {!isEditing && canMark(row) && (
                       <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
                         {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}

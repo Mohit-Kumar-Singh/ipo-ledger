@@ -343,6 +343,9 @@ export interface AllotmentBoardRow {
   // deliberately left unbadged wherever this is displayed; only a
   // non-RETAIL category (chiefly SHAREHOLDER, migration 0097) gets a tag.
   category: ApplicationCategory
+  // Exchange application number (migration 0110) — null for applications
+  // entered by hand without one.
+  ipoji_app_number: string | null
 }
 
 // "Shared accounts" — a demat account sourced by someone else (Person X/Y),

@@ -39,6 +39,7 @@ function boardRow(overrides: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow
     account_manager_phone: null,
     account_manager_case_type: null,
     category: 'RETAIL',
+    ipoji_app_number: null,
     bank_account_linked_user_id: null,
     ...overrides,
   }
