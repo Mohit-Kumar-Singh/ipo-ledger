@@ -394,17 +394,53 @@ export function AllotmentBoardPage() {
     setSelected((s) => (s.size === selectableIds.length ? new Set() : new Set(selectableIds)))
   }
 
+  // Default the profit split to "on" when the funder isn't the person doing
+  // the accounting — admin can still flip it either way. sameIdentity
+  // (fuzzy — first-token prefix), not namesMatch (exact) — this compares
+  // against profile.full_name specifically, a formal registered name a
+  // bank/UPI account's own holder_name routinely shortens ("Mohit" vs
+  // "Mohit Kumar Singh"); the exact comparison missed that real case and
+  // defaulted this ON for a genuinely self-funded sale, same root cause as
+  // computeProfitSplit's own isFunderSelf fix (lib/profitSplit.ts).
+  const defaultSplit = (row: AllotmentBoardRow) =>
+    !!row.bank_account_holder_name && !sameIdentity(row.bank_account_holder_name, profile?.full_name ?? '')
+
+  // One-tap "Mark sold" — status only, the price comes later from the "⋯"
+  // menu (openSoldForm). A SOLD row with no sell_price is already skipped by
+  // every money calculation (settlement cards, booked profit, SoldBreakdown),
+  // so nothing is miscounted while it waits; the card tags it "Price
+  // pending". The split default is stored now so the price form opens with
+  // it. Undo is only offered (and only applied, via the filters) while no
+  // price is entered and nothing has been paid — then it's a pure status flip.
+  async function setSold(row: AllotmentBoardRow, sold: boolean) {
+    const query = sold
+      ? supabase
+          .from('applications')
+          .update({ status: 'SOLD', split_profit_with_funder: defaultSplit(row) })
+          .eq('id', row.application_id)
+          .eq('status', 'ALLOTTED')
+      : supabase
+          .from('applications')
+          .update({ status: 'ALLOTTED' })
+          .eq('id', row.application_id)
+          .eq('status', 'SOLD')
+          .is('sell_price', null)
+          .eq('demat_cut_paid', false)
+          .eq('funder_share_paid', false)
+    const { data, error } = await query.select('id')
+    if (error || !data?.length) {
+      showToast(
+        friendlyError(error, `Couldn't update ${row.holder_name}'s application. It may have changed — refresh and try again.`),
+        'critical',
+      )
+      return
+    }
+    showToast(sold ? `${row.holder_name} marked sold. Add the sale price from ⋯ when you have it.` : `${row.holder_name} is back to allotted.`, 'good')
+    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+  }
+
   function openSoldForm(row: AllotmentBoardRow) {
-    // Default the split checkbox to "on" when the funder isn't the person
-    // doing the accounting — admin can still flip it either way. sameIdentity
-    // (fuzzy — first-token prefix), not namesMatch (exact) — this compares
-    // against profile.full_name specifically, a formal registered name a
-    // bank/UPI account's own holder_name routinely shortens ("Mohit" vs
-    // "Mohit Kumar Singh"); the exact comparison missed that real case and
-    // defaulted this ON for a genuinely self-funded sale, same root cause as
-    // computeProfitSplit's own isFunderSelf fix (lib/profitSplit.ts).
-    const autoSplit =
-      !!row.bank_account_holder_name && !sameIdentity(row.bank_account_holder_name, profile?.full_name ?? '')
+    const autoSplit = defaultSplit(row)
     const shares = row.lot_size * row.lots
     setSoldForms((f) => ({
       ...f,
@@ -579,6 +615,7 @@ export function AllotmentBoardPage() {
           )}
           soldForms={soldForms}
           onOpenForm={openSoldForm}
+          onSetSold={setSold}
           onCloseForm={closeSoldForm}
           onChangeForm={(id, next) => setSoldForms((f) => ({ ...f, [id]: next }))}
           onSave={saveSold}
@@ -918,6 +955,7 @@ function SoldPayoutsSection({
   rows,
   soldForms,
   onOpenForm,
+  onSetSold,
   onCloseForm,
   onChangeForm,
   onSave,
@@ -932,6 +970,8 @@ function SoldPayoutsSection({
   rows: AllotmentBoardRow[]
   soldForms: Record<string, SoldFormState>
   onOpenForm: (row: AllotmentBoardRow) => void
+  // One-tap Mark sold (true) / undo it (false) — status only, no price.
+  onSetSold: (row: AllotmentBoardRow, sold: boolean) => void
   onCloseForm: (id: string) => void
   onChangeForm: (id: string, next: SoldFormState) => void
   onSave: (row: AllotmentBoardRow) => void
@@ -1184,6 +1224,14 @@ function SoldPayoutsSection({
                           Self-sell
                         </span>
                       )}
+                      {row.status === 'SOLD' && row.sell_price == null && (
+                        <span
+                          className="badge badge-warning shrink-0 px-1.5 py-0 text-[10px] leading-4"
+                          title="Sold, but the sale price isn't entered yet — it won't count in payouts until it is. Add it from ⋯."
+                        >
+                          Price pending
+                        </span>
+                      )}
                     </p>
                   {/* One row always, primary action + overflow menu
                       — this used to stack up to five text-link actions
@@ -1195,53 +1243,93 @@ function SoldPayoutsSection({
                       action actually used every time; the rest move into
                       the "⋯" menu (components/ActionMenu.tsx). */}
                   <div className="flex shrink-0 items-center gap-2">
-                    {!isEditing && canMark(row) && (
-                      <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
-                        {row.status === 'SOLD' ? 'Edit sale' : 'Mark sold'}
+                    {/* ALLOTTED: one tap, status only (price via ⋯).
+                        PARTIALLY_SOLD keeps the price form — selling the
+                        remaining shares needs a price for the average. */}
+                    {!isEditing && canMark(row) && row.status === 'ALLOTTED' && (
+                      <button onClick={() => onSetSold(row, true)} className="link-accent text-xs font-medium">
+                        Mark sold
                       </button>
                     )}
-                    {row.status === 'ALLOTTED' && canMark(row) && (
+                    {!isEditing && canMark(row) && row.status === 'PARTIALLY_SOLD' && (
+                      <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
+                        Mark sold
+                      </button>
+                    )}
+                    {canMark(row) && (
                       <ActionMenu
                         label={`More actions for ${row.holder_name}`}
                         items={[
-                          {
-                            key: 'notify-holder',
-                            label: 'Notify holder',
-                            title: "WhatsApp the account holder the 'IPO allotted 🎉' message",
-                            onClick: () => congratulateHolder(row),
-                          },
-                          ...(hasDistinctFunder(row)
+                          ...(row.status === 'ALLOTTED'
+                            ? ([
+                                {
+                                  key: 'notify-holder',
+                                  label: 'Notify holder',
+                                  title: "WhatsApp the account holder the 'IPO allotted 🎉' message",
+                                  onClick: () => congratulateHolder(row),
+                                },
+                                ...(hasDistinctFunder(row)
+                                  ? [
+                                      {
+                                        key: 'notify-funder',
+                                        label: 'Notify funder',
+                                        title: `WhatsApp ${row.bank_account_holder_name} the 'IPO allotted 🎉' message (funder)`,
+                                        onClick: () => congratulateFunder(row),
+                                      },
+                                    ]
+                                  : []),
+                                {
+                                  key: 'sell-reminder',
+                                  label: notifying === row.application_id ? 'Preparing…' : 'Sell reminder',
+                                  title: 'WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF',
+                                  disabled: notifying === row.application_id,
+                                  onClick: () => notifyHolder(row),
+                                },
+                                {
+                                  key: 'self-sell',
+                                  label: row.self_sell ? 'Undo: holder sells it themselves' : 'Holder sells it themselves',
+                                  title: row.self_sell
+                                    ? 'Put this back on your own list to sell'
+                                    : 'Mark that the account holder will sell these shares on their own',
+                                  onClick: () => toggleSelfSell(row),
+                                },
+                              ] satisfies ActionMenuItem[])
+                            : []),
+                          // Sale price lives here now, not behind Mark sold.
+                          // On an ALLOTTED row, saving the price also marks
+                          // it sold (same as the old Mark sold form).
+                          ...(!isEditing && (row.status === 'ALLOTTED' || row.status === 'SOLD')
                             ? [
                                 {
-                                  key: 'notify-funder',
-                                  label: 'Notify funder',
-                                  title: `WhatsApp ${row.bank_account_holder_name} the 'IPO allotted 🎉' message (funder)`,
-                                  onClick: () => congratulateFunder(row),
+                                  key: 'sale-price',
+                                  label: row.sell_price == null ? 'Enter sale price' : 'Edit sale price',
+                                  title: 'Enter what the shares sold for',
+                                  onClick: () => onOpenForm(row),
                                 } satisfies ActionMenuItem,
                               ]
                             : []),
-                          {
-                            key: 'sell-reminder',
-                            label: notifying === row.application_id ? 'Preparing…' : 'Sell reminder',
-                            title: 'WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF',
-                            disabled: notifying === row.application_id,
-                            onClick: () => notifyHolder(row),
-                          },
-                          {
-                            key: 'self-sell',
-                            label: row.self_sell ? 'Undo: holder sells it themselves' : 'Holder sells it themselves',
-                            title: row.self_sell
-                              ? 'Put this back on your own list to sell'
-                              : 'Mark that the account holder will sell these shares on their own',
-                            onClick: () => toggleSelfSell(row),
-                          },
-                          {
-                            key: 'undo',
-                            label: 'Undo',
-                            title: 'Revert back to Applied',
-                            tone: 'muted',
-                            onClick: () => onUndo(row.application_id),
-                          },
+                          ...(row.status === 'SOLD' && row.sell_price == null && !row.demat_cut_paid && !row.funder_share_paid
+                            ? [
+                                {
+                                  key: 'undo-sold',
+                                  label: 'Undo: not sold yet',
+                                  title: 'Put this back to allotted',
+                                  tone: 'muted',
+                                  onClick: () => onSetSold(row, false),
+                                } satisfies ActionMenuItem,
+                              ]
+                            : []),
+                          ...(row.status === 'ALLOTTED'
+                            ? [
+                                {
+                                  key: 'undo',
+                                  label: 'Undo',
+                                  title: 'Revert back to Applied',
+                                  tone: 'muted',
+                                  onClick: () => onUndo(row.application_id),
+                                } satisfies ActionMenuItem,
+                              ]
+                            : []),
                         ]}
                       />
                     )}
