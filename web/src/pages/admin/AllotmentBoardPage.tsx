@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
+import { optimisticRowUpdate } from '../../lib/optimisticRowUpdate'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -42,6 +43,17 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
   NOT_ALLOTTED: 'badge-neutral',
   PARTIALLY_SOLD: 'badge-warning',
   SOLD: 'badge-violet',
+}
+
+// A sold-switch write the app itself declined or the server didn't apply —
+// carries a ready-to-show plain message (and its tone) instead of an error
+// for friendlyError to translate.
+class SoldUpdateRefused extends Error {
+  readonly tone: 'warning' | 'critical'
+  constructor(message: string, tone: 'warning' | 'critical') {
+    super(message)
+    this.tone = tone
+  }
 }
 
 // The sold on/off switch beside the holder's name on each allotment card:
@@ -455,38 +467,33 @@ export function AllotmentBoardPage() {
   // application. Those cases get a plain explanation instead; an entered
   // price is cleared, after a confirm. The update's own filters repeat the
   // checks so a stale card can't slip past them.
+  //
+  // Optimistic (lib/optimisticRowUpdate): the tick flips in the same tick as
+  // the tap and the write runs in the background; a failure puts the card
+  // back and explains, and the board is refetched either way so it ends on
+  // what the server confirmed. No success toast — the tick itself is the
+  // feedback. Anything needing the user's answer (the clear-price confirm) or
+  // knowable without the network (paid flags, the non-admin rule) is decided
+  // BEFORE the flip; the payment/part-sale lookups run inside the background
+  // step and revert the flip if they block it.
   async function setSold(row: AllotmentBoardRow, sold: boolean) {
+    const name = row.holder_name
     if (!sold) {
       // settlement_payments is admin-only under RLS (0078), so a non-admin's
       // payment check below would always see zero. Payments can only be
       // logged against a priced sale, so a non-admin may switch it off only
       // while no price is entered — then there can't be a payment to orphan.
       if (!isAdmin && row.sell_price != null) {
-        showToast(`A sale price is already entered for ${row.holder_name}. Ask an admin to mark it not sold.`, 'warning')
+        showToast(`A sale price is already entered for ${name}. Ask an admin to mark it not sold.`, 'warning')
         return
       }
-      const [paymentsRes, sellsRes] = await Promise.all([
-        supabase.from('settlement_payments').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
-        supabase.from('application_sells').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
-      ])
-      if (paymentsRes.error || sellsRes.error) {
-        showToast(friendlyError(paymentsRes.error ?? sellsRes.error, `Couldn't check ${row.holder_name}'s sale. Please try again.`), 'critical')
-        return
-      }
-      if (row.demat_cut_paid || row.funder_share_paid || (paymentsRes.count ?? 0) > 0) {
-        showToast(
-          `A payment is already logged for ${row.holder_name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`,
-          'warning',
-        )
-        return
-      }
-      if ((sellsRes.count ?? 0) > 0) {
-        showToast(`${row.holder_name}'s shares were sold in parts. Remove the part sales on the card first.`, 'warning')
+      if (row.demat_cut_paid || row.funder_share_paid) {
+        showToast(`A payment is already logged for ${name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`, 'warning')
         return
       }
       if (
         row.sell_price != null &&
-        !(await confirmDialog(`Mark ${row.holder_name} as not sold? The sale price you entered will be cleared.`, {
+        !(await confirmDialog(`Mark ${name} as not sold? The sale price you entered will be cleared.`, {
           confirmLabel: 'Mark not sold',
           tone: 'critical',
         }))
@@ -494,29 +501,56 @@ export function AllotmentBoardPage() {
         return
       }
     }
-    const query = sold
-      ? supabase
-          .from('applications')
-          .update({ status: 'SOLD', split_profit_with_funder: defaultSplit(row) })
-          .eq('id', row.application_id)
-          .eq('status', 'ALLOTTED')
-      : supabase
-          .from('applications')
-          .update({ status: 'ALLOTTED', sell_price: null })
-          .eq('id', row.application_id)
-          .eq('status', 'SOLD')
-          .eq('demat_cut_paid', false)
-          .eq('funder_share_paid', false)
-    const { data, error } = await query.select('id')
-    if (error || !data?.length) {
-      showToast(
-        friendlyError(error, `Couldn't update ${row.holder_name}'s application. It may have changed — refresh and try again.`),
-        'critical',
-      )
-      return
+
+    const result = await optimisticRowUpdate<AllotmentBoardRow, void>({
+      queryClient,
+      queryKey: queryKeys.allotmentBoard,
+      id: row.application_id,
+      patch: sold
+        ? { status: 'SOLD', split_profit_with_funder: defaultSplit(row) }
+        : { status: 'ALLOTTED', sell_price: null },
+      commit: async () => {
+        if (!sold) {
+          const [paymentsRes, sellsRes] = await Promise.all([
+            supabase.from('settlement_payments').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
+            supabase.from('application_sells').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
+          ])
+          if (paymentsRes.error || sellsRes.error) throw paymentsRes.error ?? sellsRes.error
+          if ((paymentsRes.count ?? 0) > 0) {
+            throw new SoldUpdateRefused(`A payment is already logged for ${name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`, 'warning')
+          }
+          if ((sellsRes.count ?? 0) > 0) {
+            throw new SoldUpdateRefused(`${name}'s shares were sold in parts. Remove the part sales on the card first.`, 'warning')
+          }
+        }
+        // The filters make the write conditional on the state the tap saw,
+        // so it can never apply twice or over a newer change; zero rows back
+        // means it didn't apply.
+        const { data, error } = await (sold
+          ? supabase
+              .from('applications')
+              .update({ status: 'SOLD', split_profit_with_funder: defaultSplit(row) })
+              .eq('id', row.application_id)
+              .eq('status', 'ALLOTTED')
+          : supabase
+              .from('applications')
+              .update({ status: 'ALLOTTED', sell_price: null })
+              .eq('id', row.application_id)
+              .eq('status', 'SOLD')
+              .eq('demat_cut_paid', false)
+              .eq('funder_share_paid', false)
+        ).select('id')
+        if (error) throw error
+        if (!data?.length) {
+          throw new SoldUpdateRefused(`${name}'s application changed in the meantime, so this wasn't saved. The card now shows its latest state.`, 'critical')
+        }
+      },
+    })
+    if (result.status === 'failed') {
+      const e = result.error
+      if (e instanceof SoldUpdateRefused) showToast(e.message, e.tone)
+      else showToast(friendlyError(e, `Couldn't mark ${name} ${sold ? 'sold' : 'not sold'}. Please try again.`), 'critical')
     }
-    showToast(sold ? `${row.holder_name} marked sold. Add the sale price from ⋯ when you have it.` : `${row.holder_name} marked not sold.`, 'good')
-    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   function openSoldForm(row: AllotmentBoardRow) {
