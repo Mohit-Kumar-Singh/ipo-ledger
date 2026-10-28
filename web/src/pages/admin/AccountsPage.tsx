@@ -27,6 +27,7 @@ import type { DematAccount, Profile } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { PLATFORM_OPTIONS, platformLabel, type DematPlatform } from '../../lib/platforms'
 import { PlatformAvatar } from '../../components/PlatformAvatar'
+import { copyPendingText, dematDetailsText } from '../../lib/dematDetails'
 
 type EditingAccount = {
   id: string
@@ -679,7 +680,7 @@ function AccountSection({
 // opens a chat with THEM directly rather than the "share with" contact
 // picker an empty phone falls back to).
 //
-// Contents are deliberately scoped: holder name, PAN, demat (DP client)
+// Contents are deliberately scoped (lib/dematDetails): holder name, PAN, BO ID (DP client)
 // number, and the broker-app login fields — NOT the "Logged in" free-text
 // note (already logged in somewhere isn't something worth relaying) or
 // profit_share_percent/phone_e164 (the cut is internal accounting that
@@ -702,34 +703,13 @@ function ShareDetailsButton({
   const [busy, setBusy] = useState<'copy' | 'whatsapp' | null>(null)
 
   async function buildText(): Promise<string> {
-    const pan = await onGetPan(account.id)
-    const lines = [`Name: ${account.holder_name}`]
-    // Falls back to the masked value rather than omitting the line entirely
-    // if the reveal call fails — an obviously-masked PAN is clearer than a
-    // silently missing field.
-    lines.push(`PAN: ${pan ?? account.pan_masked}`)
-    if (account.dp_client_id) lines.push(`Demat no: ${account.dp_client_id}`)
-    if (account.platform) lines.push(`Platform: ${platformLabel(account.platform)}`)
-    else if (account.application_name) lines.push(`App: ${account.application_name}`)
-    if (account.login_email) lines.push(`Login ID: ${account.login_email}`)
-    if (account.login_password) lines.push(`Password: ${account.login_password}`)
-    if (account.app_password) lines.push(`App password: ${account.app_password}`)
-    if (account.t_pin) lines.push(`T-PIN: ${account.t_pin}`)
-    return lines.join('\n')
+    return dematDetailsText(account, await onGetPan(account.id))
   }
 
   async function handleCopy() {
     setBusy('copy')
     try {
-      // Hand the clipboard a pending value synchronously (still inside the
-      // tap) — iOS Safari rejects a plain writeText that only runs after the
-      // PAN lookup's network wait, because by then the tap no longer counts.
-      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-        const textPromise = buildText().then((t) => new Blob([t], { type: 'text/plain' }))
-        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': textPromise })])
-      } else {
-        await navigator.clipboard.writeText(await buildText())
-      }
+      await copyPendingText(buildText)
       setCopied(true)
       setTimeout(() => setCopied(false), 1200)
     } catch {
@@ -1037,7 +1017,7 @@ function AccountForm({
           </p>
         )}
       </Field>
-      <Field label="Demat account no.">
+      <Field label="BO ID">
         <input
           required
           value={dematAccountNo}

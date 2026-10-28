@@ -32,6 +32,8 @@ import type {
 } from '../../types/database'
 import { InlineSpinner } from '../../components/PageSpinner'
 import { CopyButton } from '../../components/CopyButton'
+import { PlatformAvatar } from '../../components/PlatformAvatar'
+import { copyPendingText, dematDetailsText, revealPan, DEMAT_DETAILS_COLUMNS, type DematDetailsSource } from '../../lib/dematDetails'
 import { InfoTooltip } from '../../components/HoverCard'
 import { SellReminderComposer } from './SellReminderComposer'
 import { buildSellReminderText, resolveSellPdfUrl } from '../../lib/sellReminder'
@@ -740,7 +742,7 @@ export function AllotmentBoardPage() {
           funded an allotted application couldn't see it here at all before,
           contrary to this app's own "let RLS do the scoping" convention
           (CLAUDE.md). canMark below still gates every WRITE action
-          (Mark sold, Notify holder, Undo, mark-paid) — a funder who isn't
+          (Mark sold, Notify holder, Mark not allotted, mark-paid) — a funder who isn't
           also the account owner gets a read-only card, matching the same
           RLS write policy (p_apps_member_write) that would reject the
           mutation anyway. */}
@@ -765,7 +767,7 @@ export function AllotmentBoardPage() {
           // would spuriously match their own funder row on this exact card.
           // Same reasoning as Dashboard/Payouts' equivalent calls.
           profitPersonName={isAdmin ? (profile?.full_name ?? '') : ''}
-          onUndo={(id) => markStatus(id, 'APPLIED')}
+          onMarkNotAllotted={(id) => markStatus(id, 'NOT_ALLOTTED')}
           isAdmin={isAdmin}
           canMark={canMark}
         />
@@ -1099,7 +1101,7 @@ function SoldPayoutsSection({
   onMarkPaid,
   markingPaid,
   profitPersonName,
-  onUndo,
+  onMarkNotAllotted,
   isAdmin,
   canMark,
 }: {
@@ -1119,7 +1121,7 @@ function SoldPayoutsSection({
   // mis-click had no way back short of editing the DB row directly. Only
   // offered for ALLOTTED, not SOLD: reverting a sale needs unwinding the
   // sell_price/payout-paid fields too, which this button doesn't touch.
-  onUndo: (applicationId: string) => void
+  onMarkNotAllotted: (applicationId: string) => void
   isAdmin: boolean
   // Same permission check the applied-list table already uses (admin, or
   // this row's own demat account owner) — matches p_apps_member_write at
@@ -1136,6 +1138,28 @@ function SoldPayoutsSection({
   // out, so unlike the plain account list below it, this one starts open.
   const [open, setOpen] = useState(true)
   const [notifying, setNotifying] = useState<string | null>(null)
+  // Per card: bumped each time "Partial sell" is picked from the ⋯ menu, to
+  // open that card's add-a-sell form; cleared once it's saved or cancelled.
+  const [partialAdd, setPartialAdd] = useState<Record<string, number>>({})
+
+  // Same text the Accounts page's Copy button puts on the clipboard. Both
+  // reads are checked server-side (demat_accounts RLS, reveal-pan), so anyone
+  // who can't see the account just gets a message.
+  async function copyHolderDetails(row: AllotmentBoardRow) {
+    try {
+      await copyPendingText(async () => {
+        const [{ data, error }, pan] = await Promise.all([
+          supabase.from('demat_accounts').select(DEMAT_DETAILS_COLUMNS).eq('id', row.demat_id).maybeSingle(),
+          revealPan(row.demat_id),
+        ])
+        if (error || !data) throw error ?? new Error('not visible')
+        return dematDetailsText(data as DematDetailsSource, pan)
+      })
+      showToast(`${row.holder_name}'s details copied.`, 'good')
+    } catch {
+      showToast(`Couldn't copy ${row.holder_name}'s details. Only an admin or the account owner can copy them.`, 'warning')
+    }
+  }
   // Which card's sold switch is mid-save — blocks a double tap from firing
   // a second, now-stale write before the board refetches.
   const [togglingSold, setTogglingSold] = useState<string | null>(null)
@@ -1351,6 +1375,8 @@ function SoldPayoutsSection({
                     phone screen instead of truncating. */}
                 <div className="flex items-center gap-2">
                     <p className="flex min-w-0 flex-1 items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--ink-primary)' }}>
+                      {/* Same 16px as the sold tick. */}
+                      <PlatformAvatar platform={row.platform} name={row.holder_name} className="h-4 w-4 text-[9px]" />
                       <span className="truncate">{row.holder_name}</span>
                       {row.is_funder_override && (
                         <span
@@ -1397,7 +1423,7 @@ function SoldPayoutsSection({
                       <ActionMenu
                         label={`More actions for ${row.holder_name}`}
                         items={[
-                          ...(row.status === 'ALLOTTED'
+                          ...(row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD' || row.status === 'SOLD'
                             ? ([
                                 {
                                   key: 'notify-holder',
@@ -1415,6 +1441,10 @@ function SoldPayoutsSection({
                                       },
                                     ]
                                   : []),
+                              ] satisfies ActionMenuItem[])
+                            : []),
+                          ...(row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD'
+                            ? ([
                                 {
                                   key: 'sell-reminder',
                                   label: notifying === row.application_id ? 'Preparing…' : 'Sell reminder',
@@ -1422,6 +1452,23 @@ function SoldPayoutsSection({
                                   disabled: notifying === row.application_id,
                                   onClick: () => notifyHolder(row),
                                 },
+                                // The only way in to recording a partial sell —
+                                // an unsold card no longer carries the empty
+                                // "Partial sells 0/12" section.
+                                ...(!isEditing
+                                  ? [
+                                      {
+                                        key: 'partial-sell',
+                                        label: 'Partial sell',
+                                        title: 'Record a sale of some of these shares',
+                                        onClick: () => setPartialAdd((p) => ({ ...p, [row.application_id]: (p[row.application_id] ?? 0) + 1 })),
+                                      },
+                                    ]
+                                  : []),
+                              ] satisfies ActionMenuItem[])
+                            : []),
+                          ...(row.status === 'ALLOTTED'
+                            ? ([
                                 {
                                   key: 'self-sell',
                                   label: row.self_sell ? 'Undo: holder sells it themselves' : 'Holder sells it themselves',
@@ -1445,14 +1492,20 @@ function SoldPayoutsSection({
                                 } satisfies ActionMenuItem,
                               ]
                             : []),
+                          {
+                            key: 'copy-details',
+                            label: 'Copy holder details',
+                            title: 'Copy name, PAN, BO ID and login details — same as the Accounts page',
+                            onClick: () => void copyHolderDetails(row),
+                          },
                           ...(row.status === 'ALLOTTED'
                             ? [
                                 {
-                                  key: 'undo',
-                                  label: 'Undo',
-                                  title: 'Revert back to Applied',
+                                  key: 'not-allotted',
+                                  label: 'Mark not allotted',
+                                  title: 'This application did not get the shares',
                                   tone: 'muted',
-                                  onClick: () => onUndo(row.application_id),
+                                  onClick: () => onMarkNotAllotted(row.application_id),
                                 } satisfies ActionMenuItem,
                               ]
                             : []),
@@ -1516,9 +1569,22 @@ function SoldPayoutsSection({
                   />
                 )}
 
-                {!isEditing && (row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD') && canMark(row) && (
-                  <PartialSells row={row} profitPersonName={profitPersonName} isAdmin={isAdmin} />
-                )}
+                {!isEditing &&
+                  canMark(row) &&
+                  (row.status === 'PARTIALLY_SOLD' || (row.status === 'ALLOTTED' && partialAdd[row.application_id])) && (
+                    <PartialSells
+                      row={row}
+                      profitPersonName={profitPersonName}
+                      isAdmin={isAdmin}
+                      addRequest={partialAdd[row.application_id] ?? 0}
+                      onAddDone={() =>
+                        setPartialAdd((p) => {
+                          const { [row.application_id]: _, ...rest } = p
+                          return rest
+                        })
+                      }
+                    />
+                  )}
               </div>
               </Fragment>
             )
@@ -1638,10 +1704,15 @@ function PartialSells({
   row,
   profitPersonName,
   isAdmin,
+  addRequest,
+  onAddDone,
 }: {
   row: AllotmentBoardRow
   profitPersonName: string
   isAdmin: boolean
+  // Bumped by the card's ⋯ "Partial sell" item — opens the add form.
+  addRequest: number
+  onAddDone: () => void
 }) {
   const queryClient = useQueryClient()
   const sellsQuery = useQuery({
@@ -1682,12 +1753,26 @@ function PartialSells({
   const positionSplit =
     sells.length > 0 ? partialPositionSplit(row, sells, livePrice, profitPersonName) : null
 
-  const [showAdd, setShowAdd] = useState(false)
+  const [showAdd, setShowAdd] = useState(addRequest > 0)
   const [editId, setEditId] = useState<string | null>(null)
   const [fShares, setFShares] = useState('')
   const [fPrice, setFPrice] = useState('')
   const [fDate, setFDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    if (addRequest > 0) {
+      setEditId(null)
+      setFShares('')
+      setFPrice('')
+      setShowAdd(true)
+    }
+  }, [addRequest])
+
+  function cancelAdd() {
+    resetForm()
+    onAddDone()
+  }
 
   async function refresh() {
     await Promise.all([
@@ -1742,6 +1827,9 @@ function PartialSells({
     }
     resetForm()
     await refresh()
+    // After the refetch, so a first sell's card (now PARTIALLY_SOLD) keeps
+    // this section instead of it blinking out while status catches up.
+    onAddDone()
   }
 
   async function remove(t: ApplicationSell) {
@@ -1879,23 +1967,11 @@ function PartialSells({
           <button onClick={submit} disabled={busy} className="btn-primary px-2 py-1 text-xs disabled:opacity-50">
             {busy ? '…' : 'Add'}
           </button>
-          <button onClick={resetForm} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+          <button onClick={cancelAdd} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
             Cancel
           </button>
         </div>
-      ) : (
-        summary.remainingShares > 0 && (
-          <button
-            onClick={() => {
-              resetForm()
-              setShowAdd(true)
-            }}
-            className="link-accent text-xs font-medium"
-          >
-            + Record a sell
-          </button>
-        )
-      )}
+      ) : null}
     </div>
   )
 }
