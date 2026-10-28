@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import { optimisticRowUpdate, isRowUpdateInFlight, reportOptimisticFailure, RowUnchanged } from './optimisticRowUpdate'
 import * as toast from './toast'
 
@@ -159,6 +159,38 @@ describe('optimisticRowUpdate', () => {
     })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['applications-list'] })
+  })
+
+  it('quick repeated taps never leave the list in an error state (the board would show a load error)', async () => {
+    const { queryClient, read } = setup()
+    // Like the real board: every refetch goes to the server, slowly.
+    const fetches: ReturnType<typeof deferred<Row[]>>[] = []
+    // Mounted, like the board on screen — only active lists refetch on invalidate.
+    const unsubscribe = new QueryObserver<Row[]>(queryClient, {
+      queryKey: KEY,
+      queryFn: () => { const d = deferred<Row[]>(); fetches.push(d); return d.promise },
+      staleTime: Infinity,
+    }).subscribe(() => {})
+    const observer = queryClient.getQueryCache().find({ queryKey: KEY })!
+    // Tap 1 (sold) finishes and kicks off its reconciling refetch…
+    await optimisticRowUpdate<Row, string>({ queryClient, queryKey: KEY, id: 'a', patch: { status: 'SOLD' }, commit: async () => 'ok' })
+    expect(observer.state.fetchStatus).toBe('fetching')
+    // …tap 2 (not sold) lands while that refetch is still on the wire.
+    const tap2 = optimisticRowUpdate<Row, string>({ queryClient, queryKey: KEY, id: 'a', patch: { status: 'ALLOTTED' }, commit: async () => 'ok' })
+    expect(read().find((r) => r.application_id === 'a')!.status).toBe('ALLOTTED')
+    await tap2
+    await Promise.resolve()
+    expect(observer.state.error).toBeNull()
+    expect(observer.state.status).toBe('success')
+    // The last refetch answers with the server's truth and the list settles on it.
+    fetches.at(-1)!.resolve([
+      { application_id: 'a', status: 'ALLOTTED', sell_price: null },
+      { application_id: 'b', status: 'ALLOTTED', sell_price: null },
+    ])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(observer.state.error).toBeNull()
+    expect(read().find((r) => r.application_id === 'a')!.status).toBe('ALLOTTED')
+    unsubscribe()
   })
 })
 

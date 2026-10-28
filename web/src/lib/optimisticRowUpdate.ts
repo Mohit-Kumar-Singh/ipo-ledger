@@ -74,7 +74,12 @@ export async function optimisticRowUpdate<T extends object, R, D = T[]>({
     return lens ? lens.set(data, next) : (next as unknown as D)
   }
 
-  void queryClient.cancelQueries({ queryKey }, { revert: false })
+  // Revert-cancel (the default), applied BEFORE the patch: it synchronously
+  // puts the cache back to its last settled/hand-set value with no error.
+  // `{ revert: false }` was used here and looked the same, but TanStack then
+  // records the cancelled refetch as a failed load — the board's load-error
+  // toast fired on every quick second tap (v1.260.0–v1.261.0).
+  void queryClient.cancelQueries({ queryKey })
   const previous = read(queryClient.getQueryData<D>(queryKey))?.find(matches)
   queryClient.setQueryData<D>(queryKey, mapRow((r) => ({ ...r, ...patch })))
 

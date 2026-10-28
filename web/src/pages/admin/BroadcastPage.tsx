@@ -192,7 +192,9 @@ export function BroadcastPage() {
     // race an insert against a delete; other contacts stay tappable.
     onMutate: async ({ contactId, mark }) => {
       pendingTicks.current.add(contactId)
-      await queryClient.cancelQueries({ queryKey: notApplyingKey }, { revert: false })
+      // Default revert-cancel: `{ revert: false }` turns the cancelled
+      // refetch into a recorded load error (see lib/optimisticRowUpdate).
+      await queryClient.cancelQueries({ queryKey: notApplyingKey })
       queryClient.setQueryData<Set<string>>(notApplyingKey, (old) => withTick(old, contactId, mark))
     },
     onError: (err, { contactId, mark }) => {

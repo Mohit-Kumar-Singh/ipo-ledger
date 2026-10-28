@@ -10,9 +10,11 @@ import { ConfigBanner } from './components/ConfigBanner'
 import { PageSpinner } from './components/PageSpinner'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { RealtimeCacheSync } from './components/RealtimeCacheSync'
+import { BackgroundPrefetch } from './components/BackgroundPrefetch'
 
 // Route-level code splitting: each page's JS only downloads when that route
-// is actually visited.
+// is actually visited — or, for the everyday tabs, in the background once
+// the opening screen has loaded (components/BackgroundPrefetch).
 const LoginPage = lazy(() => import('./pages/LoginPage').then((m) => ({ default: m.LoginPage })))
 const DashboardPage = lazy(() => import('./pages/admin/DashboardPage').then((m) => ({ default: m.DashboardPage })))
 const AccountsPage = lazy(() => import('./pages/admin/AccountsPage').then((m) => ({ default: m.AccountsPage })))
@@ -51,32 +53,6 @@ const LinkedAccountsPage = lazy(() =>
 )
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
-// The flip side of splitting: the first visit to each tab waited on its
-// chunk behind a full-page spinner. Once the app has loaded and the browser
-// is idle, warm the everyday tabs' chunks in the background (same import()
-// calls as above, so the lazy routes reuse them) — tapping a tab then just
-// renders. Skipped when the phone asks to save data.
-const warmRouteChunks = [
-  () => import('./pages/admin/ApplicationsPage'),
-  () => import('./pages/admin/AllotmentBoardPage'),
-  () => import('./pages/admin/AccountsPage'),
-  () => import('./pages/admin/PayoutsPage'),
-  () => import('./pages/admin/IposPage'),
-  () => import('./pages/admin/NotificationsPage'),
-]
-if (typeof window !== 'undefined') {
-  const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
-  if (!saveData) {
-    const idle = (fn: () => void) =>
-      'requestIdleCallback' in window ? window.requestIdleCallback(fn, { timeout: 4000 }) : setTimeout(fn, 2000)
-    window.addEventListener(
-      'load',
-      () => idle(() => warmRouteChunks.forEach((load) => load().catch(() => {}))),
-      { once: true },
-    )
-  }
-}
-
 function App() {
   return (
     <ErrorBoundary>
@@ -85,6 +61,7 @@ function App() {
           <BrowserRouter>
             <AuthProvider>
               <RealtimeCacheSync />
+              <BackgroundPrefetch />
               <ConfigBanner />
               <Suspense fallback={<PageSpinner />}>
                 <Routes>
