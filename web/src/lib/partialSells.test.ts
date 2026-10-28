@@ -51,6 +51,7 @@ function boardRow(over: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow {
     category: 'RETAIL',
     ipoji_app_number: null,
     self_sell: false,
+    card_note: null,
     ...over,
   }
 }

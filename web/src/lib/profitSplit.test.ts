@@ -271,6 +271,7 @@ function boardRow(overrides: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow
     category: 'RETAIL',
     ipoji_app_number: null,
     self_sell: false,
+    card_note: null,
     bank_account_linked_user_id: null,
     ...overrides,
   }

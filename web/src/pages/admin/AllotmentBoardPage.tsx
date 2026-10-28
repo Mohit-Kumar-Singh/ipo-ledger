@@ -1,5 +1,5 @@
 import { friendlyError } from '../../lib/friendlyError'
-import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
@@ -36,7 +36,6 @@ import { PlatformAvatar } from '../../components/PlatformAvatar'
 import { copyPendingText, dematDetailsText, revealPan, DEMAT_DETAILS_COLUMNS, type DematDetailsSource } from '../../lib/dematDetails'
 import { InfoTooltip } from '../../components/HoverCard'
 import { SellReminderComposer } from './SellReminderComposer'
-import { buildSellReminderText, resolveSellPdfUrl } from '../../lib/sellReminder'
 import { matchPastedAppNumbers } from '../../lib/allotmentPaste'
 
 const statusBadgeClass: Record<ApplicationStatus, string> = {
@@ -1137,7 +1136,6 @@ function SoldPayoutsSection({
   // payout status is the thing actually worth acting on once allotment's
   // out, so unlike the plain account list below it, this one starts open.
   const [open, setOpen] = useState(true)
-  const [notifying, setNotifying] = useState<string | null>(null)
   // Per card: bumped each time "Partial sell" is picked from the ⋯ menu, to
   // open that card's add-a-sell form; cleared once it's saved or cancelled.
   const [partialAdd, setPartialAdd] = useState<Record<string, number>>({})
@@ -1164,38 +1162,10 @@ function SoldPayoutsSection({
   // a second, now-stale write before the board refetches.
   const [togglingSold, setTogglingSold] = useState<string | null>(null)
 
-  // Ad-hoc "ping this one holder now" — fetches their stored login details
-  // (admin-only under RLS), resolves their platform's how-to-sell PDF to a
-  // signed URL, and opens WhatsApp with the whole thing prefilled. Same
-  // enriched body the Notifications "Sell today/tomorrow" cards build; this
-  // is just the single-holder shortcut right where allotments are worked.
-  async function notifyHolder(row: AllotmentBoardRow) {
-    setNotifying(row.application_id)
-    const { data: demat } = await supabase
-      .from('demat_accounts')
-      .select('platform, dp_client_id, application_name, login_email, login_password, app_password, t_pin, logged_in_notes')
-      .eq('id', row.demat_id)
-      .maybeSingle()
-    const pdfUrl = await resolveSellPdfUrl(demat?.platform ?? row.platform)
-    const listingPhrase = row.listing_date
-      ? `lists on ${formatShortDate(row.listing_date, { weekday: 'long' })}`
-      : 'is listing soon'
-    const message = buildSellReminderText({
-      holderName: row.holder_name,
-      ipoName: row.company_name,
-      lots: row.lots,
-      listingPhrase,
-      details: demat ?? { platform: row.platform },
-      pdfUrl,
-    })
-    sendCustomWhatsapp(row.phone_e164, message)
-    setNotifying(null)
-  }
-
   // "You got the allotment" congratulations — the message to send right
-  // after marking a row ALLOTTED, NOT the listing-day sell reminder above
-  // (that one carries login details + a how-to-sell PDF and only makes
-  // sense near listing). Ad-hoc wa.me self-send, same as notifyHolder;
+  // after marking a row ALLOTTED, NOT the listing-day sell reminder (that
+  // one carries login details + a how-to-sell PDF and is sent from the
+  // Notifications page / the composer above). Ad-hoc wa.me self-send;
   // reuses the shared ipo_allotted / ipo_allotted_funder template bodies
   // (lib/notificationTemplates.ts) so this reads identically to the tracked
   // ALLOTTED notification the applied-list table can send.
@@ -1305,6 +1275,60 @@ function SoldPayoutsSection({
       },
     })
     reportOptimisticFailure(result, `Couldn't update ${row.holder_name}'s application. Please try again.`)
+    // Double-tap is a hidden gesture, so say what it did.
+    if (result.status === 'ok') {
+      showToast(next ? `${row.holder_name} sells it themselves.` : `${row.holder_name} is back on your list to sell.`, 'good')
+    }
+  }
+
+  // Double-tap anywhere on an allotted card (not on a button, link or
+  // field) toggles "holder sells it themselves". Detected from two clicks
+  // within 300 ms rather than dblclick, which iOS Safari doesn't fire
+  // reliably for taps.
+  const lastTap = useRef<{ id: string; at: number } | null>(null)
+  function onCardTap(e: ReactMouseEvent, row: AllotmentBoardRow) {
+    if ((e.target as HTMLElement).closest('button, a, input, textarea, select, label, form')) return
+    if (!canMark(row) || row.status !== 'ALLOTTED') return
+    const now = Date.now()
+    const prev = lastTap.current
+    if (prev && prev.id === row.application_id && now - prev.at < 300) {
+      lastTap.current = null
+      window.getSelection()?.removeAllRanges()
+      void toggleSelfSell(row)
+    } else {
+      lastTap.current = { id: row.application_id, at: now }
+    }
+  }
+
+  // Per-card note (migration 0112): undefined = not editing.
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  function closeNote(id: string) {
+    setNoteDrafts(({ [id]: _, ...rest }) => rest)
+  }
+  async function saveNote(row: AllotmentBoardRow) {
+    const note = (noteDrafts[row.application_id] ?? '').trim() || null
+    closeNote(row.application_id)
+    if (note === row.card_note) return
+    // Optimistic like the other card actions: the note shows at once and is
+    // put back if the save is refused.
+    const result = await optimisticRowUpdate<AllotmentBoardRow, void>({
+      queryClient,
+      queryKey: queryKeys.allotmentBoard,
+      id: row.application_id,
+      patch: { card_note: note },
+      commit: async () => {
+        const { data, error } = await supabase
+          .from('applications')
+          .update({ card_note: note })
+          .eq('id', row.application_id)
+          .select('id')
+        if (error) throw error
+        if (!data?.length) {
+          throw new RowUnchanged(`Couldn't save the note for ${row.holder_name}. Only the account owner or an admin can change it.`, 'critical')
+        }
+      },
+    })
+    reportOptimisticFailure(result, `Couldn't save the note for ${row.holder_name}. Please try again.`)
   }
 
   // A–Z by holder by default; "By funder" groups each funder's applications
@@ -1366,7 +1390,12 @@ function SoldPayoutsSection({
               {startsFunderGroup && (
                 <p className="section-label pt-1">{funder ? `Funded by ${funder}` : 'No funder'}</p>
               )}
-              <div className="card stagger-item p-4">
+              <div
+                className="card stagger-item p-4"
+                style={{ touchAction: 'manipulation' }}
+                onClick={(e) => onCardTap(e, row)}
+                title={canMark(row) && row.status === 'ALLOTTED' ? 'Double-tap: holder sells it themselves' : undefined}
+              >
                 {/* Top row: name + status tick on the left, Mark sold + "⋯"
                     on the right — always one line, the details sit below
                     across the full card width. min-w-0 is load-bearing: a
@@ -1419,11 +1448,23 @@ function SoldPayoutsSection({
                       action actually used every time; the rest move into
                       the "⋯" menu (components/ActionMenu.tsx). */}
                   <div className="flex shrink-0 items-center gap-2">
-                    {canMark(row) && (
+                    {/* A sold card needs nothing else: the sale price is its
+                        only action, shown directly instead of a ⋯ menu. */}
+                    {canMark(row) && row.status === 'SOLD' && !isEditing && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenForm(row)}
+                        className="link-accent text-xs font-medium"
+                        title="Enter what the shares sold for"
+                      >
+                        {row.sell_price == null ? 'Enter sale price' : 'Edit sale price'}
+                      </button>
+                    )}
+                    {canMark(row) && row.status !== 'SOLD' && (
                       <ActionMenu
                         label={`More actions for ${row.holder_name}`}
                         items={[
-                          ...(row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD' || row.status === 'SOLD'
+                          ...(row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD'
                             ? ([
                                 {
                                   key: 'notify-holder',
@@ -1445,13 +1486,6 @@ function SoldPayoutsSection({
                             : []),
                           ...(row.status === 'ALLOTTED' || row.status === 'PARTIALLY_SOLD'
                             ? ([
-                                {
-                                  key: 'sell-reminder',
-                                  label: notifying === row.application_id ? 'Preparing…' : 'Sell reminder',
-                                  title: 'WhatsApp the account holder a listing-day sell reminder — their login details + how-to-sell PDF',
-                                  disabled: notifying === row.application_id,
-                                  onClick: () => notifyHolder(row),
-                                },
                                 // The only way in to recording a partial sell —
                                 // an unsold card no longer carries the empty
                                 // "Partial sells 0/12" section.
@@ -1467,22 +1501,9 @@ function SoldPayoutsSection({
                                   : []),
                               ] satisfies ActionMenuItem[])
                             : []),
-                          ...(row.status === 'ALLOTTED'
-                            ? ([
-                                {
-                                  key: 'self-sell',
-                                  label: row.self_sell ? 'Undo: holder sells it themselves' : 'Holder sells it themselves',
-                                  title: row.self_sell
-                                    ? 'Put this back on your own list to sell'
-                                    : 'Mark that the account holder will sell these shares on their own',
-                                  onClick: () => toggleSelfSell(row),
-                                },
-                              ] satisfies ActionMenuItem[])
-                            : []),
-                          // Sale price lives here now, not behind Mark sold.
                           // On an ALLOTTED row, saving the price also marks
                           // it sold (same as the old Mark sold form).
-                          ...(!isEditing && (row.status === 'ALLOTTED' || row.status === 'SOLD')
+                          ...(!isEditing && row.status === 'ALLOTTED'
                             ? [
                                 {
                                   key: 'sale-price',
@@ -1492,6 +1513,12 @@ function SoldPayoutsSection({
                                 } satisfies ActionMenuItem,
                               ]
                             : []),
+                          {
+                            key: 'note',
+                            label: row.card_note ? 'Edit note' : 'Add note',
+                            title: 'A note for this card only — shows next to the application number',
+                            onClick: () => setNoteDrafts((d) => ({ ...d, [row.application_id]: row.card_note ?? '' })),
+                          },
                           {
                             key: 'copy-details',
                             label: 'Copy holder details',
@@ -1535,13 +1562,46 @@ function SoldPayoutsSection({
                   )}
                   {/* Copied into NSE's verify-bids page (the header link)
                       to check this holder's result. */}
-                  {row.ipoji_app_number && (
-                    <div className="flex items-center gap-1">
-                      <span>
-                        App no. <span className="font-mono-ipo">{row.ipoji_app_number}</span>
-                      </span>
-                      <CopyButton value={row.ipoji_app_number} label="application number" />
+                  {(row.ipoji_app_number || row.card_note) && (
+                    <div className="flex min-w-0 items-center gap-1">
+                      {row.ipoji_app_number && (
+                        <>
+                          <span className="shrink-0">
+                            App no. <span className="font-mono-ipo">{row.ipoji_app_number}</span>
+                          </span>
+                          <CopyButton value={row.ipoji_app_number} label="application number" />
+                        </>
+                      )}
+                      {row.card_note && noteDrafts[row.application_id] === undefined && (
+                        <span className="min-w-0 truncate" style={{ color: 'var(--ink-secondary)' }} title={row.card_note}>
+                          {row.ipoji_app_number && '· '}📝 {row.card_note}
+                        </span>
+                      )}
                     </div>
+                  )}
+                  {noteDrafts[row.application_id] !== undefined && (
+                    <form
+                      className="flex items-center gap-1.5 pt-1"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        void saveNote(row)
+                      }}
+                    >
+                      <input
+                        className="input min-w-0 flex-1 px-2 py-1 text-xs"
+                        value={noteDrafts[row.application_id]}
+                        onChange={(e) => setNoteDrafts((d) => ({ ...d, [row.application_id]: e.target.value }))}
+                        placeholder="Note for this card"
+                        maxLength={200}
+                        autoFocus
+                      />
+                      <button type="submit" className="btn-primary px-2 py-1 text-xs">
+                        Save
+                      </button>
+                      <button type="button" onClick={() => closeNote(row.application_id)} className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                        Cancel
+                      </button>
+                    </form>
                   )}
                 </div>
 
