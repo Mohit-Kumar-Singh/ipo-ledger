@@ -15,6 +15,7 @@ import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
 import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
+import { optimisticRowUpdate, reportOptimisticFailure, RowUnchanged } from '../../lib/optimisticRowUpdate'
 import { withRetry } from '../../lib/networkRetry'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
 import { SaleAmountField, sellPricePerShareFromEntry, type SaleEntryMode } from '../../components/SaleAmountField'
@@ -380,11 +381,47 @@ export function ApplicationsPage() {
     setShowForm(false)
   }
 
+  // Optimistic (lib/optimisticRowUpdate): the row shows its new status the
+  // moment it's tapped and the write runs in the background, conditional on
+  // the status the tap saw — a double tap or a change made elsewhere can't
+  // apply twice, and zero rows back rolls the row back with a message. It
+  // used to ignore the write's result, so a failed save looked like it worked.
   async function markStatus(id: string, status: Application['status']) {
-    const ipoId = applications.find((a) => a.id === id)?.ipo_id
-    await supabase.from('applications').update({ status }).eq('id', id)
-    if (status === 'NOT_ALLOTTED' && ipoId) await maybeAutoArchiveIpo(ipoId)
-    loadApplications()
+    const app = applications.find((a) => a.id === id)
+    if (!app || app.status === status) return
+    const from = app.status
+    const name = app.demat_accounts?.holder_name ?? resolvedDematInfo.get(app.demat_id)?.holder_name ?? 'This'
+    const result = await optimisticRowUpdate<ApplicationRow, void, ApplicationsData>({
+      queryClient,
+      queryKey: applicationsQueryKey,
+      id,
+      idField: 'id',
+      lens: { get: (d) => d.rows, set: (d, rows) => ({ ...d, rows }) },
+      patch: { status },
+      alsoInvalidate: [['dashboard'], queryKeys.allotmentBoard],
+      commit: async () => {
+        const { data, error } = await supabase
+          .from('applications')
+          .update({ status })
+          .eq('id', id)
+          .eq('status', from)
+          .select('id')
+        if (error) throw error
+        if (!data?.length) {
+          throw new RowUnchanged(
+            `${name}'s application changed in the meantime, or you can't change it. The list now shows its latest state.`,
+            'critical',
+          )
+        }
+      },
+    })
+    reportOptimisticFailure(result, `Couldn't update ${name}'s application. Please try again.`)
+    if (result.status === 'ok' && status === 'NOT_ALLOTTED') {
+      void maybeAutoArchiveIpo(app.ipo_id).then(() => {
+        queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+        loadApplications()
+      })
+    }
   }
 
   function toggleSelectedForNotAllotted(id: string) {

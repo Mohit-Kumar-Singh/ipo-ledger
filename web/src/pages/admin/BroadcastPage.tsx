@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -37,6 +37,15 @@ const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`
 // The message the admin shares for one IPO: name, price, dates, profit
 // chances, then the "are you applying?" question. {name} is swapped per
 // person at send time.
+// A copy of the "not applying" set with one contact ticked or unticked —
+// never mutates the cached Set, so React sees a new value.
+function withTick(set: Set<string> | undefined, contactId: string, ticked: boolean): Set<string> {
+  const next = new Set(set)
+  if (ticked) next.add(contactId)
+  else next.delete(contactId)
+  return next
+}
+
 function buildMessage(ipo: Ipo): string {
   const lines: string[] = [`Hi {name}, 📢 *${ipo.company_name}* IPO — are you applying?`, '']
 
@@ -161,6 +170,7 @@ export function BroadcastPage() {
   })
   const appliedDemat = appliedQuery.data ?? new Set<string>()
 
+  const pendingTicks = useRef(new Set<string>())
   const toggleNotApplying = useMutation({
     mutationFn: async ({ contactId, mark }: { contactId: string; mark: boolean }) => {
       if (!ipo) return
@@ -176,8 +186,23 @@ export function BroadcastPage() {
         if (error) throw error
       }
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['broadcast-not-applying'] }),
-    onError: (err) => showToast(friendlyError(err, `Couldn't save that tick. Try again.`), 'critical'),
+    // Optimistic: the tick shows the instant it's tapped and only that
+    // contact's tick is put back if the save fails. Each contact's tick
+    // takes one save at a time (pendingTicks) so a fast double tap can't
+    // race an insert against a delete; other contacts stay tappable.
+    onMutate: async ({ contactId, mark }) => {
+      pendingTicks.current.add(contactId)
+      await queryClient.cancelQueries({ queryKey: notApplyingKey }, { revert: false })
+      queryClient.setQueryData<Set<string>>(notApplyingKey, (old) => withTick(old, contactId, mark))
+    },
+    onError: (err, { contactId, mark }) => {
+      queryClient.setQueryData<Set<string>>(notApplyingKey, (old) => withTick(old, contactId, !mark))
+      showToast(friendlyError(err, `Couldn't save that tick. Try again.`), 'critical')
+    },
+    onSettled: (_data, _err, { contactId }) => {
+      pendingTicks.current.delete(contactId)
+      return queryClient.invalidateQueries({ queryKey: ['broadcast-not-applying'] })
+    },
   })
 
   function textFor(c: BroadcastContact): string {
@@ -386,8 +411,11 @@ export function BroadcastPage() {
                     aria-checked={isNotApplying}
                     aria-label={isNotApplying ? `${c.name} is not applying — untick` : `Mark ${c.name} as not applying`}
                     title="Not applying — I'll apply for them"
-                    disabled={!ipo || toggleNotApplying.isPending}
-                    onClick={() => toggleNotApplying.mutate({ contactId: c.id, mark: !isNotApplying })}
+                    disabled={!ipo}
+                    onClick={() => {
+                      if (pendingTicks.current.has(c.id)) return
+                      toggleNotApplying.mutate({ contactId: c.id, mark: !isNotApplying })
+                    }}
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border disabled:opacity-50"
                     style={{
                       borderColor: isNotApplying ? 'var(--accent)' : 'var(--border-strong)',

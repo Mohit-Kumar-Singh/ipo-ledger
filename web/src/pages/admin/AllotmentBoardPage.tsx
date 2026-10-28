@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useIpos, useAllotmentBoardAll, queryKeys } from '../../lib/queries'
-import { optimisticRowUpdate } from '../../lib/optimisticRowUpdate'
+import { optimisticRowUpdate, reportOptimisticFailure, RowUnchanged } from '../../lib/optimisticRowUpdate'
 import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { dispatchAdminWhatsapp, openWhatsAppForNotification, sendCustomWhatsapp } from '../../lib/dispatchWhatsapp'
@@ -43,17 +43,6 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
   NOT_ALLOTTED: 'badge-neutral',
   PARTIALLY_SOLD: 'badge-warning',
   SOLD: 'badge-violet',
-}
-
-// A sold-switch write the app itself declined or the server didn't apply —
-// carries a ready-to-show plain message (and its tone) instead of an error
-// for friendlyError to translate.
-class SoldUpdateRefused extends Error {
-  readonly tone: 'warning' | 'critical'
-  constructor(message: string, tone: 'warning' | 'critical') {
-    super(message)
-    this.tone = tone
-  }
 }
 
 // The sold on/off switch beside the holder's name on each allotment card:
@@ -343,18 +332,55 @@ export function AllotmentBoardPage() {
   // (App.tsx) — that guarantees THIS page reflects its own action
   // immediately, regardless of realtime round-trip timing; other
   // currently-open tabs/pages still pick it up via the realtime push.
+  //
+  // Optimistic: the card moves to its new status the moment it's tapped and
+  // the write runs in the background (lib/optimisticRowUpdate). The write is
+  // conditional on the status the tap saw, so a double tap or a change made
+  // elsewhere meanwhile can't apply twice — zero rows back (that, or RLS
+  // refusing it) rolls the card back with a message. It used to ignore the
+  // write's result entirely, so a failed save looked like it had worked.
   async function markStatus(applicationId: string, status: 'ALLOTTED' | 'NOT_ALLOTTED' | 'APPLIED') {
-    await supabase.from('applications').update({ status }).eq('id', applicationId)
-    if (status === 'NOT_ALLOTTED') {
-      await maybeAutoArchiveIpo(selectedIpoId)
-      queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+    const row = rows.find((r) => r.application_id === applicationId)
+    if (!row || row.status === status) return
+    const from = row.status
+    const result = await optimisticRowUpdate<AllotmentBoardRow, void>({
+      queryClient,
+      queryKey: queryKeys.allotmentBoard,
+      id: applicationId,
+      patch: { status },
+      alsoInvalidate: [['applications-list'], ['dashboard']],
+      commit: async () => {
+        const { data, error } = await supabase
+          .from('applications')
+          .update({ status })
+          .eq('id', applicationId)
+          .eq('status', from)
+          .select('id')
+        if (error) throw error
+        if (!data?.length) {
+          throw new RowUnchanged(
+            `${row.holder_name}'s application changed in the meantime, or you can't change it. The card now shows its latest state.`,
+            'critical',
+          )
+        }
+      },
+    })
+    reportOptimisticFailure(result, `Couldn't update ${row.holder_name}'s application. Please try again.`)
+    // Housekeeping after a confirmed Not allotted, off the tap's path: it
+    // only archives the IPO once every application on it is resolved.
+    if (result.status === 'ok' && status === 'NOT_ALLOTTED') {
+      void maybeAutoArchiveIpo(row.ipo_id).then(() => queryClient.invalidateQueries({ queryKey: queryKeys.ipos }))
     }
-    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
   async function bulkMarkNotAllotted() {
     if (selected.size === 0) return
-    await supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).in('id', Array.from(selected))
+    const { error } = await supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).in('id', Array.from(selected))
+    if (error) {
+      showToast(friendlyError(error, `Couldn't mark those as Not allotted. Nothing was changed.`), 'critical')
+      return
+    }
+    setSelected(new Set())
     await maybeAutoArchiveIpo(selectedIpoId)
     queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
@@ -517,10 +543,10 @@ export function AllotmentBoardPage() {
           ])
           if (paymentsRes.error || sellsRes.error) throw paymentsRes.error ?? sellsRes.error
           if ((paymentsRes.count ?? 0) > 0) {
-            throw new SoldUpdateRefused(`A payment is already logged for ${name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`, 'warning')
+            throw new RowUnchanged(`A payment is already logged for ${name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`, 'warning')
           }
           if ((sellsRes.count ?? 0) > 0) {
-            throw new SoldUpdateRefused(`${name}'s shares were sold in parts. Remove the part sales on the card first.`, 'warning')
+            throw new RowUnchanged(`${name}'s shares were sold in parts. Remove the part sales on the card first.`, 'warning')
           }
         }
         // The filters make the write conditional on the state the tap saw,
@@ -542,15 +568,11 @@ export function AllotmentBoardPage() {
         ).select('id')
         if (error) throw error
         if (!data?.length) {
-          throw new SoldUpdateRefused(`${name}'s application changed in the meantime, so this wasn't saved. The card now shows its latest state.`, 'critical')
+          throw new RowUnchanged(`${name}'s application changed in the meantime, so this wasn't saved. The card now shows its latest state.`, 'critical')
         }
       },
     })
-    if (result.status === 'failed') {
-      const e = result.error
-      if (e instanceof SoldUpdateRefused) showToast(e.message, e.tone)
-      else showToast(friendlyError(e, `Couldn't mark ${name} ${sold ? 'sold' : 'not sold'}. Please try again.`), 'critical')
-    }
+    reportOptimisticFailure(result, `Couldn't mark ${name} ${sold ? 'sold' : 'not sold'}. Please try again.`)
   }
 
   function openSoldForm(row: AllotmentBoardRow) {
@@ -1235,21 +1257,30 @@ function SoldPayoutsSection({
   // comes back with zero rows, not an error, when RLS refuses it (anyone but
   // the account owner or an admin) — so an empty result is a failure too.
   const queryClient = useQueryClient()
+  //
+  // Optimistic like the sold switch: the "sells it themselves" badge appears
+  // or goes the moment the menu item is tapped; no success toast, the badge
+  // is the confirmation.
   async function toggleSelfSell(row: AllotmentBoardRow) {
-    const { data, error } = await supabase
-      .from('applications')
-      .update({ self_sell: !row.self_sell })
-      .eq('id', row.application_id)
-      .select('id')
-    if (error || !data?.length) {
-      showToast(friendlyError(error, `Couldn't update ${row.holder_name}'s application. Only the account owner or an admin can change it.`), 'critical')
-      return
-    }
-    showToast(
-      row.self_sell ? `${row.holder_name} is back on your list to sell.` : `Marked: ${row.holder_name} will sell it themselves.`,
-      'good',
-    )
-    queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+    const next = !row.self_sell
+    const result = await optimisticRowUpdate<AllotmentBoardRow, void>({
+      queryClient,
+      queryKey: queryKeys.allotmentBoard,
+      id: row.application_id,
+      patch: { self_sell: next },
+      commit: async () => {
+        const { data, error } = await supabase
+          .from('applications')
+          .update({ self_sell: next })
+          .eq('id', row.application_id)
+          .select('id')
+        if (error) throw error
+        if (!data?.length) {
+          throw new RowUnchanged(`Couldn't update ${row.holder_name}'s application. Only the account owner or an admin can change it.`, 'critical')
+        }
+      },
+    })
+    reportOptimisticFailure(result, `Couldn't update ${row.holder_name}'s application. Please try again.`)
   }
 
   // A–Z by holder by default; "By funder" groups each funder's applications

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
-import { optimisticRowUpdate, isRowUpdateInFlight } from './optimisticRowUpdate'
+import { optimisticRowUpdate, isRowUpdateInFlight, reportOptimisticFailure, RowUnchanged } from './optimisticRowUpdate'
+import * as toast from './toast'
 
 type Row = { application_id: string; status: string; sell_price: number | null }
 const KEY = ['v_allotment_board']
@@ -120,5 +121,64 @@ describe('optimisticRowUpdate', () => {
     expect(read().find((r) => r.application_id === 'a')!.status).toBe('SOLD')
     write.resolve('ok')
     await pending
+  })
+
+  it('works on other tables (idField) and on wrapped caches (lens), touching only the target row', async () => {
+    const queryClient = new QueryClient()
+    type Wrapped = { rows: { id: string; status: string }[]; lookups: Map<string, string> }
+    const lookups = new Map([['x', 'y']])
+    queryClient.setQueryData<Wrapped>(['apps'], { rows: [{ id: '1', status: 'APPLIED' }, { id: '2', status: 'APPLIED' }], lookups })
+    const result = await optimisticRowUpdate<{ id: string; status: string }, never, Wrapped>({
+      queryClient, queryKey: ['apps'], id: '1', idField: 'id',
+      lens: { get: (d) => d.rows, set: (d, rows) => ({ ...d, rows }) },
+      patch: { status: 'ALLOTTED' },
+      commit: () => Promise.reject(new RowUnchanged('changed meanwhile')),
+    })
+    expect(result.status).toBe('failed')
+    const after = queryClient.getQueryData<Wrapped>(['apps'])!
+    expect(after.rows).toEqual([{ id: '1', status: 'APPLIED' }, { id: '2', status: 'APPLIED' }])
+    expect(after.lookups).toBe(lookups)
+  })
+
+  it('a failed row rolls back without undoing another row changed meanwhile', async () => {
+    const { queryClient, read } = setup()
+    const wa = deferred<string>()
+    const pa = optimisticRowUpdate<Row, string>({ queryClient, queryKey: KEY, id: 'a', patch: { status: 'SOLD' }, commit: () => wa.promise })
+    await optimisticRowUpdate<Row, string>({ queryClient, queryKey: KEY, id: 'b', patch: { status: 'NOT_ALLOTTED' }, commit: async () => 'ok' })
+    wa.reject(new Error('a failed'))
+    await pa
+    expect(read().map((r) => r.status)).toEqual(['ALLOTTED', 'NOT_ALLOTTED'])
+  })
+
+  it('refetches the extra caches built from the same rows', async () => {
+    const { queryClient } = setup()
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
+    await optimisticRowUpdate<Row, string>({
+      queryClient, queryKey: KEY, id: 'a', patch: { status: 'SOLD' }, commit: async () => 'ok',
+      alsoInvalidate: [['dashboard'], ['applications-list']],
+    })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['dashboard'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['applications-list'] })
+  })
+})
+
+describe('reportOptimisticFailure', () => {
+  it('shows nothing on success or a repeat tap — the changed row is the feedback', () => {
+    const spy = vi.spyOn(toast, 'showToast').mockImplementation(() => {})
+    reportOptimisticFailure({ status: 'ok', result: undefined }, 'x')
+    reportOptimisticFailure({ status: 'busy' }, 'x')
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  it('keeps a RowUnchanged message and tone, and translates anything else', () => {
+    const spy = vi.spyOn(toast, 'showToast').mockImplementation(() => {})
+    reportOptimisticFailure({ status: 'failed', error: new RowUnchanged('Already paid.', 'warning') }, 'fallback')
+    expect(spy).toHaveBeenLastCalledWith('Already paid.', 'warning')
+    reportOptimisticFailure({ status: 'failed', error: { message: 'violates foreign key constraint "x_fkey"', code: '23503' } }, "Couldn't save.")
+    const [msg, tone] = spy.mock.calls.at(-1)!
+    expect(tone).toBe('critical')
+    expect(msg).not.toMatch(/constraint|fkey|23503/)
+    spy.mockRestore()
   })
 })

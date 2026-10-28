@@ -8,16 +8,28 @@
 //     would restore pre-fetch data and wipe the patch) so a slow, stale
 //     response can't land on top of it.
 //   - Failure: `commit` throws → the row is put back exactly as it was, and
-//     the error is returned for the caller to show.
+//     the error is returned for the caller to show. Only that row is put
+//     back, so another row's optimistic change made meanwhile survives.
 //   - One at a time per row: a second call for a row whose update is still
 //     running returns 'busy' without touching anything, so a double tap can't
 //     fire a second write.
-//   - Reconciled: success or failure, the list is refetched at the end — if
-//     a write landed but its response was lost, the refetch still shows the
-//     truth.
+//   - Reconciled: success or failure, the list (and any `alsoInvalidate`
+//     keys built from the same rows) is refetched at the end — if a write
+//     landed but its response was lost, the refetch still shows the truth.
+//
+// Rows are matched on `application_id` by default; pass `idField` for other
+// tables, and `lens` when the cached value wraps the list (e.g. the
+// Applications page caches `{ rows, ...lookups }`).
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
+import { showToast } from './toast'
+import { friendlyError } from './friendlyError'
 
-type KeyedRow = { application_id: string }
+type AnyRow = Record<string, unknown>
+
+export type RowsLens<D, T> = {
+  get: (data: D) => T[]
+  set: (data: D, rows: T[]) => D
+}
 
 const inFlight = new Set<string>()
 
@@ -30,39 +42,73 @@ export type OptimisticResult<R> =
   | { status: 'busy' }
   | { status: 'failed'; error: unknown }
 
-export async function optimisticRowUpdate<T extends KeyedRow, R>({
+export async function optimisticRowUpdate<T extends object, R, D = T[]>({
   queryClient,
   queryKey,
   id,
   patch,
   commit,
+  idField = 'application_id',
+  lens,
+  alsoInvalidate = [],
 }: {
   queryClient: QueryClient
   queryKey: QueryKey
   id: string
   patch: Partial<T>
   commit: () => Promise<R>
+  idField?: string
+  lens?: RowsLens<D, T>
+  alsoInvalidate?: QueryKey[]
 }): Promise<OptimisticResult<R>> {
   if (inFlight.has(id)) return { status: 'busy' }
   inFlight.add(id)
 
+  const matches = (r: T) => (r as AnyRow)[idField] === id
+  const read = (data: D | undefined): T[] | undefined =>
+    data === undefined ? undefined : lens ? lens.get(data) : (data as unknown as T[])
+  const mapRow = (fn: (r: T) => T) => (data: D | undefined): D | undefined => {
+    const rows = read(data)
+    if (data === undefined || !rows) return data
+    const next = rows.map((r) => (matches(r) ? fn(r) : r))
+    return lens ? lens.set(data, next) : (next as unknown as D)
+  }
+
   void queryClient.cancelQueries({ queryKey }, { revert: false })
-  const previous = queryClient.getQueryData<T[]>(queryKey)?.find((r) => r.application_id === id)
-  queryClient.setQueryData<T[]>(queryKey, (rows) =>
-    rows?.map((r) => (r.application_id === id ? { ...r, ...patch } : r)),
-  )
+  const previous = read(queryClient.getQueryData<D>(queryKey))?.find(matches)
+  queryClient.setQueryData<D>(queryKey, mapRow((r) => ({ ...r, ...patch })))
 
   try {
     return { status: 'ok', result: await commit() }
   } catch (error) {
-    if (previous) {
-      queryClient.setQueryData<T[]>(queryKey, (rows) =>
-        rows?.map((r) => (r.application_id === id ? previous : r)),
-      )
-    }
+    if (previous) queryClient.setQueryData<D>(queryKey, mapRow(() => previous))
     return { status: 'failed', error }
   } finally {
     inFlight.delete(id)
     void queryClient.invalidateQueries({ queryKey })
+    for (const key of alsoInvalidate) void queryClient.invalidateQueries({ queryKey: key })
   }
+}
+
+// A conditional write (`.eq('status', expected)…select('id')`) that matched
+// nothing: RLS refused it, or the row already changed elsewhere. Supabase
+// reports both as an empty result, not an error — so callers throw this to
+// make the optimistic change roll back with a human message.
+export class RowUnchanged extends Error {
+  readonly tone: 'warning' | 'critical'
+  constructor(message: string, tone: 'warning' | 'critical' = 'warning') {
+    super(message)
+    this.tone = tone
+  }
+}
+
+// The one way an optimistic action reports a rollback: a RowUnchanged keeps
+// its own human message; anything else goes through friendlyError with the
+// action-specific fallback. 'busy' (a repeat tap) and 'ok' say nothing — the
+// changed row on screen is the confirmation.
+export function reportOptimisticFailure(result: OptimisticResult<unknown>, fallback: string): void {
+  if (result.status !== 'failed') return
+  const { error } = result
+  if (error instanceof RowUnchanged) showToast(error.message, error.tone)
+  else showToast(friendlyError(error, fallback), 'critical')
 }

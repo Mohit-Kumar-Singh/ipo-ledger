@@ -7,6 +7,7 @@ import { Archive, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { ShareholderQuotaIcon } from '../../components/ShareholderQuotaIcon'
 import { describeFunctionError, supabase } from '../../lib/supabase'
 import { useIpos, useParentCompanies, queryKeys } from '../../lib/queries'
+import { optimisticRowUpdate, reportOptimisticFailure } from '../../lib/optimisticRowUpdate'
 import { useAuth } from '../../contexts/AuthContext'
 import { parseGmpPercent } from '../../lib/ipoGmp'
 import { canArchiveIpo, hasBiddingClosed, isOpenForBidding, nowIst } from '../../lib/ipoStatus'
@@ -439,12 +440,21 @@ export function IposPage() {
       showToast("Can't archive yet — wait until one day after the allotment date.", 'warning')
       return
     }
-    const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
-    if (error) {
-      showToast(friendlyError(error), 'critical')
-      return
-    }
-    load()
+    // Optimistic: the card moves to/from Archived the moment it's tapped;
+    // put back with a message if the save fails, refetched either way.
+    const result = await optimisticRowUpdate<Ipo, void>({
+      queryClient,
+      queryKey: queryKeys.ipos,
+      id: ipo.id,
+      idField: 'id',
+      patch: { is_archived: archived },
+      alsoInvalidate: [queryKeys.allotmentBoard],
+      commit: async () => {
+        const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
+        if (error) throw error
+      },
+    })
+    reportOptimisticFailure(result, `Couldn't ${archived ? 'archive' : 'restore'} ${ipo.company_name}. Please try again.`)
   }
 
   const existingNames = new Set(ipos.map((i) => i.company_name.toLowerCase()))
