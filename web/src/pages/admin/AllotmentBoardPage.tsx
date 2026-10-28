@@ -44,6 +44,58 @@ const statusBadgeClass: Record<ApplicationStatus, string> = {
   SOLD: 'badge-violet',
 }
 
+// The sold on/off switch beside the holder's name on each allotment card:
+// a dull tick = not sold yet, a green tick = sold; tapping flips it. A
+// partly sold application keeps its pill, and tapping that opens the price
+// form for the rest (the remaining shares need a price for the average).
+// Read-only (no tap) for anyone who can't change the application.
+function SoldToggle({
+  row,
+  canToggle,
+  busy,
+  onToggle,
+}: {
+  row: AllotmentBoardRow
+  canToggle: boolean
+  busy: boolean
+  onToggle: () => void
+}) {
+  if (row.status === 'PARTIALLY_SOLD') {
+    const pill = <span className="badge badge-warning shrink-0 px-1.5 py-0 text-[10px] leading-4">PARTLY SOLD</span>
+    return canToggle ? (
+      <button type="button" onClick={onToggle} title="Mark the rest sold" aria-label={`Mark the rest of ${row.holder_name}'s shares sold`}>
+        {pill}
+      </button>
+    ) : (
+      pill
+    )
+  }
+  const sold = row.status === 'SOLD'
+  const style = { color: sold ? 'var(--good-text)' : 'var(--ink-muted)', opacity: sold ? 1 : 0.45 }
+  if (!canToggle) {
+    return (
+      <span className="inline-flex shrink-0" style={style} title={sold ? 'Sold' : 'Not sold yet'} aria-label={sold ? 'Sold' : 'Not sold yet'}>
+        <CheckCircleFillIcon size={16} />
+      </span>
+    )
+  }
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={sold}
+      aria-label={`${row.holder_name} sold`}
+      title={sold ? 'Sold — tap to mark not sold' : 'Tap to mark sold'}
+      onClick={onToggle}
+      disabled={busy}
+      className="-m-1 inline-flex shrink-0 rounded-full p-1 transition-transform active:scale-90 disabled:cursor-wait"
+      style={style}
+    >
+      <CheckCircleFillIcon size={16} />
+    </button>
+  )
+}
+
 const notifBadgeClass: Record<Notification['status'], string> = {
   QUEUED: 'badge-neutral',
   SENT: 'badge-info',
@@ -57,28 +109,13 @@ const notifBadgeClass: Record<Notification['status'], string> = {
 // the two can never drift. SOLD stays icon-only (word kept in
 // title/aria-label for anyone hovering or on a screen reader); ALLOTTED's
 // icon was removed by request — every status now reads as plain text
-// except SOLD.
-// `compact` is the inline version beside the holder's name on the
-// sold-status cards: ALLOTTED and SOLD shrink to a bare tick (green and
-// violet, the same colors as their pills), anything else to a small pill.
-const compactTickColor: Partial<Record<ApplicationStatus, string>> = {
-  ALLOTTED: 'var(--good-text)',
-  SOLD: 'var(--violet)',
-}
-
-function StatusBadge({ status, compact = false }: { status: ApplicationStatus; compact?: boolean }) {
+// except SOLD. (The sold-status cards use SoldToggle instead.)
+function StatusBadge({ status }: { status: ApplicationStatus }) {
   const label = status.replace('_', ' ')
-  if (compact && compactTickColor[status]) {
-    return (
-      <span className="inline-flex shrink-0" style={{ color: compactTickColor[status] }} title={label} aria-label={label}>
-        <CheckCircleFillIcon size={14} />
-      </span>
-    )
-  }
-  const icon = status === 'SOLD' ? <CheckCircleFillIcon size={compact ? 11 : 13} /> : null
+  const icon = status === 'SOLD' ? <CheckCircleFillIcon size={13} /> : null
   return (
     <span
-      className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}${compact ? ' shrink-0 px-1.5 py-0 text-[10px] leading-4' : ''}`}
+      className={`badge ${statusBadgeClass[status]}${icon ? ' inline-flex items-center' : ''}`}
       title={label}
       aria-label={icon ? label : undefined}
     >
@@ -405,14 +442,58 @@ export function AllotmentBoardPage() {
   const defaultSplit = (row: AllotmentBoardRow) =>
     !!row.bank_account_holder_name && !sameIdentity(row.bank_account_holder_name, profile?.full_name ?? '')
 
-  // One-tap "Mark sold" — status only, the price comes later from the "⋯"
-  // menu (openSoldForm). A SOLD row with no sell_price is already skipped by
-  // every money calculation (settlement cards, booked profit, SoldBreakdown),
-  // so nothing is miscounted while it waits; the card tags it "Price
-  // pending". The split default is stored now so the price form opens with
-  // it. Undo is only offered (and only applied, via the filters) while no
-  // price is entered and nothing has been paid — then it's a pure status flip.
+  // The card's tick is an on/off "sold" switch — status only; the price
+  // comes later from the "⋯" menu (openSoldForm). A SOLD row with no
+  // sell_price is already skipped by every money calculation (settlement
+  // cards, booked profit, SoldBreakdown), so nothing is miscounted while it
+  // waits. The split default is stored now so the price form opens with it.
+  //
+  // Switching it back off is checked first, not just fired: once money is
+  // logged against the sale (settlement_payments, or a paid flag) or it was
+  // sold in parts (application_sells — the DB trigger owns that status),
+  // flipping the status would leave those records pointing at an unsold
+  // application. Those cases get a plain explanation instead; an entered
+  // price is cleared, after a confirm. The update's own filters repeat the
+  // checks so a stale card can't slip past them.
   async function setSold(row: AllotmentBoardRow, sold: boolean) {
+    if (!sold) {
+      // settlement_payments is admin-only under RLS (0078), so a non-admin's
+      // payment check below would always see zero. Payments can only be
+      // logged against a priced sale, so a non-admin may switch it off only
+      // while no price is entered — then there can't be a payment to orphan.
+      if (!isAdmin && row.sell_price != null) {
+        showToast(`A sale price is already entered for ${row.holder_name}. Ask an admin to mark it not sold.`, 'warning')
+        return
+      }
+      const [paymentsRes, sellsRes] = await Promise.all([
+        supabase.from('settlement_payments').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
+        supabase.from('application_sells').select('id', { count: 'exact', head: true }).eq('application_id', row.application_id),
+      ])
+      if (paymentsRes.error || sellsRes.error) {
+        showToast(friendlyError(paymentsRes.error ?? sellsRes.error, `Couldn't check ${row.holder_name}'s sale. Please try again.`), 'critical')
+        return
+      }
+      if (row.demat_cut_paid || row.funder_share_paid || (paymentsRes.count ?? 0) > 0) {
+        showToast(
+          `A payment is already logged for ${row.holder_name}'s sale, so it can't be marked not sold. Remove the payment in Payouts first.`,
+          'warning',
+        )
+        return
+      }
+      if ((sellsRes.count ?? 0) > 0) {
+        showToast(`${row.holder_name}'s shares were sold in parts. Remove the part sales on the card first.`, 'warning')
+        return
+      }
+      if (
+        row.sell_price != null &&
+        !(await confirmDialog(`Mark ${row.holder_name} as not sold? The sale price you entered will be cleared.`, {
+          confirmLabel: 'Mark not sold',
+          tone: 'critical',
+        }))
+      ) {
+        return
+      }
+    }
     const query = sold
       ? supabase
           .from('applications')
@@ -421,10 +502,9 @@ export function AllotmentBoardPage() {
           .eq('status', 'ALLOTTED')
       : supabase
           .from('applications')
-          .update({ status: 'ALLOTTED' })
+          .update({ status: 'ALLOTTED', sell_price: null })
           .eq('id', row.application_id)
           .eq('status', 'SOLD')
-          .is('sell_price', null)
           .eq('demat_cut_paid', false)
           .eq('funder_share_paid', false)
     const { data, error } = await query.select('id')
@@ -435,7 +515,7 @@ export function AllotmentBoardPage() {
       )
       return
     }
-    showToast(sold ? `${row.holder_name} marked sold. Add the sale price from ⋯ when you have it.` : `${row.holder_name} is back to allotted.`, 'good')
+    showToast(sold ? `${row.holder_name} marked sold. Add the sale price from ⋯ when you have it.` : `${row.holder_name} marked not sold.`, 'good')
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
 
@@ -970,8 +1050,8 @@ function SoldPayoutsSection({
   rows: AllotmentBoardRow[]
   soldForms: Record<string, SoldFormState>
   onOpenForm: (row: AllotmentBoardRow) => void
-  // One-tap Mark sold (true) / undo it (false) — status only, no price.
-  onSetSold: (row: AllotmentBoardRow, sold: boolean) => void
+  // The card's sold switch: on (true) / off (false) — status only, no price.
+  onSetSold: (row: AllotmentBoardRow, sold: boolean) => Promise<void>
   onCloseForm: (id: string) => void
   onChangeForm: (id: string, next: SoldFormState) => void
   onSave: (row: AllotmentBoardRow) => void
@@ -1000,6 +1080,9 @@ function SoldPayoutsSection({
   // out, so unlike the plain account list below it, this one starts open.
   const [open, setOpen] = useState(true)
   const [notifying, setNotifying] = useState<string | null>(null)
+  // Which card's sold switch is mid-save — blocks a double tap from firing
+  // a second, now-stale write before the board refetches.
+  const [togglingSold, setTogglingSold] = useState<string | null>(null)
 
   // Ad-hoc "ping this one holder now" — fetches their stored login details
   // (admin-only under RLS), resolves their platform's how-to-sell PDF to a
@@ -1215,21 +1298,23 @@ function SoldPayoutsSection({
                       {row.category !== 'RETAIL' && (
                         <span className="badge badge-neutral shrink-0 text-[10px]">{row.category}</span>
                       )}
-                      <StatusBadge status={row.status} compact />
+                      <SoldToggle
+                        row={row}
+                        canToggle={canMark(row) && !isEditing}
+                        busy={togglingSold === row.application_id}
+                        onToggle={async () => {
+                          if (row.status === 'PARTIALLY_SOLD') return onOpenForm(row)
+                          setTogglingSold(row.application_id)
+                          await onSetSold(row, row.status !== 'SOLD')
+                          setTogglingSold(null)
+                        }}
+                      />
                       {row.self_sell && (
                         <span
                           className="badge badge-info shrink-0 px-1.5 py-0 text-[10px] leading-4"
                           title="The holder will sell these shares themselves"
                         >
                           Self-sell
-                        </span>
-                      )}
-                      {row.status === 'SOLD' && row.sell_price == null && (
-                        <span
-                          className="badge badge-warning shrink-0 px-1.5 py-0 text-[10px] leading-4"
-                          title="Sold, but the sale price isn't entered yet — it won't count in payouts until it is. Add it from ⋯."
-                        >
-                          Price pending
                         </span>
                       )}
                     </p>
@@ -1243,19 +1328,6 @@ function SoldPayoutsSection({
                       action actually used every time; the rest move into
                       the "⋯" menu (components/ActionMenu.tsx). */}
                   <div className="flex shrink-0 items-center gap-2">
-                    {/* ALLOTTED: one tap, status only (price via ⋯).
-                        PARTIALLY_SOLD keeps the price form — selling the
-                        remaining shares needs a price for the average. */}
-                    {!isEditing && canMark(row) && row.status === 'ALLOTTED' && (
-                      <button onClick={() => onSetSold(row, true)} className="link-accent text-xs font-medium">
-                        Mark sold
-                      </button>
-                    )}
-                    {!isEditing && canMark(row) && row.status === 'PARTIALLY_SOLD' && (
-                      <button onClick={() => onOpenForm(row)} className="link-accent text-xs font-medium">
-                        Mark sold
-                      </button>
-                    )}
                     {canMark(row) && (
                       <ActionMenu
                         label={`More actions for ${row.holder_name}`}
@@ -1305,17 +1377,6 @@ function SoldPayoutsSection({
                                   label: row.sell_price == null ? 'Enter sale price' : 'Edit sale price',
                                   title: 'Enter what the shares sold for',
                                   onClick: () => onOpenForm(row),
-                                } satisfies ActionMenuItem,
-                              ]
-                            : []),
-                          ...(row.status === 'SOLD' && row.sell_price == null && !row.demat_cut_paid && !row.funder_share_paid
-                            ? [
-                                {
-                                  key: 'undo-sold',
-                                  label: 'Undo: not sold yet',
-                                  title: 'Put this back to allotted',
-                                  tone: 'muted',
-                                  onClick: () => onSetSold(row, false),
                                 } satisfies ActionMenuItem,
                               ]
                             : []),
@@ -2029,16 +2090,18 @@ function SoldBreakdown({
 
   return (
     <div className="mt-3 space-y-3 border-t pt-3 text-xs" style={{ borderColor: 'var(--border)' }}>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4" style={{ color: 'var(--ink-secondary)' }}>
-        <Stat label="Total sold" value={result.totalSoldAmount} />
-        <Stat label="Gross profit" value={result.grossProfit} signed />
+      {/* One row: label and value side by side, wrapping only if a phone
+          is too narrow for all three. */}
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+        <Stat inline label="Total sold" value={result.totalSoldAmount} />
+        <Stat inline label="Gross profit" value={result.grossProfit} signed />
         {/* Admin-only — result.profitPersonShare is specifically the
             profit-TAKING admin's own cut (profitPersonName is '' for
             anyone else, so it's meaningless to compute for them anyway).
             The two PayoutLines below already tell a funder/holder their
             own real number, under their own name, so nothing is hidden
             from them here — this one number just isn't theirs. */}
-        {isAdmin && <Stat label="Your share" value={result.profitPersonShare} signed />}
+        {isAdmin && <Stat inline label="Your share" value={result.profitPersonShare} signed />}
       </div>
       {/* amountFromHolder (totalSoldAmount − dematCutAmount), not
           dematCutAmount alone — on a loss the cut is always exactly 0 (see
@@ -2218,6 +2281,7 @@ function Stat({
   value,
   note,
   signed,
+  inline = false,
 }: {
   label: string
   value: number
@@ -2227,16 +2291,26 @@ function Stat({
   // every other Stat (e.g. 'Total sold', which is never itself a
   // profit/loss figure) still uses.
   signed?: boolean
+  // Label and value on one line ("Total sold ₹12,000") instead of stacked.
+  inline?: boolean
 }) {
+  const valueStyle = { color: signed ? (value >= 0 ? 'var(--good)' : 'var(--critical)') : 'var(--ink-primary)' }
+  const amount = `₹${Math.round(value).toLocaleString('en-IN')}${note ? ` (${note})` : ''}`
+  if (inline) {
+    return (
+      <p className="whitespace-nowrap">
+        <span style={{ color: 'var(--ink-muted)' }}>{label}</span>{' '}
+        <span className="font-mono-ipo font-medium" style={valueStyle}>
+          {amount}
+        </span>
+      </p>
+    )
+  }
   return (
     <div>
       <p style={{ color: 'var(--ink-muted)' }}>{label}</p>
-      <p
-        className="font-medium"
-        style={{ color: signed ? (value >= 0 ? 'var(--good)' : 'var(--critical)') : 'var(--ink-primary)' }}
-      >
-        ₹{Math.round(value).toLocaleString('en-IN')}
-        {note ? ` (${note})` : ''}
+      <p className="font-medium" style={valueStyle}>
+        {amount}
       </p>
     </div>
   )
