@@ -1817,7 +1817,8 @@ function PartialSells({
   const [editId, setEditId] = useState<string | null>(null)
   const [fShares, setFShares] = useState('')
   const [fPrice, setFPrice] = useState('')
-  const [fDate, setFDate] = useState(() => new Date().toISOString().slice(0, 10))
+  // IST, not UTC: 00:00-05:29 IST is still yesterday in UTC (see nowIst).
+  const [fDate, setFDate] = useState(() => nowIst().dateStr)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -1825,6 +1826,7 @@ function PartialSells({
       setEditId(null)
       setFShares('')
       setFPrice('')
+      setFDate(nowIst().dateStr)
       setShowAdd(true)
     }
   }, [addRequest])
@@ -1846,7 +1848,7 @@ function PartialSells({
     setEditId(null)
     setFShares('')
     setFPrice('')
-    setFDate(new Date().toISOString().slice(0, 10))
+    setFDate(nowIst().dateStr)
   }
 
   function startEdit(t: ApplicationSell) {

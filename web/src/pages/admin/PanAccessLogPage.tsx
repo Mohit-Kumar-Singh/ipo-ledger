@@ -38,11 +38,14 @@ export function PanAccessLogPage() {
   const panAccessLogQuery = useQuery<PanAccessLogRow[]>({
     queryKey: ['pan-access-log'],
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('pan_access_log')
         .select('*, demat_accounts(holder_name), profiles(full_name)')
         .order('accessed_at', { ascending: false })
         .limit(200)
+      // Throw, don't fall through to []: a failed load must not read as
+      // "No PAN reveals logged yet" on an audit log.
+      if (error) throw error
       return (data ?? []) as unknown as PanAccessLogRow[]
     },
     enabled: isAdmin,
@@ -101,6 +104,10 @@ export function PanAccessLogPage() {
       {loading ? (
         <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
           Loading…
+        </p>
+      ) : panAccessLogQuery.isError ? (
+        <p className="card p-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Couldn't load the PAN access log. Check your connection and refresh the page.
         </p>
       ) : dayGroups.length === 0 ? (
         <p className="card p-4 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
