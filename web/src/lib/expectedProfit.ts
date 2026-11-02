@@ -19,6 +19,11 @@ export type ProfitProjectionRow = {
   // funder-blocked demat embed (see lib/hydrateDemat.ts); older callers
   // that never hit that path leave it undefined.
   demat_id?: string
+  // Optional — the raw funder FKs, selected by usePayoutsData so it can
+  // narrow its one applications fetch to funded rows client-side (an
+  // RLS-blocked bank_accounts embed reads as null even when the FK is set).
+  bank_account_id?: string | null
+  funder_override_id?: string | null
   ipo_id: string
   lots: number
   applied_at: string

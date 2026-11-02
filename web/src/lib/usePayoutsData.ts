@@ -74,31 +74,19 @@ export function usePayoutsData() {
     staleTime: 15_000,
     refetchOnMount: true,
     queryFn: async () => {
-      const [paymentsRes, manualRes, expectedRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
+      // One applications fetch, not two — the expected-payout projection
+      // below used to re-download the ALLOTTED/PARTIALLY_SOLD funded subset
+      // of these same rows with the same columns; it's now narrowed from
+      // allRows client-side.
+      const [paymentsRes, manualRes, case2ManagersRes, allRowsRes, profilesRes] = await Promise.all([
         fetchAllPages('settlement_payments'),
         fetchAllPages('manual_transactions'),
-        fetchAllRows((from, to) =>
-          supabase
-            .from('applications')
-            .select(
-              'demat_id, ipo_id, lots, applied_at, status, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
-                'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
-                'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
-                'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
-                'funder_override:bank_accounts!funder_override_id(account_holder_name, phone_e164, upi_id), ' +
-                'application_sells(shares, price, sold_on)',
-            )
-            .in('status', ['ALLOTTED', 'PARTIALLY_SOLD'])
-            .or('bank_account_id.not.is.null,funder_override_id.not.is.null')
-            .order('id')
-            .range(from, to),
-        ),
         supabase.from('account_managers').select('id').eq('case_type', 'CASE_2'),
         fetchAllRows((from, to) =>
           supabase
             .from('applications')
             .select(
-              'id, demat_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
+              'id, demat_id, bank_account_id, funder_override_id, ipo_id, lots, applied_at, status, status_changed_at, mandate_status, ipoji_status_text, bid_amount, sell_price, split_profit_with_funder, ' +
                 'ipos(company_name, open_date, close_date, allotment_date, listing_date, price_high, lot_size, gmp_notes, is_archived, symbol), ' +
                 'demat_accounts(holder_name, profit_share_percent, phone_e164, account_manager_id), ' +
                 'bank_accounts!bank_account_id(account_holder_name, phone_e164, upi_id), ' +
@@ -131,20 +119,10 @@ export function usePayoutsData() {
       // their figures off a made-up percentage. No-ops for admin.
       const allRows = await hydrateDematAccounts((allRowsRes.data ?? []) as unknown as ProfitProjectionRow[])
 
-      if (expectedRes.error) {
-        showToast(friendlyError(expectedRes.error, `Couldn't load expected payouts.`), 'warning')
-        return {
-          payments,
-          manualTransactions,
-          expectedCards: [],
-          livePriceBySymbol: {},
-          allRows,
-          case2ManagerIds: new Set<string>(),
-          profileNamesById,
-        }
-      }
-      const expectedRowsBaseAll = await hydrateDematAccounts(
-        (expectedRes.data ?? []) as unknown as ProfitProjectionRow[],
+      const expectedRowsBaseAll = allRows.filter(
+        (r) =>
+          (r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD') &&
+          (r.bank_account_id != null || r.funder_override_id != null),
       )
       // 10am-listing-day hold-back (see lib/expectedProfit.ts's ListingCutoff)
       // — scoped to this page's own projections only.
