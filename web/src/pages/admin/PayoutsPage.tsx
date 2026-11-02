@@ -40,6 +40,7 @@ import {
   settledPaidFlags,
   resolvedPaidFlags,
   remainingFromPayments,
+  isCardBalanced,
   SETTLED_EPSILON,
   PAYMENT_KIND_LABELS,
   type SettlementCard,
@@ -52,6 +53,7 @@ import type {
   SettlementPaymentKind,
   ManualTransaction,
   ManualTransactionDirection,
+  ManualTransactionSide,
 } from '../../types/database'
 import { InlineSpinner, Skeleton } from '../../components/PageSpinner'
 import { SegmentedControl } from '../../components/SegmentedControl'
@@ -165,33 +167,16 @@ interface SettlementPartyGroup {
   // against the right application. The GMP/live-price "Expected" groups
   // (groupExpectedByFunder/groupExpectedByHolder) have nothing to settle yet, so they
   // leave it undefined and get no such button.
-  ipos: { ipoName: string; amount: number; applicationId?: string }[]
+  ipos: { ipoName: string; amount: number; applicationId?: string; manualId?: string }[]
 }
 
 // Net per real person, NOT per application — a person with two applications
 // (one still owed +5000, one overpaid -1910) nets to 3090, not 5000 (the old
 // per-card Math.max(0, ...) sum lost the second application's credit
 // entirely, the exact bug Dashboard's own buildPendingPayouts already fixed
-// the same way). Returns everyone with a nonzero net; callers split
-// positive (still owed) from negative (overpaid, see the overpayments
-// array below) themselves.
-//
-// manualAdjustByName folds in manual_transactions (migration 0104) that
-// aren't tied to any application at all — a bulk repayment, an advance, a
-// debt that was never logged against a specific IPO. Each entry is an
-// amount to SUBTRACT from this person's total on THIS side (reduces what
-// they owe / increases what's already square, same direction a real
-// settlement_payment on this side would). Matched against an existing
-// card-derived name with sameIdentity (the same casual-name tolerance used
-// everywhere else in this app — "Mohit" vs "Mohit Kumar Singh"), or added
-// as a brand-new standalone entry when this person has no IPO relationship
-// on this side at all — e.g. a plain debt that was never attached to any
-// sold application.
-function netSettlementByParty(
-  cards: SettlementCard[],
-  side: 'funder' | 'holder',
-  manualAdjustByName?: Map<string, number>,
-): SettlementPartyGroup[] {
+// the same way). Returns everyone with a nonzero net; positive is still
+// owed, negative is overpaid.
+function netSettlementByParty(cards: SettlementCard[], side: 'funder' | 'holder'): Map<string, SettlementPartyGroup> {
   const byName = new Map<string, SettlementPartyGroup>()
   for (const c of cards) {
     const name = side === 'funder' ? c.funderName : c.holderName
@@ -205,25 +190,54 @@ function netSettlementByParty(
     g.total += remaining
     g.ipos.push({ ipoName: c.ipoName, amount: remaining, applicationId: c.applicationId })
   }
-  if (manualAdjustByName) {
-    for (const [personName, adjust] of manualAdjustByName) {
-      if (Math.abs(adjust) <= SETTLED_EPSILON) continue
-      // Exact (case-insensitive) name first. The loose first-name match is
-      // only trusted when it points at exactly ONE person — if two people
-      // share a first name, guessing could credit the wrong one, so the
-      // entry stays a standalone line instead.
-      const want = personName.trim().toLowerCase()
-      const groups = Array.from(byName.values())
-      const exact = groups.find((g) => g.name.trim().toLowerCase() === want)
-      const loose = groups.filter((g) => sameIdentity(g.name, personName))
-      const existing = exact ?? (loose.length === 1 ? loose[0] : undefined)
-      const g = existing ?? { name: personName, phone: null, total: 0, ipos: [] }
-      if (!existing) byName.set(personName, g)
-      g.total -= adjust
-      g.ipos.push({ ipoName: 'Manual entry', amount: -adjust })
+  return byName
+}
+
+// Exact (case-insensitive) name first. The loose first-name match
+// (sameIdentity — "Mohit" vs "Mohit Kumar Singh") is only trusted when it
+// points at exactly ONE person — if two people share a first name, guessing
+// could credit the wrong one.
+function findPerson(byName: Map<string, SettlementPartyGroup>, personName: string): SettlementPartyGroup | undefined {
+  const want = personName.trim().toLowerCase()
+  const groups = Array.from(byName.values())
+  const exact = groups.find((g) => g.name.trim().toLowerCase() === want)
+  if (exact) return exact
+  const loose = groups.filter((g) => sameIdentity(g.name, personName))
+  return loose.length === 1 ? loose[0] : undefined
+}
+
+// Both sides' per-person nets with manual_transactions (migration 0104) folded
+// in — money that isn't tied to any application (a bulk repayment, an
+// advance, a debt never logged against an IPO, or an overpayment going back).
+//
+// Which side an entry lands on: its own `side` when set (0113); otherwise
+// wherever the person already appears, if that's exactly one side; otherwise
+// by direction ('from_person' → holder side, 'to_person' → funder side, the
+// original 0104 rule). On the funder side money you sent reduces what you
+// owe them and money they sent you adds to it; on the holder side it's the
+// mirror. A person with no IPO line on that side gets a standalone row.
+function netBothSides(cards: SettlementCard[], manualTransactions: ManualTransaction[]) {
+  const funders = netSettlementByParty(cards, 'funder')
+  const holders = netSettlementByParty(cards, 'holder')
+  for (const t of manualTransactions) {
+    if (t.amount <= 0) continue
+    const onFunder = findPerson(funders, t.person_name)
+    const onHolder = findPerson(holders, t.person_name)
+    const side: ManualTransactionSide =
+      t.side ??
+      (onFunder && !onHolder ? 'funder' : onHolder && !onFunder ? 'holder' : t.direction === 'from_person' ? 'holder' : 'funder')
+    const byName = side === 'funder' ? funders : holders
+    let g = side === 'funder' ? onFunder : onHolder
+    if (!g) {
+      g = { name: t.person_name, phone: null, total: 0, ipos: [] }
+      byName.set(t.person_name, g)
     }
+    const reduces = side === 'funder' ? t.direction === 'to_person' : t.direction === 'from_person'
+    const delta = reduces ? -t.amount : t.amount
+    g.total += delta
+    g.ipos.push({ ipoName: 'Manual entry', amount: delta, manualId: t.id })
   }
-  return Array.from(byName.values())
+  return { funderNets: Array.from(funders.values()), holderNets: Array.from(holders.values()) }
 }
 
 interface FunderCompactLine {
@@ -408,7 +422,9 @@ export function PayoutsPage() {
   const [search, setSearch] = useState('')
   // The "+ Log a transaction" card (icon next to the bell) — a money
   // movement between the admin and anyone, not tied to any application.
-  const [showManualForm, setShowManualForm] = useState(false)
+  // null = closed; an object (possibly empty) = open, prefilled with it. The
+  // overpaid rows' "Log money returned" opens it prefilled.
+  const [manualForm, setManualForm] = useState<LogTransactionInitial | null>(null)
   // Keyed applicationId:kind (not applicationId alone) — the same SOLD
   // application can owe both a holder-side and a funder-side amount at
   // once, and each has its own independent "mark settled" action here.
@@ -514,22 +530,11 @@ export function PayoutsPage() {
   // Netted PER PERSON first (netSettlementByParty), not per application —
   // summing Math.max(0, ...) per card lost a person's own overpaid
   // application entirely instead of it reducing what they're still owed.
-  // Manual transactions (migration 0104) net into the same per-person totals
-  // as the real IPO settlement figures — 'from_person' the same direction as
-  // a holder_to_admin payment (reduces what that person still owes), 'to_person'
-  // the same as admin_to_funder (reduces what's still owed to them).
-  const { funderNets, holderNets } = useMemo(() => {
-    const manualHolderAdjust = new Map<string, number>()
-    const manualFunderAdjust = new Map<string, number>()
-    for (const t of manualTransactions) {
-      const target = t.direction === 'from_person' ? manualHolderAdjust : manualFunderAdjust
-      target.set(t.person_name, (target.get(t.person_name) ?? 0) + t.amount)
-    }
-    return {
-      funderNets: netSettlementByParty(settlementCards, 'funder', manualFunderAdjust),
-      holderNets: netSettlementByParty(settlementCards, 'holder', manualHolderAdjust),
-    }
-  }, [settlementCards, manualTransactions])
+  // Manual transactions net into the same per-person totals — see netBothSides.
+  const { funderNets, holderNets } = useMemo(
+    () => netBothSides(settlementCards, manualTransactions),
+    [settlementCards, manualTransactions],
+  )
   const totalStillFromHolder = holderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
   const totalStillToFunder = funderNets.reduce((s, g) => s + Math.max(0, g.total), 0)
   const totalMyProfit = settlementCards.reduce((s, c) => s + c.myProfit, 0)
@@ -595,6 +600,19 @@ export function PayoutsPage() {
     )
   }, [funderNets, settlementCards])
 
+  // For the overpaid rows' Fix panel — the payments and manual entries
+  // behind each line.
+  const cardsByApp = useMemo(() => new Map(settlementCards.map((c) => [c.applicationId, c])), [settlementCards])
+  const manualById = useMemo(() => new Map(manualTransactions.map((t) => [t.id, t])), [manualTransactions])
+  // By IPO shows only IPOs with money still to move either way; balanced ones
+  // fold away underneath (still reachable to correct a payment).
+  const { openIpoGroups, balancedIpoGroups } = useMemo(() => {
+    const open: IpoSettlementGroup[] = []
+    const balanced: IpoSettlementGroup[] = []
+    for (const g of ipoSettlementGroups) (g.cards.every(isCardBalanced) ? balanced : open).push(g)
+    return { openIpoGroups: open, balancedIpoGroups: balanced }
+  }, [ipoSettlementGroups])
+
   const manualTransactionsSorted = useMemo(
     () => [...manualTransactions].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)),
     [manualTransactions],
@@ -608,10 +626,11 @@ export function PayoutsPage() {
 
   return (
     <div className="space-y-6">
-      {showManualForm && (
+      {manualForm && (
         <LogTransactionCard
           personOptions={personOptions}
-          onClose={() => setShowManualForm(false)}
+          initial={manualForm}
+          onClose={() => setManualForm(null)}
           onLogged={invalidatePayoutsData}
         />
       )}
@@ -628,7 +647,7 @@ export function PayoutsPage() {
             Sits right next to Notifications, same icon-btn treatment. */}
         <button
           type="button"
-          onClick={() => setShowManualForm(true)}
+          onClick={() => setManualForm({})}
           aria-label="Log a transaction"
           title="Log a transaction"
           className="icon-btn order-2 sm:order-3"
@@ -748,6 +767,15 @@ export function PayoutsPage() {
                 onMarkSettled={(applicationId) => markCardSettled(applicationId, 'admin_to_funder')}
                 lineFor={(applicationId) => payoutLineByKey.get(`${applicationId}:admin_to_funder`)}
                 personLink={(name) => `/payouts/funder/${encodeURIComponent(name)}`}
+                fix={{
+                  side: 'funder',
+                  cardsByApp,
+                  manualById,
+                  profileNamesById,
+                  personOptions,
+                  onChanged: invalidatePayoutsData,
+                  onLogReturn: setManualForm,
+                }}
               />
               <SettlementPartyList
                 title="You receive"
@@ -758,6 +786,15 @@ export function PayoutsPage() {
                 markingKey={markingSettled}
                 onMarkSettled={(applicationId) => markCardSettled(applicationId, 'holder_to_admin')}
                 lineFor={(applicationId) => payoutLineByKey.get(`${applicationId}:holder_to_admin`)}
+                fix={{
+                  side: 'holder',
+                  cardsByApp,
+                  manualById,
+                  profileNamesById,
+                  personOptions,
+                  onChanged: invalidatePayoutsData,
+                  onLogReturn: setManualForm,
+                }}
               />
             </div>
 
@@ -834,16 +871,38 @@ export function PayoutsPage() {
             Nothing sold yet. IPOs show up here once their shares are sold.
           </p>
         ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {ipoSettlementGroups.map((g) => (
-              <IpoSettlementCard
-                key={g.ipoName}
-                group={g}
-                onLogged={invalidatePayoutsData}
-                profileNamesById={profileNamesById}
-              />
-            ))}
-          </div>
+          <>
+            {openIpoGroups.length === 0 ? (
+              <p className="card p-4 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                Every sold IPO is settled. Nothing to send or collect.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                {openIpoGroups.map((g) => (
+                  <IpoSettlementCard
+                    key={g.ipoName}
+                    group={g}
+                    onLogged={invalidatePayoutsData}
+                    profileNamesById={profileNamesById}
+                  />
+                ))}
+              </div>
+            )}
+            {balancedIpoGroups.length > 0 && (
+              <FoldSection title="Settled IPOs" count={balancedIpoGroups.length}>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  {balancedIpoGroups.map((g) => (
+                    <IpoSettlementCard
+                      key={g.ipoName}
+                      group={g}
+                      onLogged={invalidatePayoutsData}
+                      profileNamesById={profileNamesById}
+                    />
+                  ))}
+                </div>
+              </FoldSection>
+            )}
+          </>
         ))}
 
       {/* === Profit & Payout Analytics dashboard (v1.187.0) === */}
@@ -1012,6 +1071,7 @@ function SettlementPartyList({
   onMarkSettled,
   lineFor,
   personLink,
+  fix,
 }: {
   title: string
   groups: SettlementPartyGroup[]
@@ -1034,7 +1094,12 @@ function SettlementPartyList({
   lineFor?: (applicationId: string) => PayoutLine | undefined
   // Makes the person's name a link (funders → their detail page).
   personLink?: (name: string) => string
+  // Adds a "Fix" button on overpaid rows — opens the payments and manual
+  // entries behind the overpayment (editable in place) and a prefilled
+  // "Log money returned". Omitted for the estimate lists.
+  fix?: OverpaidFixProps
 }) {
+  const [fixOpenFor, setFixOpenFor] = useState<string | null>(null)
   // Only what's still owed counts toward the header total — an overpaid
   // person's negative balance is shown on their own row, not subtracted
   // from everyone else's (matches the summary card's per-person clamp).
@@ -1092,6 +1157,16 @@ function SettlementPartyList({
                       Message
                     </button>
                   )}
+                  {overpaid && fix && (
+                    <button
+                      type="button"
+                      onClick={() => setFixOpenFor((n) => (n === g.name ? null : g.name))}
+                      aria-expanded={fixOpenFor === g.name}
+                      className="link-accent text-xs font-medium"
+                    >
+                      {fixOpenFor === g.name ? 'Close' : 'Fix'}
+                    </button>
+                  )}
                   {overpaid ? (
                     <span className="font-mono-ipo text-sm font-semibold" style={{ color: 'var(--warning-text)' }}>
                       Overpaid {rupees(-g.total)}
@@ -1146,6 +1221,7 @@ function SettlementPartyList({
                   )
                 })}
               </div>
+              {overpaid && fix && fixOpenFor === g.name && <OverpaidFixPanel group={g} {...fix} />}
             </div>
             )
           })}
@@ -1155,6 +1231,112 @@ function SettlementPartyList({
   )
 }
 
+
+interface OverpaidFixProps {
+  side: ManualTransactionSide
+  cardsByApp: Map<string, SettlementCard>
+  manualById: Map<string, ManualTransaction>
+  profileNamesById: Record<string, string>
+  personOptions: ComboboxOption[]
+  onChanged: () => void
+  onLogReturn: (initial: LogTransactionInitial) => void
+}
+
+// Settlement payment kinds that count against each side — the same split
+// remainingFromPayments uses (holder_to_funder counts on both).
+const SIDE_KINDS: Record<ManualTransactionSide, SettlementPaymentKind[]> = {
+  funder: ['admin_to_funder', 'holder_to_funder'],
+  holder: ['holder_to_admin', 'holder_to_funder'],
+}
+
+// Opened from "Fix" on an overpaid person's row. An overpayment is either a
+// wrong entry (a typo, a duplicate — edit or delete it here) or real money
+// that has to go back (log it, and the row clears).
+function OverpaidFixPanel({
+  group,
+  side,
+  cardsByApp,
+  manualById,
+  profileNamesById,
+  personOptions,
+  onChanged,
+  onLogReturn,
+}: OverpaidFixProps & { group: SettlementPartyGroup }) {
+  const over = -group.total
+  // Only the IPOs that are themselves over — an IPO still owed on the same
+  // person isn't what needs fixing.
+  const overIpos = group.ipos.filter((i) => i.applicationId && i.amount < -SETTLED_EPSILON)
+  const manualRows = group.ipos.flatMap((i) => (i.manualId ? [manualById.get(i.manualId)].filter((t) => !!t) : []))
+  return (
+    <div
+      className="mt-2 ml-9 space-y-3 rounded-lg border p-3 text-xs"
+      style={{ borderColor: 'var(--warning-tint)', background: 'var(--warning-tint)' }}
+    >
+      <p style={{ color: 'var(--ink-primary)' }}>
+        {side === 'funder'
+          ? `You've sent ${group.name} ${rupees(over)} more than they're owed.`
+          : `${group.name} has paid you ${rupees(over)} more than they owe.`}{' '}
+        Fix a wrong entry below, or log the money going back.
+      </p>
+      {overIpos.map((i) => {
+        const card = cardsByApp.get(i.applicationId!)
+        if (!card) return null
+        const payments = card.payments.filter((p) => SIDE_KINDS[side].includes(p.kind))
+        return (
+          <div key={i.applicationId} className="space-y-1">
+            <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+              {firstIpoWord(i.ipoName)} · over by {rupees(-i.amount)}
+            </p>
+            {payments.length === 0 ? (
+              <p style={{ color: 'var(--ink-muted)' }}>No payments logged on this IPO.</p>
+            ) : (
+              <div className="divide-y">
+                {payments.map((p) => (
+                  <PaymentLogRow
+                    key={p.id}
+                    payment={p}
+                    card={card}
+                    loggedBy={p.created_by ? (profileNamesById[p.created_by] ?? null) : null}
+                    onChanged={onChanged}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
+      {manualRows.length > 0 && (
+        <div className="space-y-1">
+          <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
+            Manual entries
+          </p>
+          <div className="divide-y">
+            {manualRows.map((t) => (
+              <ManualTransactionRow key={t!.id} t={t!} personOptions={personOptions} onChanged={onChanged} />
+            ))}
+          </div>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() =>
+          onLogReturn({
+            personName: group.name,
+            // Funder overpaid → they send it back to you; holder overpaid →
+            // you send it back to them.
+            direction: side === 'funder' ? 'from_person' : 'to_person',
+            amount: Math.round(over),
+            note: 'Overpayment returned',
+            side,
+          })
+        }
+        className="btn-secondary text-xs"
+      >
+        + Log money returned
+      </button>
+    </div>
+  )
+}
 
 // A single logged settlement_payments row, editable/removable in place —
 // the admin-only correction path (migration 0092) for a mistyped amount,
@@ -1404,19 +1586,31 @@ function PersonPicker({
 // gated by readOnly/isAdmin at the component level — it's only ever
 // rendered from PayoutsPage's own admin-only branch (FunderPayoutsPage
 // returns a separate, funder-facing component entirely for a non-admin).
+interface LogTransactionInitial {
+  personName?: string
+  direction?: ManualTransactionDirection
+  amount?: number
+  note?: string
+  // Pins which Payouts side the entry nets against (migration 0113) — set
+  // when returning an overpayment, where direction alone picks the wrong side.
+  side?: ManualTransactionSide
+}
+
 function LogTransactionCard({
   personOptions,
+  initial,
   onClose,
   onLogged,
 }: {
   personOptions: ComboboxOption[]
+  initial: LogTransactionInitial
   onClose: () => void
   onLogged: () => void
 }) {
-  const [personName, setPersonName] = useState('')
-  const [direction, setDirection] = useState<ManualTransactionDirection>('from_person')
-  const [amount, setAmount] = useState('')
-  const [note, setNote] = useState('')
+  const [personName, setPersonName] = useState(initial.personName ?? '')
+  const [direction, setDirection] = useState<ManualTransactionDirection>(initial.direction ?? 'from_person')
+  const [amount, setAmount] = useState(initial.amount ? String(initial.amount) : '')
+  const [note, setNote] = useState(initial.note ?? '')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
@@ -1443,6 +1637,9 @@ function LogTransactionCard({
       direction,
       amount: amt,
       note: note.trim() || null,
+      // Only sent when pinned, so the plain "+ Log a transaction" insert
+      // never depends on the 0113 column.
+      ...(initial.side ? { side: initial.side } : {}),
     })
     setSaving(false)
     if (error) {
@@ -1700,7 +1897,9 @@ export function IpoSettlementCard({
         <p className="font-medium" style={{ color: 'var(--ink-primary)' }}>
           {firstIpoWord(group.ipoName)}
         </p>
-        {group.allSettled && <span className="badge badge-good shrink-0">Settled ✓</span>}
+        {/* Balanced, not just "settled" — an overpaid IPO still has money to
+            go back, so it doesn't get the badge. */}
+        {group.cards.every(isCardBalanced) && <span className="badge badge-good shrink-0">Settled ✓</span>}
       </div>
       <div className="divide-y" style={{ borderColor: 'var(--border)' }}>
         {group.cards.map((c) => (
@@ -1852,7 +2051,11 @@ function SettlementCardView({
             <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
               From <span className="font-medium">{c.holderName}</span> — need to receive
             </p>
-            {holderSettled ? (
+            {c.remainingFromHolder < -SETTLED_EPSILON ? (
+              <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--warning-text)' }}>
+                Overpaid {rupees(-c.remainingFromHolder)}
+              </span>
+            ) : holderSettled ? (
               <span className="badge badge-good shrink-0">Settled ✓</span>
             ) : (
               <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--good)' }}>
@@ -1866,7 +2069,11 @@ function SettlementCardView({
             <p className="text-sm" style={{ color: 'var(--ink-primary)' }}>
               To <span className="font-medium">{c.funderName}</span> — need to send
             </p>
-            {funderSettled ? (
+            {c.remainingToFunder < -SETTLED_EPSILON ? (
+              <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--warning-text)' }}>
+                Overpaid {rupees(-c.remainingToFunder)}
+              </span>
+            ) : funderSettled ? (
               <span className="badge badge-good shrink-0">Settled ✓</span>
             ) : (
               <span className="font-mono-ipo text-sm font-semibold shrink-0" style={{ color: 'var(--critical-text)' }}>

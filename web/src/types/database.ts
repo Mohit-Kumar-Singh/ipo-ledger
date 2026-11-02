@@ -220,11 +220,16 @@ export interface SettlementPayment {
 // paid-flag or archive state to keep in sync), audited into
 // financial_change_log by a trigger rather than per-call-site inserts.
 export type ManualTransactionDirection = 'from_person' | 'to_person'
+export type ManualTransactionSide = 'funder' | 'holder'
 
 export interface ManualTransaction {
   id: string
   person_name: string
   direction: ManualTransactionDirection
+  // Which Payouts side this nets against (migration 0113) — null lets the
+  // app decide from where the person appears; set when correcting an
+  // overpaid balance, where direction alone points at the wrong side.
+  side: ManualTransactionSide | null
   amount: number
   note: string | null
   created_by: string | null

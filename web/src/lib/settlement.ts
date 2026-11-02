@@ -166,6 +166,17 @@ export function isCardFullySettled(c: SettlementCard): boolean {
   return holderDone && funderDone
 }
 
+// Nothing left either way on either side — stricter than isCardFullySettled,
+// which also counts an OVERPAID side as done. An overpaid side still needs
+// money to go back, so it isn't balanced. Same applicability as the Settle
+// up lists (a side only counts when there's an outside party on it), so an
+// application is balanced exactly when it has no line there.
+export function isCardBalanced(c: SettlementCard): boolean {
+  const holderDone = c.isDematHolderSelf || Math.abs(c.remainingFromHolder) <= SETTLED_EPSILON
+  const funderDone = !c.hasFunder || c.isFunderSelf || Math.abs(c.remainingToFunder) <= SETTLED_EPSILON
+  return holderDone && funderDone
+}
+
 // Which of the two legacy paid-flags on `applications` a settlement state
 // implies. The flags predate the settlement_payments ledger (0078 replaced
 // the "one lump payment, all-or-nothing" model they encode) but are still

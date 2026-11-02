@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSettlementCards, isCardFullySettled, settledPaidFlags, groupCardsByIpo, SETTLED_EPSILON } from './settlement'
+import { buildSettlementCards, isCardBalanced, isCardFullySettled, settledPaidFlags, groupCardsByIpo, SETTLED_EPSILON } from './settlement'
 import type { AllotmentBoardRow, SettlementPayment } from '../types/database'
 
 function boardRow(overrides: Partial<AllotmentBoardRow> = {}): AllotmentBoardRow {
@@ -211,5 +211,28 @@ describe('funder statement inputs', () => {
     const clampedPerCard = cards.reduce((s, c) => s + Math.max(0, c.remainingToFunder), 0)
     expect(netted).toBeLessThan(clampedPerCard) // the bug: clamping inflates what's owed
     expect(netted).toBeCloseTo(over.remainingToFunder + out.remainingToFunder, 2)
+  })
+})
+
+describe('isCardBalanced', () => {
+  it('a fully paid card is balanced', () => {
+    const [c0] = buildSettlementCards([boardRow()], 'Admin', new Map())
+    const payments = [
+      payment({ id: 'p1', kind: 'holder_to_admin', amount: c0.amountFromHolder }),
+      payment({ id: 'p2', kind: 'admin_to_funder', amount: c0.amountToFunder }),
+    ]
+    const [c] = buildSettlementCards([boardRow()], 'Admin', new Map([['app-1', payments]]))
+    expect(isCardBalanced(c)).toBe(true)
+  })
+
+  it('an overpaid side counts as settled but not balanced — money still has to go back', () => {
+    const [c0] = buildSettlementCards([boardRow()], 'Admin', new Map())
+    const payments = [
+      payment({ id: 'p1', kind: 'holder_to_admin', amount: c0.amountFromHolder }),
+      payment({ id: 'p2', kind: 'admin_to_funder', amount: c0.amountToFunder + 500 }),
+    ]
+    const [c] = buildSettlementCards([boardRow()], 'Admin', new Map([['app-1', payments]]))
+    expect(isCardFullySettled(c)).toBe(true)
+    expect(isCardBalanced(c)).toBe(false)
   })
 })
