@@ -1,17 +1,26 @@
 @import "tailwindcss";
-@import "@fontsource-variable/inter";
-/* Mono face for numeric/data lines app-wide (IPO Tracker.dc.html
-   reference) — registrar/price/lot line, GMP figures, issue sizes, stage
-   dates, dashboard stat tiles, chart legends. This went through Source
-   Serif 4 then Manrope+Fraunces after this, each swap chasing "too
-   generic" feedback — reverted back to the original Inter + IBM Plex Mono
-   pairing (the fonts settled on the first time this app matched the IPO
-   Tracker.dc.html reference), not a UI/layout change, just the typefaces
-   back to where they started. No variable-weight build exists for IBM
-   Plex Mono on fontsource, so pull the 3 weights actually used. */
-@import "@fontsource/ibm-plex-mono/400.css";
-@import "@fontsource/ibm-plex-mono/500.css";
-@import "@fontsource/ibm-plex-mono/600.css";
+/* Inter, Latin + Latin Extended only (Latin Extended carries ₹). The
+   package's own index.css also declares Cyrillic, Greek and Vietnamese
+   faces, which the service worker then precached for every install though
+   the app never shows those scripts. IBM Plex Mono used to be imported here
+   too; .font-mono-ipo has been system sans with tabular figures since the
+   iOS glass redesign, so it was ~90 KB of fonts nothing used. */
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url('@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
 
 /* A horizontal swipe anywhere on a phone was triggering the browser's own
    edge-swipe back/forward navigation (Chrome/Safari mobile default) — felt

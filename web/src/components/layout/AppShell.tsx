@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { m } from 'framer-motion'
 import {
   ArchiveIcon,
   BellIcon,
@@ -549,13 +549,13 @@ export function AppShell() {
                     what actually reads as "liquid" (a physical piece of
                     glass sliding under the icon) rather than a cross-fade. */}
                 {isActive && (
-                  <motion.div
+                  <m.div
                     layoutId="bottom-tab-indicator"
                     className="glass-tab-active absolute inset-0 rounded-[1.5rem]"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
-                <motion.div
+                <m.div
                   whileTap={{ scale: 0.88 }}
                   transition={{ type: 'spring', stiffness: 600, damping: 20 }}
                   className="relative z-10 flex items-center justify-center"
@@ -568,7 +568,7 @@ export function AppShell() {
                       style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
                     />
                   )}
-                </motion.div>
+                </m.div>
                 <span className="glass-tab-label relative z-10" style={{ fontWeight: isActive ? 600 : 500 }}>
                   {t.label}
                 </span>
@@ -589,13 +589,13 @@ export function AppShell() {
                 style={{ color: isActive ? 'var(--accent)' : 'var(--header-fg-muted)', minHeight: '3.5rem' }}
               >
                 {isActive && (
-                  <motion.div
+                  <m.div
                     layoutId="bottom-tab-indicator"
                     className="glass-tab-active absolute inset-0 rounded-[1.5rem]"
                     transition={{ type: 'spring', stiffness: 500, damping: 35 }}
                   />
                 )}
-                <motion.div
+                <m.div
                   whileTap={{ scale: 0.88 }}
                   transition={{ type: 'spring', stiffness: 600, damping: 20 }}
                   className="relative z-10 flex items-center justify-center"
@@ -620,7 +620,7 @@ export function AppShell() {
                       style={{ background: 'var(--critical)', border: '1.5px solid var(--header-bg)' }}
                     />
                   )}
-                </motion.div>
+                </m.div>
                 <span className="glass-tab-label relative z-10" style={{ fontWeight: isActive ? 600 : 500 }}>
                   Profile
                 </span>

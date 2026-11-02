@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
-import { motion, useReducedMotion } from 'framer-motion'
+import { m, useReducedMotion } from 'framer-motion'
 
 export interface SegmentOption<T extends string> {
   value: T
@@ -122,7 +122,7 @@ export function SegmentedControl<T extends string>({
                 className={`segmented-item ${fill ? 'flex-1' : 'shrink-0'} ${active ? 'segmented-item-active' : ''}`}
               >
                 {active && (
-                  <motion.span
+                  <m.span
                     layoutId={thumbId}
                     className="segmented-thumb"
                     transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 520, damping: 38 }}

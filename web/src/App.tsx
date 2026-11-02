@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { LazyMotion } from 'framer-motion'
 import { queryClient } from './lib/queryClient'
 import { AuthProvider } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
@@ -53,47 +54,53 @@ const LinkedAccountsPage = lazy(() =>
 )
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then((m) => ({ default: m.ProfilePage })))
 
+// Framer Motion's feature bundle (~35 KB gzip) loads after first paint
+// instead of riding in the entry chunk; see lib/motionFeatures.
+const loadMotionFeatures = () => import('./lib/motionFeatures').then((m) => m.default)
+
 function App() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          <BrowserRouter>
-            <AuthProvider>
-              <RealtimeCacheSync />
-              <BackgroundPrefetch />
-              <ConfigBanner />
-              <Suspense fallback={<PageSpinner />}>
-                <Routes>
-                  <Route path="/login" element={<LoginPage />} />
+        <LazyMotion features={loadMotionFeatures} strict>
+          <ThemeProvider>
+            <BrowserRouter>
+              <AuthProvider>
+                <RealtimeCacheSync />
+                <BackgroundPrefetch />
+                <ConfigBanner />
+                <Suspense fallback={<PageSpinner />}>
+                  <Routes>
+                    <Route path="/login" element={<LoginPage />} />
 
-                  <Route element={<ProtectedRoute />}>
-                    <Route element={<AppShell />}>
-                      <Route path="/" element={<DashboardPage />} />
-                      <Route path="/accounts" element={<AccountsPage />} />
-                      <Route path="/bank-accounts" element={<BankAccountsPage />} />
-                      <Route path="/ipos" element={<IposPage />} />
-                      <Route path="/applications" element={<ApplicationsPage />} />
-                      <Route path="/allotment" element={<AllotmentBoardPage />} />
-                      <Route path="/payouts" element={<PayoutsPage />} />
-                      <Route path="/holdings" element={<HoldingsPage />} />
-                      <Route path="/payouts/funder/:funderName" element={<FunderPayoutsPage />} />
-                      <Route path="/shared-accounts" element={<SharedAccountsPage />} />
-                      <Route path="/notifications" element={<NotificationsPage />} />
-                      <Route path="/archives" element={<ArchivesPage />} />
-                      <Route path="/users" element={<UsersPage />} />
-                      <Route path="/broadcast" element={<BroadcastPage />} />
-                      <Route path="/pan-access-log" element={<PanAccessLogPage />} />
-                      <Route path="/shareholder-quota" element={<ShareholderQuotaPage />} />
-                      <Route path="/linked-accounts" element={<LinkedAccountsPage />} />
-                      <Route path="/profile" element={<ProfilePage />} />
+                    <Route element={<ProtectedRoute />}>
+                      <Route element={<AppShell />}>
+                        <Route path="/" element={<DashboardPage />} />
+                        <Route path="/accounts" element={<AccountsPage />} />
+                        <Route path="/bank-accounts" element={<BankAccountsPage />} />
+                        <Route path="/ipos" element={<IposPage />} />
+                        <Route path="/applications" element={<ApplicationsPage />} />
+                        <Route path="/allotment" element={<AllotmentBoardPage />} />
+                        <Route path="/payouts" element={<PayoutsPage />} />
+                        <Route path="/holdings" element={<HoldingsPage />} />
+                        <Route path="/payouts/funder/:funderName" element={<FunderPayoutsPage />} />
+                        <Route path="/shared-accounts" element={<SharedAccountsPage />} />
+                        <Route path="/notifications" element={<NotificationsPage />} />
+                        <Route path="/archives" element={<ArchivesPage />} />
+                        <Route path="/users" element={<UsersPage />} />
+                        <Route path="/broadcast" element={<BroadcastPage />} />
+                        <Route path="/pan-access-log" element={<PanAccessLogPage />} />
+                        <Route path="/shareholder-quota" element={<ShareholderQuotaPage />} />
+                        <Route path="/linked-accounts" element={<LinkedAccountsPage />} />
+                        <Route path="/profile" element={<ProfilePage />} />
+                      </Route>
                     </Route>
-                  </Route>
-                </Routes>
-              </Suspense>
-            </AuthProvider>
-          </BrowserRouter>
-        </ThemeProvider>
+                  </Routes>
+                </Suspense>
+              </AuthProvider>
+            </BrowserRouter>
+          </ThemeProvider>
+        </LazyMotion>
       </QueryClientProvider>
     </ErrorBoundary>
   )
