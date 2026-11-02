@@ -510,16 +510,24 @@ export function DashboardPage() {
     // shared with any other page. closingToday/activeAccounts are
     // derived client-side from the same fetched lists rather than their
     // own filtered network query.
-    const [allIposData, dematAccountsData, boardData, attributionRes, profitRows, settlementPaymentsRes, case2ManagersRes, holdingsRes, shareholderAppsRes] = await Promise.all([
+    const [allIposData, dematAccountsData, boardData, { scopedRows, nameById }, profitRows, settlementPaymentsRes, case2ManagersRes, holdingsRes, shareholderAppsRes] = await Promise.all([
       queryClient.fetchQuery({ queryKey: queryKeys.ipos, queryFn: fetchIpos }),
       queryClient.fetchQuery({ queryKey: queryKeys.dematAccounts, queryFn: fetchDematAccounts }),
       queryClient.fetchQuery({ queryKey: queryKeys.allotmentBoard, queryFn: fetchAllotmentBoardAll, staleTime: 15_000 }),
       // This, the funded-applications read and settlement_payments below all
       // span every application/payment ever — paged past PostgREST's
       // 1000-row cap (see fetchAllRows) instead of silently truncated.
+      // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
+      // same ordering). Resolving their names needs the ids from this read,
+      // so it's chained right here rather than awaited after the whole
+      // Promise.all — it overlaps the slower reads instead of adding a round
+      // trip at the end.
       fetchAllRows((from, to) =>
         supabase.from('v_application_attribution').select('*').order('application_id').range(from, to),
-      ),
+      ).then(async (attributionRes) => {
+        const scopedRows = topRecentIpoAttributionRows((attributionRes.data ?? []) as ApplicationAttributionRow[], 8)
+        return { scopedRows, nameById: await resolveAttributionNames(scopedRows) }
+      }),
       // Same row shape/query NotificationsPage's admin-only funder query
       // uses (see lib/expectedProfit.ts's ProfitProjectionRow) — no
       // client-side role gate: RLS (p_apps_member_funder_select,
@@ -573,12 +581,6 @@ export function DashboardPage() {
           .range(from, to),
       ),
     ])
-
-    // Top 8 most-recently-opened IPOs (Profile mirrors the top 4 of this
-    // same ordering) — resolving names is a second round trip since it
-    // depends on which ids show up in that scoped set.
-    const scopedRows = topRecentIpoAttributionRows((attributionRes.data ?? []) as ApplicationAttributionRow[], 8)
-    const nameById = await resolveAttributionNames(scopedRows)
 
     // Archived IPOs (settled + moved to /archives) shouldn't keep showing
     // up in "Awaiting mandate approval," "Allotted, not sold," or

@@ -26,18 +26,29 @@ describe('fetchAllRows', () => {
     ])
   })
 
-  it('makes one request when everything fits in a page', async () => {
+  it('requests the first two pages together, so page 2 costs no extra round trip', async () => {
     const { page, calls } = fakeTable(25)
     const { data } = await fetchAllRows(page)
     expect(data).toHaveLength(25)
-    expect(calls).toHaveLength(1)
+    expect(calls).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ])
   })
 
-  it('asks once more after an exactly-full page, then stops on the empty one', async () => {
+  it('asks for another wave after two full pages, then stops on the empty one', async () => {
     const { page, calls } = fakeTable(2000)
     const { data } = await fetchAllRows(page)
     expect(data).toHaveLength(2000)
-    expect(calls).toHaveLength(3)
+    expect(calls).toHaveLength(4)
+  })
+
+  it('ignores a later page in the wave once an earlier one came back short', async () => {
+    let n = 0
+    const { data } = await fetchAllRows(async () =>
+      n++ === 0 ? { data: [{ id: 1 }], error: null } : { data: [{ id: 999 }], error: null },
+    )
+    expect(data).toEqual([{ id: 1 }])
   })
 
   it('handles an empty table and null data', async () => {
