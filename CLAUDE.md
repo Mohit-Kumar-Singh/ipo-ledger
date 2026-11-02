@@ -58,6 +58,14 @@ v1.33.2, v1.33.3):
    SQL editor, or a quick Edge Function/RPC round-trip) before considering the
    migration done.
 
+4. **Write policies set-based, or they run per row.** A bare `is_admin()`,
+   `auth.uid()` or `helper(col)` in a policy is re-evaluated for every row
+   scanned (security-definer functions can't be inlined) — that made reads of
+   ~1,000 applications cost 150–600 ms until 0114. Wrap scalars as
+   `(select is_admin())` / `(select auth.uid())`, and express "rows linked to
+   me" as `col in (select my_demat_ids())`-style set-returning security
+   definer helpers (0114), not a per-row boolean helper.
+
 ## User-facing messages: plain language, never raw errors
 
 Everything a person reads in this app — toasts, form errors, banners, empty
