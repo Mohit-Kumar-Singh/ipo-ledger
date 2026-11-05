@@ -78,6 +78,7 @@ export function ArchivesPage() {
   // later from a stale banner).
   const [justUnarchived, setJustUnarchived] = useState<Ipo | null>(null)
   const [reArchiving, setReArchiving] = useState(false)
+  const [showSkipped, setShowSkipped] = useState(false)
 
   // Both unarchive/reArchive below write ipos.is_archived, which changes
   // both what belongs in the filtered `ipos` list above AND every board
@@ -141,6 +142,11 @@ export function ArchivesPage() {
   // selectArchivedIpos (lib/archiveVisibility.ts) already is the full
   // archived set — do not add a further filter here.
   const visibleIpos = ipos
+  // IPOs nobody applied to stay (history, and Unarchive still works on
+  // them) but sit under one collapsed "Skipped IPOs" fold, so the list
+  // leads with the IPOs that actually had applications.
+  const appliedIpos = visibleIpos.filter((ipo) => (rowsByIpo.get(ipo.id)?.length ?? 0) > 0)
+  const skippedIpos = visibleIpos.filter((ipo) => (rowsByIpo.get(ipo.id)?.length ?? 0) === 0)
 
   const totals = visibleIpos.reduce(
     (acc, ipo) => {
@@ -155,56 +161,7 @@ export function ArchivesPage() {
     { applications: 0, allotted: 0 },
   )
 
-  return (
-    <div className="space-y-5">
-      <div>
-        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
-          Archives
-        </h1>
-        {visibleIpos.length > 0 && (
-          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
-            {visibleIpos.length} IPO{visibleIpos.length === 1 ? '' : 's'} · {totals.applications} application
-            {totals.applications === 1 ? '' : 's'} · {totals.allotted} allotted
-          </p>
-        )}
-      </div>
-
-      {justUnarchived && (
-        <div
-          className="card flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
-          style={{ borderColor: 'var(--accent-tint)', background: 'var(--accent-tint)' }}
-        >
-          <span style={{ color: 'var(--ink-primary)' }}>
-            Unarchived <span className="font-medium">{justUnarchived.company_name}</span>.
-          </span>
-          <div className="flex shrink-0 items-center gap-3">
-            <button
-              onClick={() => reArchive(justUnarchived)}
-              disabled={reArchiving}
-              className="link-accent text-xs font-medium disabled:opacity-50"
-            >
-              {reArchiving ? 'Re-archiving…' : 'Re-archive'}
-            </button>
-            <button
-              onClick={() => setJustUnarchived(null)}
-              className="text-xs font-medium hover:underline"
-              style={{ color: 'var(--ink-muted)' }}
-            >
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
-
-      {loading ? (
-        <InlineSpinner />
-      ) : visibleIpos.length === 0 ? (
-        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
-          Nothing archived yet.
-        </p>
-      ) : (
-        <div className="space-y-3">
-          {visibleIpos.map((ipo) => {
+  function renderIpoCard(ipo: Ipo) {
             const items = rowsByIpo.get(ipo.id) ?? []
             const isOpen = expanded.has(ipo.id)
             const counts = {
@@ -488,7 +445,79 @@ export function ArchivesPage() {
                 )}
               </div>
             )
-          })}
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="page-title" style={{ color: 'var(--ink-primary)' }}>
+          Archives
+        </h1>
+        {visibleIpos.length > 0 && (
+          <p className="text-sm" style={{ color: 'var(--ink-muted)' }}>
+            {visibleIpos.length} IPO{visibleIpos.length === 1 ? '' : 's'} · {totals.applications} application
+            {totals.applications === 1 ? '' : 's'} · {totals.allotted} allotted
+          </p>
+        )}
+      </div>
+
+      {justUnarchived && (
+        <div
+          className="card flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
+          style={{ borderColor: 'var(--accent-tint)', background: 'var(--accent-tint)' }}
+        >
+          <span style={{ color: 'var(--ink-primary)' }}>
+            Unarchived <span className="font-medium">{justUnarchived.company_name}</span>.
+          </span>
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              onClick={() => reArchive(justUnarchived)}
+              disabled={reArchiving}
+              className="link-accent text-xs font-medium disabled:opacity-50"
+            >
+              {reArchiving ? 'Re-archiving…' : 'Re-archive'}
+            </button>
+            <button
+              onClick={() => setJustUnarchived(null)}
+              className="text-xs font-medium hover:underline"
+              style={{ color: 'var(--ink-muted)' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <InlineSpinner />
+      ) : visibleIpos.length === 0 ? (
+        <p className="card p-8 text-center text-sm" style={{ color: 'var(--ink-muted)' }}>
+          Nothing archived yet.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {appliedIpos.map(renderIpoCard)}
+          {skippedIpos.length > 0 && (
+            <div className="card p-4">
+              <button
+                type="button"
+                onClick={() => setShowSkipped((v) => !v)}
+                aria-expanded={showSkipped}
+                className="flex w-full items-center gap-1.5 text-left"
+              >
+                <span className="shrink-0 text-sm" style={{ color: 'var(--ink-muted)' }}>
+                  {showSkipped ? '▾' : '▸'}
+                </span>
+                <span className="text-sm font-semibold" style={{ color: 'var(--ink-primary)' }}>
+                  Skipped IPOs
+                </span>
+                <span className="text-xs" style={{ color: 'var(--ink-muted)' }}>
+                  · {skippedIpos.length} with no applications
+                </span>
+              </button>
+              {showSkipped && <div className="mt-3 space-y-3">{skippedIpos.map(renderIpoCard)}</div>}
+            </div>
+          )}
         </div>
       )}
     </div>

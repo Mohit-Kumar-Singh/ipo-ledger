@@ -25,7 +25,12 @@ describe('selectArchivedIpos', () => {
 })
 
 describe('isResolvedForArchive / describeOpenWork', () => {
-  const row = (status: string, demat_cut_paid = false, funder_share_paid = false) => ({ status, demat_cut_paid, funder_share_paid })
+  const row = (status: string, demat_cut_paid = false, funder_share_paid = false, sell_price: number | null = status === 'SOLD' ? 100 : null) => ({
+    status,
+    sell_price,
+    demat_cut_paid,
+    funder_share_paid,
+  })
 
   it('treats NOT_ALLOTTED and fully paid SOLD as resolved, everything else as open', () => {
     expect(isResolvedForArchive(row('NOT_ALLOTTED'))).toBe(true)
@@ -34,6 +39,11 @@ describe('isResolvedForArchive / describeOpenWork', () => {
     expect(isResolvedForArchive(row('APPLIED'))).toBe(false)
     expect(isResolvedForArchive(row('ALLOTTED'))).toBe(false)
     expect(isResolvedForArchive(row('PARTIALLY_SOLD'))).toBe(false)
+  })
+
+  it('keeps a SOLD application open until its sale price is entered, even if marked paid', () => {
+    expect(isResolvedForArchive(row('SOLD', true, true, null))).toBe(false)
+    expect(describeOpenWork([row('SOLD', true, true, null)])).toBe('1 sold with no sale price entered')
   })
 
   it('describes open work in plain words, and nothing when all resolved', () => {

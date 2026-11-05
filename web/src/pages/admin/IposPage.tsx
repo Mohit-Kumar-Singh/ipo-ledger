@@ -446,7 +446,7 @@ export function IposPage() {
     if (archived) {
       const { data: apps, error: appsError } = await supabase
         .from('applications')
-        .select('status, demat_cut_paid, funder_share_paid')
+        .select('status, sell_price, demat_cut_paid, funder_share_paid')
         .eq('ipo_id', ipo.id)
       if (appsError) {
         showToast(friendlyError(appsError, `Couldn't check ${ipo.company_name}'s applications. Please try again.`), 'critical')
