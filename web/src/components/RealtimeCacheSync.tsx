@@ -29,7 +29,7 @@ import { queryKeys } from '../lib/queries'
 // channels — both do more on an applications change than this (reloading
 // applications-specific embeds, attribution numbers, settlement figures)
 // that isn't part of the shared cache and has to stay page-local. This only
-// ever touches queryKeys.allotmentBoard.
+// ever touches queryKeys.allotmentBoard and queryKeys.ipos.
 export function RealtimeCacheSync() {
   const queryClient = useQueryClient()
 
@@ -38,6 +38,9 @@ export function RealtimeCacheSync() {
       .channel('shared-cache-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, () => {
         queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
+        // An applications change can archive or unarchive its IPO (trigger,
+        // migration 0115), and ipos itself isn't in the realtime publication.
+        queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
       })
       // settlement_payments joined the realtime publication in migration
       // 0085 (financial-audit finding — a payment logged in one session

@@ -12,7 +12,6 @@ import { renderMessageBody } from '../../lib/notificationTemplates'
 import { computeProfitSplit, namesMatch, effectiveSplitWithFunder, payoutCutContact } from '../../lib/profitSplit'
 import { buildSettlementCards, PAYMENT_KIND_LABELS, SETTLED_EPSILON } from '../../lib/settlement'
 import { markSideSettled, logSettlementPayment, type SettleSide } from '../../lib/settlementActions'
-import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { summariseSells, trancheSplit, partialPositionSplit, partialPayoutMessage } from '../../lib/partialSells'
 import { nowIst } from '../../lib/ipoStatus'
@@ -367,10 +366,10 @@ export function AllotmentBoardPage() {
       },
     })
     reportOptimisticFailure(result, `Couldn't update ${row.holder_name}'s application. Please try again.`)
-    // Housekeeping after a confirmed Not allotted, off the tap's path: it
-    // only archives the IPO once every application on it is resolved.
+    // The database archives the IPO once every application on it is
+    // resolved (trigger, migration 0115) — refresh the IPO list to match.
     if (result.status === 'ok' && status === 'NOT_ALLOTTED') {
-      void maybeAutoArchiveIpo(row.ipo_id).then(() => queryClient.invalidateQueries({ queryKey: queryKeys.ipos }))
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     }
   }
 
@@ -382,7 +381,6 @@ export function AllotmentBoardPage() {
       return
     }
     setSelected(new Set())
-    await maybeAutoArchiveIpo(selectedIpoId)
     queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
   }
@@ -454,7 +452,6 @@ export function AllotmentBoardPage() {
         queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
         return false
       }
-      await maybeAutoArchiveIpo(selectedIpoId)
       queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     }
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })

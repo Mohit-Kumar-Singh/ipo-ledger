@@ -17,7 +17,6 @@
 // so the two can never drift apart again.
 import { friendlyError } from './friendlyError'
 import { supabase } from './supabase'
-import { maybeAutoArchiveIpo } from './autoArchive'
 import { settledPaidFlags, SETTLED_EPSILON, type SettlementCard } from './settlement'
 import type { SettlementPaymentKind } from '../types/database'
 
@@ -55,7 +54,8 @@ export async function logSettlementPayment(
   // 23505 = this exact idempotency key already landed (a retry after a
   // timeout) — not a failure, the payment and its flags are already saved.
   if (error && error.code !== '23505') return { error: friendlyError(error), duplicate: false }
-  if (!error && Object.keys(flags).length > 0) await maybeAutoArchiveIpo(card.ipoId)
+  // Archiving the IPO once everything on it is settled happens in the
+  // database (trigger on applications, migration 0115).
   return { error: null, duplicate: !!error }
 }
 

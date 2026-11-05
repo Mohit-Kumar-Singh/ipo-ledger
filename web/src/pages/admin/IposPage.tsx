@@ -15,6 +15,7 @@ import { upsertIpoByIdentity } from '../../lib/ipoUpsert'
 import { formatShortDate } from '../../lib/formatDate'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
+import { describeOpenWork } from '../../lib/archiveVisibility'
 import type { Ipo, Registrar } from '../../types/database'
 import { IpoTimeline } from '../../components/IpoTimeline'
 import { InlineSpinner } from '../../components/PageSpinner'
@@ -429,9 +430,9 @@ export function IposPage() {
   }
 
   // Archiving never deletes the row — applications on it (and everything
-  // that joins to it) keep working exactly as before, forever. A cron job
-  // (0038) does this automatically 7 days after listing_date; this lets
-  // admin do it sooner, or bring one back, without waiting.
+  // that joins to it) keep working exactly as before, forever. The database
+  // archives an IPO on its own once every application is resolved (0115);
+  // this lets admin do it by hand, or bring one back and keep it back.
   async function setArchived(ipo: Ipo, archived: boolean) {
     // Defense in depth — the Archive button is already disabled until
     // canArchiveIpo says yes, but this guards the actual write too rather
@@ -440,6 +441,27 @@ export function IposPage() {
       showToast("Can't archive yet — wait until one day after the allotment date.", 'warning')
       return
     }
+    // Archived IPOs disappear from Applications, the Allotment board and the
+    // Dashboard — say so before hiding work that isn't finished.
+    if (archived) {
+      const { data: apps, error: appsError } = await supabase
+        .from('applications')
+        .select('status, demat_cut_paid, funder_share_paid')
+        .eq('ipo_id', ipo.id)
+      if (appsError) {
+        showToast(friendlyError(appsError, `Couldn't check ${ipo.company_name}'s applications. Please try again.`), 'critical')
+        return
+      }
+      const openWork = describeOpenWork(apps ?? [])
+      if (
+        openWork &&
+        !(await confirmDialog(
+          `${ipo.company_name} still has applications in progress: ${openWork}. Archiving hides them from Applications, the Allotment board and the Dashboard. Archive anyway?`,
+          { confirmLabel: 'Archive anyway' },
+        ))
+      )
+        return
+    }
     // Optimistic: the card moves to/from Archived the moment it's tapped;
     // put back with a message if the save fails, refetched either way.
     const result = await optimisticRowUpdate<Ipo, void>({
@@ -447,10 +469,12 @@ export function IposPage() {
       queryKey: queryKeys.ipos,
       id: ipo.id,
       idField: 'id',
-      patch: { is_archived: archived },
+      // keep_unarchived (0115): a manual restore stays restored — automatic
+      // archiving skips it until someone archives it by hand again.
+      patch: { is_archived: archived, keep_unarchived: !archived },
       alsoInvalidate: [queryKeys.allotmentBoard],
       commit: async () => {
-        const { error } = await supabase.from('ipos').update({ is_archived: archived }).eq('id', ipo.id)
+        const { error } = await supabase.from('ipos').update({ is_archived: archived, keep_unarchived: !archived }).eq('id', ipo.id)
         if (error) throw error
       },
     })

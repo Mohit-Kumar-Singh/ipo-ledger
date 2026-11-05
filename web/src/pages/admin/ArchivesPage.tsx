@@ -102,7 +102,7 @@ export function ArchivesPage() {
 
   async function unarchive(ipo: Ipo) {
     setUnarchiving(ipo.id)
-    const { error } = await supabase.from('ipos').update({ is_archived: false }).eq('id', ipo.id)
+    const { error } = await supabase.from('ipos').update({ is_archived: false, keep_unarchived: true }).eq('id', ipo.id)
     setUnarchiving(null)
     if (error) {
       showToast(friendlyError(error), 'critical')
@@ -114,7 +114,7 @@ export function ArchivesPage() {
 
   async function reArchive(ipo: Ipo) {
     setReArchiving(true)
-    const { error } = await supabase.from('ipos').update({ is_archived: true }).eq('id', ipo.id)
+    const { error } = await supabase.from('ipos').update({ is_archived: true, keep_unarchived: false }).eq('id', ipo.id)
     setReArchiving(false)
     if (error) {
       showToast(friendlyError(error), 'critical')
@@ -149,7 +149,7 @@ export function ArchivesPage() {
       // "Allotted" here counts every application that ever reached that
       // state, including ones later sold — SOLD is a subsequent status,
       // not a separate bucket that never went through allotment.
-      acc.allotted += items.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD').length
+      acc.allotted += items.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD' || r.status === 'SOLD').length
       return acc
     },
     { applications: 0, allotted: 0 },
@@ -216,7 +216,9 @@ export function ArchivesPage() {
               // with it, showing "1 allotted" + "1 sold" as if they were
               // exclusive when someone who was allotted and then sold
               // should count as allotted in both places.
-              allotted: items.filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD').length,
+              allotted: items.filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD' || r.status === 'SOLD').length,
+              awaiting: items.filter((r) => r.status === 'APPLIED').length,
+              partlySold: items.filter((r) => r.status === 'PARTIALLY_SOLD').length,
               notAllotted: items.filter((r) => r.status === 'NOT_ALLOTTED').length,
               sold: items.filter((r) => r.status === 'SOLD').length,
             }
@@ -284,8 +286,10 @@ export function ArchivesPage() {
             // figure worth a little visual weight, so it keeps its own
             // accent color inline; everything else is plain muted text.
             const summaryParts = [
+              counts.awaiting > 0 ? `${counts.awaiting} awaiting result` : null,
               counts.notAllotted > 0 ? `${counts.notAllotted} not allotted` : null,
               counts.allotted > 0 ? `${counts.allotted} allotted` : null,
+              counts.partlySold > 0 ? `${counts.partlySold} partly sold` : null,
               counts.sold > 0 ? `${counts.sold} sold` : null,
             ].filter(Boolean)
             return (
@@ -370,7 +374,7 @@ export function ArchivesPage() {
                               Allotment & sale
                             </p>
                             {items
-                              .filter((r) => r.status === 'ALLOTTED' || r.status === 'SOLD')
+                              .filter((r) => r.status === 'ALLOTTED' || r.status === 'PARTIALLY_SOLD' || r.status === 'SOLD')
                               .map((r) => {
                                 const split = splitByAppId.get(r.application_id)
                                 return (
@@ -390,6 +394,8 @@ export function ArchivesPage() {
                                           </span>
                                         )}
                                       </>
+                                    ) : r.status === 'PARTIALLY_SOLD' ? (
+                                      ' — partly sold'
                                     ) : (
                                       ' — allotted, not yet sold'
                                     )}

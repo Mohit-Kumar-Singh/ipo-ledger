@@ -14,7 +14,6 @@ import { useAuth } from '../../contexts/AuthContext'
 import { showToast } from '../../lib/toast'
 import { confirmDialog } from '../../lib/confirmDialog'
 import { isOpenForBidding, nowIst } from '../../lib/ipoStatus'
-import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { optimisticRowUpdate, reportOptimisticFailure, RowUnchanged } from '../../lib/optimisticRowUpdate'
 import { withRetry } from '../../lib/networkRetry'
 import { firstIpoWord } from '../../lib/ipoDisplayName'
@@ -313,10 +312,10 @@ export function ApplicationsPage() {
     })
     reportOptimisticFailure(result, `Couldn't update ${name}'s application. Please try again.`)
     if (result.status === 'ok' && status === 'NOT_ALLOTTED') {
-      void maybeAutoArchiveIpo(app.ipo_id).then(() => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
-        loadApplications()
-      })
+      // The database archives the IPO once every application on it is
+      // resolved (trigger, migration 0115) — refresh to match.
+      queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
+      loadApplications()
     }
   }
 
@@ -338,10 +337,6 @@ export function ApplicationsPage() {
     if (selectedForNotAllotted.size === 0) return
     setBulkMarking(true)
     const ids = Array.from(selectedForNotAllotted)
-    // Captured before the update lands — once every application on one of
-    // these IPOs is resolved (this batch might be the last one), that IPO
-    // archives itself immediately instead of waiting for the nightly sweep.
-    const affectedIpoIds = Array.from(new Set(applications.filter((a) => ids.includes(a.id)).map((a) => a.ipo_id)))
     const results = await Promise.all(
       ids.map((id) => withRetry(() => supabase.from('applications').update({ status: 'NOT_ALLOTTED' }).eq('id', id)))
     )
@@ -349,7 +344,8 @@ export function ApplicationsPage() {
     const failed = results.filter((r) => r.error).length
     if (failed > 0) showToast(`${failed} of ${ids.length} couldn't be updated.`, 'critical')
     setSelectedForNotAllotted(new Set())
-    await Promise.all(affectedIpoIds.map((id) => maybeAutoArchiveIpo(id)))
+    // If this batch resolved an IPO, the database just archived it (0115).
+    queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     loadApplications()
   }
 

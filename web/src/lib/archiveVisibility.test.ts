@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectArchivedIpos } from './archiveVisibility'
+import { selectArchivedIpos, isResolvedForArchive, describeOpenWork } from './archiveVisibility'
 
 describe('selectArchivedIpos', () => {
   it('returns every archived IPO regardless of anything else about it', () => {
@@ -21,5 +21,25 @@ describe('selectArchivedIpos', () => {
 
   it('returns an empty array when nothing is archived', () => {
     expect(selectArchivedIpos([{ id: '1', is_archived: false }])).toEqual([])
+  })
+})
+
+describe('isResolvedForArchive / describeOpenWork', () => {
+  const row = (status: string, demat_cut_paid = false, funder_share_paid = false) => ({ status, demat_cut_paid, funder_share_paid })
+
+  it('treats NOT_ALLOTTED and fully paid SOLD as resolved, everything else as open', () => {
+    expect(isResolvedForArchive(row('NOT_ALLOTTED'))).toBe(true)
+    expect(isResolvedForArchive(row('SOLD', true, true))).toBe(true)
+    expect(isResolvedForArchive(row('SOLD', true, false))).toBe(false)
+    expect(isResolvedForArchive(row('APPLIED'))).toBe(false)
+    expect(isResolvedForArchive(row('ALLOTTED'))).toBe(false)
+    expect(isResolvedForArchive(row('PARTIALLY_SOLD'))).toBe(false)
+  })
+
+  it('describes open work in plain words, and nothing when all resolved', () => {
+    expect(describeOpenWork([row('NOT_ALLOTTED'), row('SOLD', true, true)])).toBe('')
+    expect(
+      describeOpenWork([row('APPLIED'), row('APPLIED'), row('ALLOTTED'), row('PARTIALLY_SOLD'), row('SOLD', false, true)]),
+    ).toBe('2 still waiting for an allotment result, 2 with shares not fully sold, 1 with payouts not settled')
   })
 })

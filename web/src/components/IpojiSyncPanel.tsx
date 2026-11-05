@@ -11,7 +11,6 @@ import { showToast } from '../lib/toast'
 import { ShareholderQuotaIcon } from './ShareholderQuotaIcon'
 import { ALLOTMENT_SCRIPT } from '../lib/ipojiAllotmentScript'
 import { allotmentIssues, isAllotmentPaste, planAllotment, type AllotmentItem, type AllotmentRow, type AppRef } from '../lib/allotmentImport'
-import { maybeAutoArchiveIpo } from '../lib/autoArchive'
 import { mapLimit } from '../lib/mapLimit'
 import {
   type ScrapedRow,
@@ -777,7 +776,6 @@ export function IpojiSyncPanel({
         if (u.newStatus === 'NOT_ALLOTTED' && u.ipoId) notAllottedIpos.add(u.ipoId)
       } else if (error) failed++
     }
-    for (const ipoId of notAllottedIpos) await maybeAutoArchiveIpo(ipoId)
     if (notAllottedIpos.size > 0) queryClient.invalidateQueries({ queryKey: queryKeys.ipos })
     queryClient.invalidateQueries({ queryKey: queryKeys.allotmentBoard })
     onImported()

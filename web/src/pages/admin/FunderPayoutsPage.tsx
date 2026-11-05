@@ -19,7 +19,6 @@ import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { showToast } from '../../lib/toast'
-import { maybeAutoArchiveIpo } from '../../lib/autoArchive'
 import { usePayoutsData } from '../../lib/usePayoutsData'
 import { sameIdentity } from '../../lib/applicationAttribution'
 import { rupees } from '../../lib/expectedProfit'
@@ -334,9 +333,9 @@ function BulkSettleControl({
         applied += alloc
         touchedIpoIds.add(c.ipoId)
       }
-      // Settling the last side of the last unsettled row on an IPO can be
-      // what makes it archivable — same check the per-application form runs.
-      for (const ipoId of touchedIpoIds) await maybeAutoArchiveIpo(ipoId)
+      // Settling the last unsettled row on an IPO archives it in the
+      // database (trigger, migration 0115); RealtimeCacheSync refreshes the
+      // IPO list off the applications change.
       showToast(
         `Logged ${rupees(applied)} across ${touchedIpoIds.size} IPO${touchedIpoIds.size === 1 ? '' : 's'}.`,
         'good',

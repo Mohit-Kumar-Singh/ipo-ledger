@@ -100,6 +100,9 @@ export interface Ipo {
   parent_company_symbol: string | null
   created_at: string
   is_archived: boolean
+  // Set when an admin unarchives by hand (0115): automatic archiving leaves
+  // the IPO alone until an admin archives it again.
+  keep_unarchived: boolean
   // null = unknown (neither "Allotment Out" nor "Allotment Awaited" seen on
   // ipoji, or never imported from there) — see deriveStatus in IposPage.tsx.
   allotment_out: boolean | null
